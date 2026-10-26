@@ -4,5 +4,5 @@
  */
 'use strict';
 window.TIPON_CONFIG=Object.freeze({
-  appsScriptUrl:'PASTE_YOUR_GOOGLE_APPS_SCRIPT_EXEC_URL_HERE'
+  appsScriptUrl:'https://script.google.com/macros/s/AKfycbzsFnmTOlAJzr-NikbgvEejZEFfki3KDPzjaPpwXjANr7DSIEP8IVMLiVLdQvTHM21MKg/exec'
 });
