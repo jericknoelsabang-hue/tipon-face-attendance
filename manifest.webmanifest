@@ -1,0 +1,30 @@
+{
+  "id": "./",
+  "name": "TIPON Face Attendance",
+  "short_name": "TIPON Face",
+  "description": "TIPON organization attendance: approved accounts, GPS-validated front/back-camera face matching, offline queue, and central Google Sheets sync.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#082d57",
+  "orientation": "portrait-primary",
+  "categories": [
+    "business",
+    "productivity"
+  ],
+  "icons": [
+    {
+      "src": "./icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "./icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

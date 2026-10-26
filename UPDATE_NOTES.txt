@@ -1,0 +1,15 @@
+TIPON 5.3.0 GitHub-only hosting update
+
+Retained from the latest update:
+- Administrator: approvals, account/device management, delete accounts, reports; no Face Terminal
+- User: member/worksite management, face enrollment, Face Terminal, Front/Back camera
+- Physical Kiosk: Face Terminal only; Time In/Time Out only
+- Office / MPC / BP attendance context
+- TIPON Members and TIPON Users directory sync
+- automatic sync when online while the app is open
+
+Infrastructure change:
+- removed Netlify dependency
+- GitHub Pages hosts the PWA
+- Google Apps Script receives requests through the GitHub form bridge
+- old TIPON_GATEWAY_KEY is not placed in GitHub
