@@ -186,8 +186,6 @@ function renderSites(){
 }
 function openSiteForm(site){
  state.editSite=site||null;$('siteForm').reset();setText('siteFormTitle',site?'Edit work location':'Add work location');$('siteRadius').value='150';
- const locations=[...new Set(state.sites.map(s=>s.name).filter(Boolean))].sort();
- $('siteNameOptions').innerHTML=locations.map(name=>'<option value="${esc(name)}"></option>').join('');
  if(site){$('siteName').value=site.name;$('siteCoop').value=site.coop;$('siteAddress').value=site.address||'';$('siteLat').value=site.lat;$('siteLng').value=site.lng;$('siteRadius').value=150;}
  fillSiteOffices(site?.officeId);updateSiteMap();$('siteDialog').showModal();
 }
