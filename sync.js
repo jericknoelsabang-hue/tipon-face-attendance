@@ -70,7 +70,7 @@ window.TIPONSync=(()=>{
         // member that somebody may have updated after the old confirmation.
         const code=String(error.code||'SERVER');
         op.error='Legacy member deletion: '+(error.message||'Server error')+
-          (code==='ACTION'?' Deploy backend v5.5.6 to finish this deletion.':'');
+          (code==='ACTION'?' Deploy backend v5.5.8 to finish this deletion.':'');
         op.errorCode=['CONFLICT','FORBIDDEN','NOT_FOUND'].includes(code)?'NEEDS_REVIEW':code;
         await OrgDB.rawSave('outbox',op);
         if(code==='AUTH'||code==='DEVICE_DISABLED')throw error;
