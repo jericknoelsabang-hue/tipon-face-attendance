@@ -65,7 +65,10 @@ enterApp=async function(){
   if(!bound)await OrgDB.rawSave('meta',{id:'tp5-boundOrganization',orgId:state.orgId});
   $('appShell').hidden=false;$('mobileNav').hidden=state.user?.role==='kiosk';
   setText('sidebarUserName',state.user.name);setText('sidebarUserRole',roleName(state.user.role));setText('avatarLetter',initial(state.user.name));setText('greetingName',state.user.name.split(' ')[0]);
-  await loadCollections();await loadOfficeDirectory();await TIPONPlatforms.load();applyRoles();await showPage(isAdmin()?'dashboard':TIPONOrgCore.canUseTerminal(state.user)?'scanner':'members');refreshClock();await checkOfflineReady();
+  await loadCollections();await loadOfficeDirectory();await TIPONPlatforms.load();
+  const savedPage=await getOne('meta','tp5-last-page:'+state.user.id),defaultPage=isAdmin()?'dashboard':TIPONOrgCore.canUseTerminal(state.user)?'scanner':'members';
+  const startPage=savedPage?.page&&TIPONOrgCore.allowed(state.user,savedPage.page)&&(savedPage.page!=='scanner'||hasTerminalSession())?savedPage.page:defaultPage;
+  applyRoles();await showPage(startPage);refreshClock();await checkOfflineReady();
   if(isAdmin()&&state.user.defaultPassword)showToast('Change the initial administrator password in Settings before organization rollout.','info',10000);
 };
 applyRoles=function(){
@@ -103,6 +106,7 @@ Object.assign(pageNames,{accounts:'Accounts & devices',reports:'Reports & schedu
 showPage=async function(page){
   if(!TIPONOrgCore.allowed(state.user,page)||(page==='scanner'&&!hasTerminalSession())){showToast('Your account does not have permission for that screen.','error');return;}
   await originalShowPage(page);applyRoles();
+  if(state.user)await OrgDB.rawSave('meta',{id:'tp5-last-page:'+state.user.id,page});
   if(page==='accounts')await OrgUI.renderAccounts();if(page==='reports')OrgUI.renderReports();if(page==='settings')OrgUI.renderSettings();if(page==='scanner')TIPONCamera.render();
 };
 const originalOpenMember=openMemberForm,originalOpenSite=openSiteForm;
