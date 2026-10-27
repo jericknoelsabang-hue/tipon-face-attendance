@@ -25,7 +25,7 @@ window.OrgDB=(()=>{
       if(!value.platform)throw Error('Business platform is required.');
       if(!TIPONOrgCore.inScope(u,value))throw Error('Use your approved cooperative and business platform.');
     }
-    if(value.deleted&&!isAdmin())throw Error('Only the administrator can delete or deactivate records.');
+    if(value.deleted&&!(isAdmin()||type==='members'&&u.role==='registrar'&&old?.createdBy===u.id))throw Error('Only the administrator or the member record creator can delete this record.');
     const wire={...value};delete wire._pendingOp;delete wire._row;
     if(type==='members'){
       if(!Array.isArray(value.descriptors)||value.descriptors.length<3)throw Error('Three facial samples are required.');
@@ -37,7 +37,7 @@ window.OrgDB=(()=>{
     TIPONSync.kick();return value;
   }
   saveOne=async function(type,value){return entities.includes(type)?saveEntity(type,value):rawSave(type,value);};
-  deleteOne=async function(type,id){if(entities.includes(type)){if(!isAdmin())throw Error('Administrator access is required.');const old=await getOne(type,id);if(old)return saveEntity(type,{...old,deleted:true,active:false});return;}return rawDelete(type,id);};
+  deleteOne=async function(type,id){if(entities.includes(type)){const old=await getOne(type,id),ownerMayDelete=type==='members'&&state.user?.role==='registrar'&&old?.createdBy===state.user.id;if(!isAdmin()&&!ownerMayDelete)throw Error('Only the administrator or the member record creator can delete this record.');if(old)return saveEntity(type,{...old,deleted:true,active:false});return;}return rawDelete(type,id);};
   return {rawSave,rawDelete,saveEntity};
 })();
 canEdit=()=>state.user?.role==='registrar'&&TIPONAuth.current()?.offlineUntil>Date.now();
@@ -118,7 +118,7 @@ openSiteForm=function(site){if(!canEdit())return;originalOpenSite(site);TIPONPla
   document.querySelectorAll('[name="siteWorkDay"]').forEach(x=>x.checked=(plan.days||[1,2,3,4,5,6]).includes(Number(x.value)));
 };
 const oldRenderMembers=renderMembers,oldRenderSites=renderSites;
-renderMembers=function(){oldRenderMembers();document.querySelectorAll('[data-member-delete]').forEach(x=>x.hidden=!isAdmin());document.querySelectorAll('[data-member-edit]').forEach(x=>{const m=state.members.find(v=>v.id===x.dataset.memberEdit);x.disabled=!isAdmin()&&m?.createdBy!==state.user?.id;});};
+renderMembers=function(){oldRenderMembers();document.querySelectorAll('[data-member-delete]').forEach(x=>{const m=state.members.find(v=>v.id===x.dataset.memberDelete);x.hidden=!isAdmin()&&!(state.user?.role==='registrar'&&m?.createdBy===state.user?.id);});document.querySelectorAll('[data-member-edit]').forEach(x=>{const m=state.members.find(v=>v.id===x.dataset.memberEdit);x.disabled=!isAdmin()&&m?.createdBy!==state.user?.id;});};
 renderSites=function(){oldRenderSites();document.querySelectorAll('[data-site-delete]').forEach(x=>x.hidden=!isAdmin());document.querySelectorAll('[data-site-edit]').forEach(x=>{const s=state.sites.find(v=>v.id===x.dataset.siteEdit);x.disabled=!isAdmin()&&s?.createdBy!==state.user?.id;});};
 filteredAttendanceRows=function(){
   if(!isAdmin())throw Error('Only the administrator can export attendance.');
