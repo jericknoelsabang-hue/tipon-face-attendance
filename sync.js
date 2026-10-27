@@ -36,6 +36,50 @@ window.TIPONSync=(()=>{
     for(const issue of reply.operationErrors||[]){const item=all.find(x=>x.id===issue.id);if(item){item.error=issue.error;item.errorCode=issue.code;await OrgDB.rawSave('outbox',item);}}
   }
   const wire=p=>p.uploadPayload||{id:p.id,deviceId:p.deviceId,sessionId:p.sessionId,memberId:String(p.memberId),siteId:p.siteId,siteRev:p.siteRev||0,type:p.type,timestamp:p.timestamp,lat:p.lat,lng:p.lng,accuracy:p.accuracy,faceDistance:p.faceDistance};
+  // Recover Admin member deletions queued by older app versions. Earlier
+  // submit() rules rejected these operations after hiding the record locally.
+  // Never infer deletions merely from missing local members: require an actual
+  // queued deleted:true operation created by the currently signed-in Admin.
+  async function reconcileLegacyAdminDeletes(){
+    if(state.user?.role!=='admin')return 0;
+    const pending=(await getAll('outbox'))
+      .filter(o=>o.orgId===state.orgId&&o.ownerId===state.user.id&&
+        o.type==='members'&&o.value?.deleted===true&&
+        o.errorCode!=='NEEDS_REVIEW')
+      .sort((a,b)=>String(a.createdAt||'').localeCompare(String(b.createdAt||'')))
+      .slice(0,5);
+    let completed=0;
+    for(const op of pending){
+      try{
+        const reply=await TIPONAPI.call({action:'adminMemberDelete',
+          memberId:op.value.id,baseRev:Number(op.baseRev)||0});
+        if(!reply.member?.deleted||reply.member.id!==op.value.id){
+          throw Error('Server did not acknowledge the previously queued member deletion.');
+        }
+        const current=await getOne('members',op.value.id);
+        if(current&&current._pendingOp===op.id){
+          const tombstone={...current,...reply.member,orgId:state.orgId,deleted:true,active:false,
+            template:null,faceEnrollmentStatus:'deleted'};
+          delete tombstone.descriptors;delete tombstone._pendingOp;
+          await OrgDB.rawSave('members',tombstone);
+        }
+        await OrgDB.rawDelete('outbox',op.id);
+        completed++;
+      }catch(error){
+        // A revision conflict needs explicit review. Do not silently delete a
+        // member that somebody may have updated after the old confirmation.
+        const code=String(error.code||'SERVER');
+        op.error='Legacy member deletion: '+(error.message||'Server error')+
+          (code==='ACTION'?' Deploy backend v5.5.6 to finish this deletion.':'');
+        op.errorCode=['CONFLICT','FORBIDDEN','NOT_FOUND'].includes(code)?'NEEDS_REVIEW':code;
+        await OrgDB.rawSave('outbox',op);
+        if(code==='AUTH'||code==='DEVICE_DISABLED')throw error;
+        if(code==='ACTION'||code==='NETWORK'||code==='TIMEOUT')break;
+      }
+    }
+    if(completed)message=completed+' previously queued member deletion(s) confirmed by the central database.';
+    return completed;
+  }
   async function flush(){
     const actor=state.user;
     const outbox=(await getAll('outbox')).filter(o=>o.orgId===state.orgId&&o.ownerId===actor.id&&(!o.errorCode||['DEPENDENCY','BUSY','SERVER','NETWORK'].includes(o.errorCode))).sort((a,b)=>a.createdAt.localeCompare(b.createdAt));
@@ -101,7 +145,7 @@ window.TIPONSync=(()=>{
     if(!navigator.onLine){message='Offline: saved locally. Automatic sync resumes when internet is available and this app is open.';render();schedule();return;}
     busy=true;message='Connecting to organization database...';render();
     try{
-      await TIPONAuth.ensureOnline();await loadCollections();await flush();await pull();await loadCollections();
+      await TIPONAuth.ensureOnline();await loadCollections();await reconcileLegacyAdminDeletes();await flush();await pull();await loadCollections();
       lastSync=TIPONCore.phStamp(new Date().toISOString());const waiting=(await getAll('outbox')).filter(o=>o.orgId===state.orgId&&o.error).length+state.punches.filter(p=>p.reviewStatus).length;message=waiting?'Central data updated; '+waiting+' record(s) still need review. See Settings / Accounts.':'Central data updated; records are acknowledged, not assumed sent.';attempt=0;
       if(state.page==='dashboard')renderDashboard();if(state.page==='records')renderRecords();if(state.page==='members')renderMembers();if(state.page==='accounts'&&isAdmin())await OrgUI.renderAccounts();if(state.page==='sites')renderSites();if(state.page==='scanner'){renderTerminal();renderTerminalLogs();const ready=state.members.filter(m=>m.active!==false&&!m.deleted&&m.descriptors?.length>=3).length;if(ready)updateScanResult('Member directory ready',ready+' enrolled face template(s) loaded on this terminal. Face matches are checked against assigned office GPS.','success');}TIPONPlatforms.render();
     }catch(e){message=e.message;attempt=Math.min(attempt+1,4);if(['AUTH','ACCOUNT','DEVICE_DISABLED'].includes(e.code))message+=' Sign out and sign in online.';}
