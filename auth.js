@@ -121,7 +121,12 @@ window.TIPONAuth=(()=>{
   }
   function updateRegistrationFields(){
     const kiosk=$('registerAccountType').value==='kiosk';
-    document.querySelectorAll('[data-registration-user-only]').forEach(label=>{const input=label.querySelector('input');label.hidden=kiosk;if(input)input.required=!kiosk;});
+    document.querySelectorAll('[data-registration-user-only]').forEach(section=>{
+      section.hidden=kiosk;
+      section.querySelectorAll('input,select,textarea').forEach(input=>{input.required=!kiosk;input.disabled=kiosk;});
+    });
+    // The kiosk has its own GPS authorization; it must not inherit User MPC/BP values.
+    if(kiosk){$('registerCoop').value='';$('registerPlatform').value='';}
     document.querySelectorAll('[data-registration-kiosk-only]').forEach(el=>{el.hidden=!kiosk;el.querySelectorAll('input').forEach(input=>input.required=kiosk);});
     setText('registrationStatus',kiosk?'Physical Kiosk needs accurate GPS at a configured work location.':'User registration requires only approved account details.');
   }
