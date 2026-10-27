@@ -62,3 +62,11 @@ body:not([data-terminal-access="allowed"]) [data-terminal-only]{display:none!imp
 @media(max-width:600px){.multi-select-options{position:relative;top:auto;box-shadow:none}}
 
 .member-site-field{display:flex;flex-direction:column;gap:7px}.member-site-field .field-label{font-size:12px;font-weight:700;color:var(--ink)}
+/* v5.4.1: aligned biometric enrollment and workspace attendance logs */
+#memberDialog .form-row.three{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));align-items:start;gap:14px}
+#memberDialog .form-row.three>label,#memberDialog .form-row.three>.member-site-field{width:100%;min-width:0}
+#memberDialog .field-label{font-size:10px;font-weight:750;line-height:1.3;color:#314963}
+#memberDialog .field-caption{display:block;font-size:12px;font-weight:750;line-height:1.3;color:#314963}#memberDialog .required-star{display:inline!important;color:#d34f62!important;font-weight:800;margin-left:3px;font-style:normal}#memberSiteSummary{min-height:44px;box-sizing:border-box;display:flex;align-items:center}
+#page-terminalLogs .terminal-log-panel{margin-top:0}
+@media(max-width:900px){#memberDialog .form-row.three{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:600px){#memberDialog .form-row.three{grid-template-columns:1fr}}
