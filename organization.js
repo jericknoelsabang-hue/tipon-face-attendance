@@ -88,6 +88,7 @@ enterApp=async function(){
 applyRoles=function(){
   const u=state.user,kioskOnly=u?.role==='kiosk';
   document.body.classList.toggle('kiosk-mode',kioskOnly);
+  document.body.dataset.accountRole=u?.role||'';
   if($('mobileNav'))$('mobileNav').hidden=kioskOnly;
   document.querySelectorAll('[data-page]').forEach(e=>e.hidden=!TIPONOrgCore.allowed(u,e.dataset.page));
   document.querySelectorAll('[data-jump]').forEach(e=>e.hidden=!TIPONOrgCore.allowed(u,e.dataset.jump));
@@ -199,7 +200,7 @@ window.OrgUI=(()=>{
   const APPROVED_PAGE_SIZE=10;
   let approvedAccountPage=1;
   function accountScope(u){
-    return '<b>'+esc(u.coop||'Not assigned')+'</b><small>'+esc(u.platform||'No business platform')+'</small>';
+    return u.role==='kiosk'?'—':'<b>'+esc(u.coop||'Not assigned')+'</b><small>'+esc(u.platform||'No business platform')+'</small>';
   }
   function accountIdentity(u){
     return '<b>'+esc(u.name||u.username||'Unnamed account')+'</b>';
@@ -279,13 +280,16 @@ window.OrgUI=(()=>{
   function editAccountRoleHint(){
     const role=$('adminAccountRole').value;
     const coop=$('adminAccountCoop'),platform=$('adminAccountPlatform');
-    if(role==='kiosk'){
-      setText('adminAccountRoleHint','Physical Kiosk access requires previously registered GPS coordinates. Scope may be left unassigned or set to one cooperative and business platform.');
+    const kiosk=role==='kiosk';
+    $('adminAccountScopeFields').hidden=kiosk;
+    if(kiosk){
+      coop.value='';platform.value='';
+      setText('adminAccountRoleHint','Physical Kiosk uses approved GPS work-location permissions only. MPC and BP are not assigned.');
     }else{
-      setText('adminAccountRoleHint','User access requires a cooperative and business platform. The next login will use the updated account details.');
+      setText('adminAccountRoleHint','User access is restricted to the selected cooperative and business platform. The next login will use the updated account details.');
     }
-    // Existing kiosk scope can be blank. User assignments must be explicit.
-    coop.required=role==='registrar';platform.required=role==='registrar';
+    coop.required=!kiosk;platform.required=!kiosk;
+    coop.disabled=kiosk;platform.disabled=kiosk;
   }
   function openAdminAccountEditor(accountId){
     if(!isAdmin())return;
@@ -336,8 +340,9 @@ window.OrgUI=(()=>{
     if(changes.role==='registrar'&&(!changes.coop||!changes.platform)){
       setText('adminAccountEditStatus','A User requires both a Cooperative and Business Platform.');return;
     }
-    if(changes.role==='kiosk'&&Boolean(changes.coop)!==Boolean(changes.platform)){
-      setText('adminAccountEditStatus','Assign both Cooperative and Business Platform for a kiosk, or leave both blank.');return;
+    if(changes.role==='kiosk'){
+      // Do not inherit scope fields from a User account if its role changes.
+      changes.coop='';changes.platform='';
     }
     const pass=$('adminAccountPassword').value,confirm=$('adminAccountPasswordConfirm').value;
     if(pass&&(pass.length<8||pass.length>128||pass!==confirm)){
