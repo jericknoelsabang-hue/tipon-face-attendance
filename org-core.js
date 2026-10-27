@@ -29,7 +29,7 @@
   function allowed(u,page){
     if(!u)return false;
     if(page==='scanner')return canUseTerminal(u);
-    const pages={admin:['dashboard','records','accounts','reports','settings'],registrar:['scanner','members','sites','settings'],kiosk:['scanner']};
+    const pages={admin:['dashboard','records','accounts','reports','settings','terminalLogs'],registrar:['scanner','members','sites','settings','terminalLogs'],kiosk:['scanner','terminalLogs']};
     return (pages[u.role]||[]).includes(page);
   }
   function platformKey(v){return clean(v,100).normalize('NFKC').replace(/\s+/g,' ').toLowerCase();}
