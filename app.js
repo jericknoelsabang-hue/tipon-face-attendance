@@ -99,7 +99,7 @@ async function showPage(page){
   document.querySelectorAll('.page').forEach(section=>section.hidden=section.id!==`page-${page}`);
   document.querySelectorAll('[data-page]').forEach(button=>button.classList.toggle('active',button.dataset.page===page));
   setText('crumbTitle',pageNames[page]);window.scrollTo({top:0,behavior:'instant'});
-  if(page==='dashboard')renderDashboard();if(page==='scanner'){renderTerminal();if(!state.scanning&&(state.user?.role==='kiosk'||state.members.some(m=>m.active!==false&&!m.deleted&&m.descriptors?.length>=3)))startScanner();}if(page==='members')renderMembers();if(page==='sites'){renderSites();renderOfficeDirectory();}if(page==='records')renderRecords();if(page==='settings')await checkOfflineReady();
+  if(page==='dashboard')renderDashboard();if(page==='scanner'){renderTerminal();renderTerminalLogs();if(!state.scanning)startScanner();}if(page==='members')renderMembers();if(page==='sites'){renderSites();renderOfficeDirectory();}if(page==='records')renderRecords();if(page==='settings')await checkOfflineReady();
 }
 function renderDashboard(){const today=todayPH();const todayPunches=state.punches.filter(e=>e.day===today&&!e.reviewStatus);const present=new Set(todayPunches.filter(e=>e.type==='IN').map(e=>e.memberId));
  setText('metricMembers',state.members.length);setText('metricPresent',present.size);setText('metricPunches',todayPunches.length);setText('metricSites',state.sites.length);
@@ -121,40 +121,57 @@ document.addEventListener('pointerdown',unlockTerminalAudio,{once:true});documen
 function playTerminalSound(kind='face'){try{const C=window.AudioContext||window.webkitAudioContext;if(!C)return;terminalAudio||=new C();if(terminalAudio.state==='suspended')terminalAudio.resume().catch(()=>{});const tones=kind==='success'?[880,1174.66]:kind==='error'?[440,329.63]:[659.25];tones.forEach((hz,i)=>{const t=terminalAudio.currentTime+i*.12,o=terminalAudio.createOscillator(),g=terminalAudio.createGain();o.type='sine';o.frequency.value=hz;g.gain.setValueAtTime(.0001,t);g.gain.exponentialRampToValueAtTime(.14,t+.015);g.gain.exponentialRampToValueAtTime(.0001,t+.12);o.connect(g);g.connect(terminalAudio.destination);o.start(t);o.stop(t+.13);});}catch{}}
 
 // Member registry and assigned GPS work locations.
-function siteForMember(member){return state.sites.find(s=>s.id===member.siteId);}
-function renderMembers(){const q=$('memberSearch').value.trim().toLowerCase();const data=state.members.filter(m=>`${m.id} ${m.name} ${m.coop}`.toLowerCase().includes(q)).sort((a,b)=>a.name.localeCompare(b.name));
+function siteForMember(member){return state.sites.find(s=>s.id===member.siteId)||state.sites.find(s=>member.siteIds?.includes(s.id));}
+function sitesForMember(member){const ids=[...(member.siteIds||[]),member.siteId].filter((v,i,x)=>v&&x.indexOf(v)===i);return ids.map(id=>state.sites.find(s=>s.id===id)).filter(Boolean);}
+function fillMemberFilter(id,values,placeholder){
+ const el=$(id);if(!el)return;const old=el.value,unique=[...new Set(values.filter(Boolean))].sort((x,y)=>String(x).localeCompare(String(y)));
+ el.innerHTML='<option value="">'+esc(placeholder)+'</option>'+unique.map(v=>'<option value="'+esc(v)+'">'+esc(v)+'</option>').join('');
+ if(unique.includes(old))el.value=old;
+}
+function renderMembers(){
+ fillMemberFilter('memberFilterCoop',TIPONOrgCore.COOPS,'All cooperatives');
+ fillMemberFilter('memberFilterPlatform',[...TIPONPlatforms.names(),...state.sites.map(s=>s.platform),...state.members.map(m=>m.platform)],'All business platforms');
+ fillMemberFilter('memberFilterOffice',[...state.offices.map(o=>o.name),...state.sites.map(s=>s.satelliteOffice)],'All offices');
+ const q=$('memberSearch').value.trim().toLowerCase(),coop=$('memberFilterCoop')?.value||'',platform=$('memberFilterPlatform')?.value||'',office=$('memberFilterOffice')?.value||'';
+ const data=state.members.filter(m=>{
+  const sites=sitesForMember(m),name=m.name||'',memberPlatform=m.platform||sites[0]?.platform||'',memberOffices=sites.map(s=>s.satelliteOffice||state.offices.find(o=>o.id===s.officeId)?.name||'');
+  return (!q||`${m.id} ${name} ${m.coop}`.toLowerCase().includes(q))&&(!coop||m.coop===coop)&&(!platform||TIPONOrgCore.platformKey(memberPlatform)===TIPONOrgCore.platformKey(platform))&&(!office||memberOffices.includes(office));
+ }).sort((x,y)=>(x.name||'').localeCompare(y.name||''));
  setText('memberCountLabel',`${data.length} member${data.length===1?'':'s'}`);
- $('memberRows').innerHTML=data.length?data.map(m=>{const site=siteForMember(m);return `<tr><td><div class="row-inline"><div class="initial-avatar">${esc(initial(m.name))}</div><div><b>${esc(m.name)}</b><small>ID: ${esc(m.id)}</small></div></div></td><td>${esc(m.coop)}</td><td><b>${esc(site?.name||'Not assigned')}</b><small>${esc(site?.satelliteOffice||'Office not yet assigned')}</small><small>${site?`${site.radius} m radius`:'Site missing'}</small></td><td><span class="badge ${m.descriptors?.length>=3?'green':'red'}">${m.descriptors?.length>=3?'Enrolled':'Incomplete'}</span></td><td><button class="tiny-button" data-member-edit="${esc(m.id)}">Edit</button> <button class="tiny-button delete" data-member-delete="${esc(m.id)}">Delete</button></td></tr>`}).join(''):`<tr><td colspan="5"><div class="empty-state">${pageIcon('users')}No members found. Enroll members to begin recognizing faces.</div></td></tr>`;
+ $('memberRows').innerHTML=data.length?data.map(m=>{const sites=sitesForMember(m),site=sites[0],names=sites.map(x=>x.name).join(', ');return `<tr><td><div class="row-inline"><div class="initial-avatar">${esc(initial(m.name))}</div><div><b>${esc(m.name)}</b><small>ID: ${esc(m.id)}</small></div></div></td><td>${esc(m.coop)}</td><td><b>${esc(names||'Not assigned')}</b><small>${esc(sites.map(x=>x.satelliteOffice||'Office not yet assigned').filter((v,i,x)=>x.indexOf(v)===i).join(', '))}</small><small>${site?'150 m GPS check':'Site missing'}</small></td><td><span class="badge ${m.descriptors?.length>=3?'green':'red'}">${m.descriptors?.length>=3?'ENROLLED':'NOT ENROLLED'}</span></td><td><button class="tiny-button" data-member-edit="${esc(m.id)}">Edit</button> <button class="tiny-button delete" data-member-delete="${esc(m.id)}">Delete</button></td></tr>`}).join(''):`<tr><td colspan="5"><div class="empty-state">${pageIcon('users')}No members found. Enroll members to begin recognizing faces.</div></td></tr>`;
 }
 function fillMemberSites(preferred,keepOffice=false){
- const coop=$('memberCoop').value,site=state.sites.find(s=>s.id===preferred),previous=keepOffice?$('memberOffice').value:'';
+ const coop=$('memberCoop').value,preferredIds=(Array.isArray(preferred)?preferred:[preferred]).filter(Boolean),firstSite=state.sites.find(s=>preferredIds.includes(s.id)),previous=keepOffice?$('memberOffice').value:'';
  const offices=state.offices.filter(o=>o.coop===coop);
  $('memberOffice').innerHTML='<option value="">Select satellite office</option>'+offices.map(o=>`<option value="${esc(o.id)}">${esc(o.name)}</option>`).join('');
- const selected=site?.officeId||previous;if(offices.some(o=>o.id===selected))$('memberOffice').value=selected;
- const officeId=$('memberOffice').value;
- const options=state.sites.filter(s=>s.coop===coop&&(!officeId||s.officeId===officeId));
- $('memberSite').innerHTML=`<option value="">${options.length?'Select assigned worksite':'Create a work location for this office first'}</option>`+options.map(s=>`<option value="${esc(s.id)}">${esc(s.name)} (${s.radius} m)</option>`).join('');
- if(preferred&&options.some(s=>s.id===preferred))$('memberSite').value=preferred;updateMemberSite();
+ const selected=firstSite?.officeId||previous;if(offices.some(o=>o.id===selected))$('memberOffice').value=selected;
+ const officeId=$('memberOffice').value,options=state.sites.filter(s=>s.coop===coop&&(!officeId||s.officeId===officeId));
+ $('memberSite').innerHTML=options.map(s=>`<option value="${esc(s.id)}">${esc(s.name)} (${s.radius} m)</option>`).join('');
+ for(const option of $('memberSite').options)option.selected=preferredIds.includes(option.value);
+ $('memberSiteChoices').innerHTML=options.map(s=>`<label class="multi-select-option"><input type="checkbox" data-member-site-option="${esc(s.id)}" ${preferredIds.includes(s.id)?'checked':''}/><span>${esc(s.name)} <small>150 m GPS</small></span></label>`).join('')||'<span class="mini-info">No work locations for this office yet.</span>';
+ updateMemberSite();
 }
 function updateMemberSite(){
- const site=state.sites.find(s=>s.id===$('memberSite').value);if(site)$('memberOffice').value=site.officeId||'';
- setText('assignedSiteDetails',site?`${site.name} - GPS ${site.lat.toFixed(6)}, ${site.lng.toFixed(6)}. Attendance within ${site.radius} m; GPS accuracy must be adequate.`:'Choose the satellite office and assigned work location. The office name alone does not define the GPS attendance zone.');
+ const ids=[...$('memberSite').selectedOptions].map(o=>o.value),sites=ids.map(id=>state.sites.find(s=>s.id===id)).filter(Boolean);
+ if(sites[0])$('memberOffice').value=sites[0].officeId||'';
+ setText('memberSiteSummary',sites.length?sites.length+' work location(s) selected':'Select one or more work locations');
+ setText('assignedSiteDetails',sites.length?sites.map(site=>`${site.name} - ${site.lat.toFixed(6)}, ${site.lng.toFixed(6)} (150 m)`).join(' · '):'Select one or more assigned work locations.');
 }
 function openMemberForm(member){if(!canEdit())return;if(!state.sites.length){showToast('Create a work location before enrolling a member.','error');showPage('sites');return;}
- state.editMember=member||null;state.pendingDescriptors=member?.descriptors?.map(a=>[...a])||[];
+ state.editMember=member||null;state.pendingDescriptors=member?.descriptors?.map(a=>[...a])||[];state.consentAcknowledgedAt=member?.consentAt||null;
  $('memberForm').reset();setText('memberFormTitle',member?'Edit member':'Enroll new member');$('memberId').disabled=!!member;
- if(member){$('memberId').value=member.id;$('memberName').value=member.name;$('memberCoop').value=member.coop;}$('memberConsent').checked=!!member?.consentAt;
- fillMemberSites(member?.siteId);setText('enrollFaceLabel',state.pendingDescriptors.length>=3?`${state.pendingDescriptors.length} face samples enrolled. Select to replace.`:'No face samples yet. Select Enroll face.');$('memberDialog').showModal();
+ if(member){$('memberId').value=member.id;$('memberName').value=member.name;$('memberCoop').value=member.coop;}
+ fillMemberSites(member?.siteIds||member?.siteId);setText('enrollFaceLabel',state.pendingDescriptors.length>=3?'ENROLLED · select Enroll face to replace':'Not enrolled · select Enroll face');$('memberDialog').showModal();
 }
 async function saveMemberForm(e){e.preventDefault();if(!canEdit())return;
- const id=$('memberId').value.trim(),name=$('memberName').value.trim(),coop=$('memberCoop').value,siteId=$('memberSite').value,site=state.sites.find(x=>x.id===siteId);
- if(!id||!name||!site||site.coop!==coop||!site.officeId||site.officeId!==$('memberOffice').value){showToast('Enter a valid name, ID, and matching work location.','error');return;}
+ const id=$('memberId').value.trim(),name=$('memberName').value.trim(),coop=$('memberCoop').value,siteIds=[...$('memberSite').selectedOptions].map(o=>o.value),sites=siteIds.map(id=>state.sites.find(x=>x.id===id)).filter(Boolean),site=sites[0];
+ if(!id||!name||!siteIds.length||sites.length!==siteIds.length||sites.some(s=>s.coop!==coop||!s.officeId||s.officeId!==$('memberOffice').value)){showToast('Select the cooperative, satellite office and one or more matching work locations.','error');return;}
  if(!state.editMember&&state.members.some(m=>m.id.toLowerCase()===id.toLowerCase())){showToast('Member ID is already registered.','error');return;}
- if(!state.pendingDescriptors.length||state.pendingDescriptors.length<3){showToast('Please complete all 3 face samples.','error');return;}
- if(!$('memberConsent').checked){showToast('Confirm member notice and consent before saving.','error');return;}
+ if(!state.pendingDescriptors.length||state.pendingDescriptors.length<3){showToast('Complete face enrollment before saving.','error');return;}
+ if(!state.consentAcknowledgedAt&&!state.editMember?.consentAt){showToast('Click Enroll face after the member reviews the biometric notice.','error');return;}
  const last=state.punches.find(p=>p.memberId===id);
- if(last?.type==='IN'&&state.editMember?.siteId!==siteId){showToast('Complete Time Out before changing the member worksite.','error');return;}
- const record={id,name,coop,siteId,satelliteOffice:site.satelliteOffice||'',descriptors:state.pendingDescriptors,consentAt:state.editMember?.consentAt||new Date().toISOString(),enrolledBy:state.editMember?.enrolledBy||state.deviceId,createdAt:state.editMember?.createdAt||new Date().toISOString(),updatedAt:new Date().toISOString()};
+ if(last?.type==='IN'&&(state.editMember?.siteIds||[state.editMember?.siteId]).some(x=>!siteIds.includes(x))){showToast('Complete Time Out before removing an assigned work location.','error');return;}
+ const record={id,name,coop,siteId:siteIds[0],siteIds,satelliteOffice:site.satelliteOffice||'',descriptors:state.pendingDescriptors,consentAt:state.editMember?.consentAt||new Date(state.consentAcknowledgedAt||Date.now()).toISOString(),enrolledBy:state.editMember?.enrolledBy||state.deviceId,createdAt:state.editMember?.createdAt||new Date().toISOString(),updatedAt:new Date().toISOString()};
  try{await saveOne('members',record);await loadCollections();$('memberDialog').close();renderMembers();renderDashboard();showToast(`${name} enrolled successfully.`,'success');}catch(err){toastError(err,'Unable to save member');}
 }
 async function handleMemberTableClick(e){const edit=e.target.closest('[data-member-edit]');const del=e.target.closest('[data-member-delete]');if(edit){const m=state.members.find(x=>x.id===edit.dataset.memberEdit);if(m)openMemberForm(m);}
@@ -164,7 +181,9 @@ function renderSites(){
 }
 function openSiteForm(site){
  state.editSite=site||null;$('siteForm').reset();setText('siteFormTitle',site?'Edit work location':'Add work location');$('siteRadius').value='150';
- if(site){$('siteName').value=site.name;$('siteCoop').value=site.coop;$('siteAddress').value=site.address||'';$('siteLat').value=site.lat;$('siteLng').value=site.lng;$('siteRadius').value=site.radius;}
+ const locations=[...new Set(state.sites.map(s=>s.name).filter(Boolean))].sort();
+ $('siteNameOptions').innerHTML=locations.map(name=>'<option value="${esc(name)}"></option>').join('');
+ if(site){$('siteName').value=site.name;$('siteCoop').value=site.coop;$('siteAddress').value=site.address||'';$('siteLat').value=site.lat;$('siteLng').value=site.lng;$('siteRadius').value=150;}
  fillSiteOffices(site?.officeId);updateSiteMap();$('siteDialog').showModal();
 }
 function updateSiteMap(){const lat=Number($('siteLat').value),lng=Number($('siteLng').value);const hasLat=$('siteLat').value.trim()!==''&&Number.isFinite(lat)&&Math.abs(lat)<=90,hasLng=$('siteLng').value.trim()!==''&&Number.isFinite(lng)&&Math.abs(lng)<=180;const valid=hasLat&&hasLng;
@@ -205,21 +224,7 @@ function stopGPSWatch(){if(state.gpsWatchId!==null&&navigator.geolocation){navig
 
 async function useGpsForSite(){try{setText('mapCoordLabel','Locating your device…');const gps=await readGPS();$('siteLat').value=gps.latitude.toFixed(7);$('siteLng').value=gps.longitude.toFixed(7);updateSiteMap();showToast(`GPS acquired, accuracy ±${Math.round(gps.accuracy)} m.`,'success');}catch(err){toastError(err,'GPS not available');}}
 
-async function findAddressCoordinates(){
- if(!navigator.onLine){showToast('Address lookup needs internet. Enter latitude/longitude directly or use GPS while offline.','error');return;}
- const q=$('siteAddress').value.trim();if(q.length<5){showToast('Enter a complete address before searching.','error');return;}
- const btn=$('siteFindAddress');btn.disabled=true;btn.textContent='Finding coordinates…';
- try{
-  // Nominatim is called only by explicit user action (no autocomplete).
-  const url='https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=ph&q='+encodeURIComponent(q);
-  const response=await fetch(url,{headers:{Accept:'application/json'}});if(!response.ok)throw Error(`Map address lookup failed (${response.status}).`);
-  const results=await response.json();if(!results.length)throw Error('Address not found. Try a more specific Philippine address.');
-  const p=results[0];$('siteLat').value=Number(p.lat).toFixed(7);$('siteLng').value=Number(p.lon).toFixed(7);
-  updateSiteMap();showToast('Address located. Confirm the pin matches the exact worksite.','success');
- }catch(err){toastError(err,'Address lookup');}
- finally{btn.disabled=false;btn.textContent='Find GPS coordinates from address (online)';}
-}
-
+// Worksite coordinates are captured from device GPS; address geocoding has been removed.
 // Time logs and Excel export.
 function filteredAttendanceRows(){
  const data=TIPONCore.rows(state.punches,state.deviceId);
@@ -235,6 +240,43 @@ function renderRecords(){
  $('recordRows').innerHTML=values.length?values.map(row=>'<tr>'+row.map(v=>`<td>${esc(v)}</td>`).join('')+'</tr>').join(''):'<tr><td colspan="5"><div class="empty-state">No attendance records for this selection.</div></td></tr>';
  }catch(err){setText('recordCountLabel',err.message);$('recordRows').innerHTML='';}
  if(window.TIPONSync)TIPONSync.render();
+}
+function fillLogFilter(id,values,placeholder){
+ const el=$(id);if(!el)return;const old=el.value,unique=[...new Set(values.filter(Boolean))].sort((x,y)=>String(x).localeCompare(String(y)));
+ el.innerHTML='<option value="">'+esc(placeholder)+'</option>'+unique.map(v=>'<option value="'+esc(v)+'">'+esc(v)+'</option>').join('');
+ if(unique.includes(old))el.value=old;
+}
+function filteredTerminalLogRows(){
+ const from=$('terminalLogFrom').value,to=$('terminalLogTo').value,coop=$('terminalLogCoop').value,platform=$('terminalLogPlatform').value,siteId=$('terminalLogSite').value;
+ if(from&&to&&from>to)throw Error('From date must not be after To date.');
+ return TIPONOrgCore.project(state.punches.filter(p=>!p.reviewStatus)).filter(r=>{
+  const stamp=r.timeIn||r.timeOut,day=TIPONCore.phStamp(stamp).slice(0,10);
+  return (!from||day>=from)&&(!to||day<=to)&&(!coop||r.coop===coop)&&(!platform||TIPONOrgCore.platformKey(r.platform)===TIPONOrgCore.platformKey(platform))&&(!siteId||r.siteId===siteId);
+ });
+}
+function renderTerminalLogs(){
+ if(!$('terminalLogRows'))return;
+ const sites=[...state.sites],events=state.punches;
+ fillLogFilter('terminalLogCoop',[...state.members.map(m=>m.coop),...events.map(p=>p.coop)],'All cooperatives');
+ fillLogFilter('terminalLogPlatform',[...state.members.map(m=>m.platform),...sites.map(s=>s.platform),...events.map(p=>p.platform)],'All business platforms');
+ fillLogFilter('terminalLogSite',[...sites.map(s=>s.id+'|'+s.name),...events.map(p=>(p.siteId||'')+'|'+(p.siteName||''))].map(x=>x.split('|')[0]+'|'+x.split('|').slice(1).join('|')),'All work locations');
+ const siteSelect=$('terminalLogSite'),old=siteSelect.value;
+ const siteMap=new Map([...sites.map(s=>[s.id,s.name]),...events.filter(p=>p.siteId).map(p=>[p.siteId,p.siteName])]);
+ siteSelect.innerHTML='<option value="">All work locations</option>'+[...siteMap].map(([id,name])=>'<option value="'+esc(id)+'">'+esc(name)+'</option>').join('');
+ if(siteMap.has(old))siteSelect.value=old;
+ try{
+  const rows=filteredTerminalLogRows(),table=TIPONExport.table(rows);
+  setText('terminalLogCount',rows.length+' attendance session(s)');
+  $('terminalLogRows').innerHTML=table.length>1?table.slice(1).map(row=>'<tr>'+row.map(v=>'<td>'+esc(v)+'</td>').join('')+'</tr>').join(''):'<tr><td colspan="5">No attendance records match these filters.</td></tr>';
+ }catch(err){setText('terminalLogCount',err.message);$('terminalLogRows').innerHTML='<tr><td colspan="5">'+esc(err.message)+'</td></tr>';}
+}
+async function exportTerminalLogs(){
+ const btn=$('terminalLogExport');try{
+  const rows=filteredTerminalLogRows();if(!rows.length){showToast('No attendance records to export.','error');return;}
+  btn.disabled=true;await new Promise(resolve=>setTimeout(resolve,0));
+  const bytes=TIPONExport.xlsx(rows);downloadBlob('TIPON_Attendance_'+todayPH()+'.xlsx',new Blob([bytes],{type:TIPONExport.MIME}));
+  showToast('Exported '+rows.length+' attendance session(s).','success');
+ }catch(err){toastError(err,'Attendance export');}finally{btn.disabled=false;}
 }
 function loadScript(url,check){if(check())return Promise.resolve();return new Promise((resolve,reject)=>{const old=document.querySelector(`script[data-remote="${url}"]`);if(old)old.remove();const el=document.createElement('script');el.src=url;el.crossOrigin='anonymous';el.dataset.remote=url;el.onload=()=>resolve();el.onerror=()=>reject(Error(`Could not load ${url.split('/').pop()}. Download offline resources while connected.`));document.body.appendChild(el);});}
 async function exportExcel(){
@@ -325,26 +367,30 @@ async function recordRecognizedFace(member,faceDistance){
  if(state.scanBusy)return;state.scanBusy=true;const mode=state.scanMode,run=state.scanRun,actorId=state.user.id;
  document.querySelectorAll('.mode-option').forEach(b=>b.disabled=true);
  try{
-  await loadCollections();const tx=TIPONCore.transition(state.punches,member.id,mode,Date.now(),COOLDOWN_MS);
-  const site=siteForMember(member);if(!site)throw Error('Assigned work location is missing.');
-  if(state.user.role!=='kiosk'&&!TIPONOrgCore.inScope(state.user,site))throw Error('This worksite is outside your approved account scope.');
-  if(!site.satelliteOffice)throw Error('Set a satellite office in this work location before recording attendance.');
-  if(tx.type==='OUT'&&tx.last.siteId!==site.id)throw Error('The assigned worksite changed after Time In. Review the record first.');
-  updateScanResult('Checking current GPS',`${member.name} - TIME ${tx.type}. Keep the phone at the approved worksite.`);
+  await loadCollections();member=state.members.find(m=>m.id===member.id)||member;
+  const tx=TIPONCore.transition(state.punches,member.id,mode,Date.now(),COOLDOWN_MS);
+  let assignedSites=sitesForMember(member);
+  if(!assignedSites.length)throw Error('This member has no assigned work location.');
+  if(tx.type==='OUT'){
+   if(!assignedSites.some(s=>s.id===tx.last.siteId))throw Error('Time Out must be recorded at the same assigned work location as Time In.');
+   assignedSites=assignedSites.filter(s=>s.id===tx.last.siteId);
+  }
+  assignedSites=assignedSites.filter(site=>site.satelliteOffice&&(state.user.role==='kiosk'||TIPONOrgCore.inScope(state.user,site)));
+  if(!assignedSites.length)throw Error('No assigned office is available to this attendance account.');
+  updateScanResult('Face recognized',`${member.name} · ${member.id}. Checking current GPS against assigned office(s)…`);
   const gps=await readGPS();
   if(!state.scanning||state.scanRun!==run||state.user?.id!==actorId||!hasTerminalSession()||document.hidden)throw Error('Scanner or session changed before GPS verification completed. Retry with the current camera.');
   if(!Number.isFinite(gps.accuracy)||gps.accuracy<0||Math.abs(Date.now()-gps.timestamp)>30000)throw Error('GPS fix is missing, stale, or invalid. Retry outdoors.');
-  const limit=Math.min(GPS_MAX_ACCURACY,Math.max(30,site.radius));
-  if(gps.accuracy>limit)throw Error(`GPS accuracy ${Math.round(gps.accuracy)} m is too poor. Required: ${limit} m or better.`);
-  // Face identity is already resolved. Independently verify that this member is physically at the assigned office before saving attendance.
-  const distance=distanceM(site.lat,site.lng,gps.latitude,gps.longitude),allowedRadius=150;
-  if(distance>allowedRadius)throw Error(`Face recognized: ${member.name}. Outside assigned office: ${Math.round(distance)} m away; permitted radius ${allowedRadius} m.`);
-  const stamp=new Date();
+  if(gps.accuracy>GPS_MAX_ACCURACY)throw Error(`GPS accuracy ${Math.round(gps.accuracy)} m is too poor. Required: ${GPS_MAX_ACCURACY} m or better.`);
+  const candidates=assignedSites.map(site=>({site,distance:distanceM(site.lat,site.lng,gps.latitude,gps.longitude)})).sort((x,y)=>x.distance-y.distance);
+  const match=candidates.find(x=>x.distance<=150);
+  if(!match){const closest=candidates[0];throw Error(`Face recognized: ${member.name}. Nearest assigned office is ${Math.round(closest.distance)} m away; maximum allowed is 150 m.`);}
+  const {site,distance}=match,stamp=new Date();
   const punch={id:uuid(),orgId:state.orgId,siteRev:site.rev||0,deviceId:state.deviceId,timestamp:stamp.toISOString(),day:todayPH(stamp),type:tx.type,
     memberId:member.id,memberName:member.name,coop:member.coop,platform:site.platform,recordedById:state.user.id,siteId:site.id,siteName:site.name,satelliteOffice:site.satelliteOffice,
-    officeId:site.officeId,siteLat:site.lat,siteLng:site.lng,radius:site.radius,lat:gps.latitude,lng:gps.longitude,
-    accuracy:gps.accuracy,distance,faceDistance,radius:150,performedBy:state.user.username||state.user.name};
-  await commitPunch(punch,mode);await loadCollections();renderTerminal();renderDashboard();
+    officeId:site.officeId,siteLat:site.lat,siteLng:site.lng,radius:150,lat:gps.latitude,lng:gps.longitude,
+    accuracy:gps.accuracy,distance,faceDistance,performedBy:state.user.username||state.user.name};
+  await commitPunch(punch,mode);await loadCollections();renderTerminal();renderTerminalLogs();renderDashboard();
   updateScanResult(`TIME ${punch.type} saved`,`${member.name} | ${member.id} | ${site.satelliteOffice} | ${displayTime(stamp)}. Saved on this phone.`,'success');
   playTerminalSound('success');showToast(`${member.name}: TIME ${punch.type} recorded.`,'success');
   if(navigator.vibrate){try{navigator.vibrate(80);}catch{}}
@@ -362,13 +408,23 @@ function commitPunch(punch,mode){return new Promise((resolve,reject)=>{
  }catch(err){problem=err;tx.abort();}};
  tx.oncomplete=resolve;tx.onabort=()=>reject(problem||tx.error||Error('Attendance transaction aborted.'));tx.onerror=()=>reject(tx.error);
 });}
+function eyeAspectRatio(points,indices){
+ const p=indices.map(i=>points[i]);if(p.some(x=>!x))return null;
+ const d=(a,b)=>Math.hypot(a.x-b.x,a.y-b.y),width=d(p[0],p[3]);return width?((d(p[1],p[5])+d(p[2],p[4]))/(2*width)):null;
+}
+function blinkRatio(face){
+ const p=face?.landmarks?.positions;if(!Array.isArray(p)||p.length<48)return null;
+ const l=eyeAspectRatio(p,[36,37,38,39,40,41]),r=eyeAspectRatio(p,[42,43,44,45,46,47]);
+ return l==null||r==null?null:(l+r)/2;
+}
 async function beginEnrollment(){
  if(!canEdit())return;
- if(!$('memberConsent').checked){showToast('Confirm member notice and consent before opening the enrollment camera.','error');return;}
  if(!$('memberName').value.trim()||!$('memberId').value.trim()){showToast('Enter member ID and full name before enrolling the face.','error');return;}
- if($('memberDialog').open)$('memberDialog').close();if(!$('enrollDialog').open)$('enrollDialog').showModal();state.enrollActive=true;state.enrollCollected=[];
+ // Clicking Enroll face is the explicit acknowledgement shown beside the approved biometric privacy notice.
+ state.consentAcknowledgedAt=state.editMember?.consentAt||new Date().toISOString();
+ if($('memberDialog').open)$('memberDialog').close();if(!$('enrollDialog').open)$('enrollDialog').showModal();state.enrollActive=true;state.enrollCollected=[];state.enrollBlinkClosed=false;state.enrollBlinkSeen=false;
  const run=(state.enrollRun||0)+1;state.enrollRun=run;TIPONCamera.render();
- setText('enrollCount','0 / 3 samples');setText('enrollStatus','Preparing the camera…');$('enrollProgress').style.width='0%';$('retryEnrollment').hidden=true;
+ setText('enrollCount','0 / 3 samples');setText('enrollStatus','Preparing camera and live blink check…');$('enrollProgress').style.width='0%';$('retryEnrollment').hidden=true;
  try{await loadFaceModels();if(!state.enrollActive||state.enrollRun!==run)return;
   const stream=await getCameraStream('enroll');if(!state.enrollActive||state.enrollRun!==run||document.hidden){stream.getTracks().forEach(t=>t.stop());return;}state.enrollStream=stream;const v=$('enrollVideo');v.srcObject=stream;await v.play();enrollTick();
  }catch(err){setText('enrollStatus',err.message);$('retryEnrollment').hidden=false;toastError(err,'Enrollment camera');}
@@ -379,20 +435,29 @@ async function enrollTick(){if(!state.enrollActive)return;const run=state.enroll
    if(!state.enrollActive||state.enrollRun!==run)return;
    if(faces.length!==1){setText('enrollStatus',faces.length?'Only one face may be in view.':'Center one face inside the frame.');}
    else{
-     const descriptor=Array.from(faces[0].descriptor);
-     const match=nearestMember(descriptor);
-     if(match.best&&match.best.member.id!==state.editMember?.id&&match.best.distance<.40){
-       setText('enrollStatus',`Face may already belong to ${match.best.member.name}. Enrollment blocked.`);$('retryEnrollment').hidden=false;await stopEnrollment(true);return;
-     }
-     state.enrollCollected.push(descriptor);
-     setText('enrollCount',`${state.enrollCollected.length} / 3 samples`);
-     setText('enrollStatus',state.enrollCollected.length===1?'Sample 1 saved. Slightly turn your face.':state.enrollCollected.length===2?'Sample 2 saved. Look straight again.':'3 samples collected.');
-     $('enrollProgress').style.width=`${state.enrollCollected.length/3*100}%`;
-     if(state.enrollCollected.length===3){
-       state.pendingDescriptors=state.enrollCollected;
-       setText('enrollFaceLabel','3 face samples enrolled and ready to save.');
-       showToast('Face samples collected. Save the member record next.','success');
-       await finishEnrollment(false);return;
+     const ratio=blinkRatio(faces[0]);
+     if(!state.enrollBlinkSeen){
+       if(ratio==null){setText('enrollStatus','Keep one face centered so the live blink check can read both eyes.');}
+       else if(ratio<.17){state.enrollBlinkClosed=true;setText('enrollStatus','Blink detected. Open your eyes to complete the live check.');}
+       else if(state.enrollBlinkClosed&&ratio>.22){state.enrollBlinkSeen=true;setText('enrollStatus','Live check passed. Turn slightly left for sample 1.');}
+       else setText('enrollStatus','Blink once to verify a live face before enrollment.');
+     }else{
+       const descriptor=Array.from(faces[0].descriptor),match=nearestMember(descriptor);
+       if(match.best&&match.best.member.id!==state.editMember?.id&&match.best.distance<.40){
+         setText('enrollStatus',`Face may already belong to ${match.best.member.name}. Enrollment blocked.`);$('retryEnrollment').hidden=false;await stopEnrollment(true);return;
+       }
+       const previous=state.enrollCollected.at(-1);
+       if(previous&&euclidean(previous,descriptor)<.035){
+         setText('enrollStatus',state.enrollCollected.length===1?'Turn slightly left for a distinct sample.':'Turn slightly right for a distinct sample.');
+       }else{
+         state.enrollCollected.push(descriptor);setText('enrollCount',`${state.enrollCollected.length} / 3 samples`);
+         setText('enrollStatus',state.enrollCollected.length===1?'Sample 1 saved. Turn slightly right.':state.enrollCollected.length===2?'Sample 2 saved. Look toward the camera again.':'3 samples collected.');
+         $('enrollProgress').style.width=`${state.enrollCollected.length/3*100}%`;
+         if(state.enrollCollected.length===3){
+           state.pendingDescriptors=state.enrollCollected;setText('enrollFaceLabel','ENROLLED · 3 live samples ready to save');
+           showToast('Live face enrollment complete. Save the member record next.','success');await finishEnrollment(false);return;
+         }
+       }
      }
    }
   }
@@ -472,14 +537,19 @@ function bindEvents(){
  document.querySelectorAll('[data-jump]').forEach(el=>el.addEventListener('click',()=>showPage(el.dataset.jump)));
  attach('topStartScan','click',()=>showPage('scanner'));
  attach('memberSearch','input',renderMembers);
+ ['memberFilterCoop','memberFilterPlatform','memberFilterOffice'].forEach(id=>attach(id,'change',renderMembers));
+ ['terminalLogFrom','terminalLogTo','terminalLogCoop','terminalLogPlatform','terminalLogSite'].forEach(id=>attach(id,'change',renderTerminalLogs));
+ attach('terminalLogExport','click',exportTerminalLogs);attach('terminalLogSync','click',()=>TIPONSync.kick());
+ attach('kioskFullscreen','click',async()=>{try{if(document.fullscreenElement){await document.exitFullscreen();return;}if(!document.documentElement.requestFullscreen)throw Error('Full screen is unavailable in this browser.');await document.documentElement.requestFullscreen();}catch(e){showToast(e.message,'error');}});
+ document.addEventListener('fullscreenchange',()=>document.body.classList.toggle('terminal-fullscreen',!!document.fullscreenElement&&state.page==='scanner'));
  attach('addMember','click',()=>openMemberForm(null));attach('memberRows','click',handleMemberTableClick);
  attach('memberForm','submit',saveMemberForm);
- attach('memberCoop','change',()=>fillMemberSites());attach('memberOffice','change',()=>fillMemberSites(undefined,true));attach('memberSite','change',updateMemberSite);
+ attach('memberCoop','change',()=>fillMemberSites());attach('memberOffice','change',()=>fillMemberSites(undefined,true));attach('memberSiteChoices','change',e=>{const cb=e.target.closest('[data-member-site-option]');if(!cb)return;const option=[...$('memberSite').options].find(o=>o.value===cb.dataset.memberSiteOption);if(option)option.selected=cb.checked;updateMemberSite();});
  attach('enrollFaceButton','click',beginEnrollment);
   attach('retryEnrollment','click',async()=>{await stopEnrollment(true);if($('enrollDialog').open)$('enrollDialog').close();if(!$('memberDialog').open)$('memberDialog').showModal();await beginEnrollment();});
  attach('enrollDialog','cancel',(e)=>{e.preventDefault();finishEnrollment(true);});
  attach('addSite','click',()=>openSiteForm(null));attach('siteCards','click',handleSiteCardsClick);
- attach('siteForm','submit',saveSiteForm);attach('siteUseGps','click',useGpsForSite);attach('siteFindAddress','click',findAddressCoordinates);
+ attach('siteForm','submit',saveSiteForm);attach('siteUseGps','click',useGpsForSite);
  ['siteLat','siteLng','siteRadius'].forEach(id=>attach(id,'change',updateSiteMap));
  document.querySelectorAll('.close-dialog').forEach(btn=>btn.addEventListener('click',()=>{const dialog=btn.closest('dialog');if(dialog.id==='enrollDialog')finishEnrollment(true);else dialog.close();}));
  attach('confirmCancel','click',()=>resolveConfirm(false));attach('confirmYes','click',()=>resolveConfirm(true));
