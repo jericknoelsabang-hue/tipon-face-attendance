@@ -256,6 +256,7 @@ function filteredTerminalLogRows(){
  });
 }
 function canCorrectAttendance(){const u=state.user,a=window.TIPONAuth?.current();return !!u&&!!a&&a.account?.id===u.id&&a.orgId===state.orgId&&a.offlineUntil>Date.now()&&(isAdmin()||(u.role==='registrar'&&['supervisor','member supervisor'].includes(String(u.position||'').trim().toLowerCase())));}
+function attendanceAccountLabel(row,type){const ids=row.eventIds||[];const event=state.punches.find(p=>ids.includes(p.id)&&p.type===type);if(!event)return '—';return event.performedBy||event.recordedByUsername||event.recordedByName||event.recordedById||'Not recorded';}
 function renderTerminalLogs(){
  if(!$('terminalLogRows'))return;
  const sites=[...state.sites],events=state.punches;
@@ -269,8 +270,8 @@ function renderTerminalLogs(){
  try{
   const rows=filteredTerminalLogRows(),table=TIPONExport.table(rows);
   setText('terminalLogCount',rows.length+' attendance session(s)');
-  $('terminalLogRows').innerHTML=rows.length?rows.map(row=>{const format=v=>v?new Date(Date.parse(v)+28800000).toISOString().slice(0,16):'';return '<tr><td>'+esc(row.memberId)+'</td><td>'+esc(TIPONCore.phStamp(row.timeIn||row.timeOut).slice(0,10))+'</td><td>'+esc(TIPONCore.phStamp(row.timeIn).slice(-8))+'</td><td>'+esc(TIPONCore.phStamp(row.timeOut).slice(-8))+'</td><td>'+esc(TIPONCore.phStamp(row.timeOut).slice(0,10))+'</td><td>'+(canCorrectAttendance()?'<button class="tiny-button" data-attendance-edit="'+esc(row.key)+'" data-in="'+esc(format(row.timeIn))+'" data-out="'+esc(format(row.timeOut))+'" type="button">Edit times</button>':'View only')+'</td></tr>';}).join(''):'<tr><td colspan="6">No attendance records match these filters.</td></tr>';
- }catch(err){setText('terminalLogCount',err.message);$('terminalLogRows').innerHTML='<tr><td colspan="5">'+esc(err.message)+'</td></tr>';}
+  $('terminalLogRows').innerHTML=rows.length?rows.map(row=>{const format=v=>v?new Date(Date.parse(v)+28800000).toISOString().slice(0,16):'';return '<tr><td>'+esc(row.memberId)+'</td><td>'+esc(TIPONCore.phStamp(row.timeIn||row.timeOut).slice(0,10))+'</td><td>'+esc(TIPONCore.phStamp(row.timeIn).slice(-8))+'</td><td>'+esc(TIPONCore.phStamp(row.timeOut).slice(-8))+'</td><td>'+esc(TIPONCore.phStamp(row.timeOut).slice(0,10))+'</td><td>'+esc(attendanceAccountLabel(row,'IN'))+'</td><td>'+esc(attendanceAccountLabel(row,'OUT'))+'</td><td>'+(canCorrectAttendance()?'<button class="tiny-button" data-attendance-edit="'+esc(row.key)+'" data-in="'+esc(format(row.timeIn))+'" data-out="'+esc(format(row.timeOut))+'" type="button">Edit times</button>':'View only')+'</td></tr>';}).join(''):'<tr><td colspan="8">No attendance records match these filters.</td></tr>';
+ }catch(err){setText('terminalLogCount',err.message);$('terminalLogRows').innerHTML='<tr><td colspan="8">'+esc(err.message)+'</td></tr>';}
 }
 async function exportTerminalLogs(){
  const btn=$('terminalLogExport');try{
