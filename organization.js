@@ -286,3 +286,7 @@ fillSiteOffices=function(preferred){
  if(rows.some(o=>o.id===preferred))$('siteOffice').value=preferred;
  setText('siteOfficeHint','Select an office from the approved reference list. Add missing offices using the approved masterlist import.');
 };
+
+window.addEventListener('DOMContentLoaded',()=>{
+ if(typeof enterApp==='function'&&typeof TIPONAuth!=='undefined')window.TIPONWorkspaceEnter=()=>enterApp();
+},{once:true});
