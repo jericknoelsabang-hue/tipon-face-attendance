@@ -154,7 +154,7 @@ window.OrgUI=(()=>{
     const day=$('dashboardDay').value, f=dashboardFilter();
     const all=state.members.filter(m=>!m.deleted&&m.active!==false);
     const coops=[...new Set([...TIPONOrgCore.COOPS,...all.map(m=>m.coop).filter(Boolean)])];
-    $('coopDashboardCards').innerHTML=coops.map(coop=>'<article class="coop-summary"><span class="coop-monogram" aria-hidden="true">'+esc(coop.split(' ').map(w=>w[0]).join('').slice(0,3))+'</span><h3>'+esc(coop)+'</h3><strong>'+all.filter(m=>m.coop===coop).length+'</strong><small>Registered members</small></article>').join('');
+    $('coopDashboardCards').innerHTML=coops.map(coop=>'<article class="coop-summary" data-coop="'+esc(coop)+'"><span class="coop-monogram" aria-hidden="true">'+esc(coop.split(' ').map(w=>w[0]).join('').slice(0,3))+'</span><h3>'+esc(coop)+'</h3><strong>'+all.filter(m=>m.coop===coop).length+'</strong><small>Registered members</small></article>').join('');
     const members=filteredMembers().filter(m=>!m.deleted&&m.active!==false);
     const events=state.punches.filter(p=>!p.reviewStatus&&!p.deleted&&TIPONCore.phStamp(p.timestamp).slice(0,10)===day);
     const tally=items=>{
