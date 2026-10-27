@@ -27,6 +27,8 @@
       must(/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.email),'Enter a valid email address.');
       v.office='';v.officeLat=null;v.officeLng=null;delete v.gpsAccuracy;
     }else{
+      // Kiosks are GPS-scoped, not cooperative/business-platform scoped.
+      v.coop='';v.platform='';
       must(v.office,'Enter the kiosk location label.');
       must(Number.isFinite(v.officeLat)&&Math.abs(v.officeLat)<=90&&Number.isFinite(v.officeLng)&&Math.abs(v.officeLng)<=180,'Capture kiosk GPS coordinates.');
       must(Number.isFinite(v.gpsAccuracy)&&v.gpsAccuracy>=0&&v.gpsAccuracy<=100,'Capture accurate current kiosk GPS.');
@@ -84,7 +86,8 @@
       const assignment=Array.isArray(r.siteIds)&&r.siteIds.length?r.siteIds:[r.siteId||r.id];
       return assignment.some(id=>ids.includes(id));
     }
-    return r.coop===u.coop&&(!u.platform||platformKey(r.platform)===platformKey(u.platform));
+    // Fail closed for User sessions without BOTH assigned scope values.
+    return !!u.coop&&!!u.platform&&r.coop===u.coop&&platformKey(r.platform)===platformKey(u.platform);
   }
   function distance(a,b,c,d){const rad=Math.PI/180,h=Math.sin((c-a)*rad/2)**2+Math.cos(a*rad)*Math.cos(c*rad)*Math.sin((d-b)*rad/2)**2;return 12742000*Math.asin(Math.min(1,Math.sqrt(h)));}
   function gps(site,event){
