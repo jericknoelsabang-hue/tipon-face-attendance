@@ -7,7 +7,7 @@
   'use strict';
   const VERSION='5.2.0', PROTOCOL='tipon-org-v5', PBKDF2_ITERATIONS=600000;
   const COOPS=['Asiapro','Gawa at Kalinga','Kaakbay sa Kinabukasan','Kadayawan','Kaamulan','Tnalak','Victory','Worklife'];
-  const DEFAULT_PLATFORMS=['IMG','MSG-SM','MSG-NM','MSG-NW','OCG','Contracting','AP Cons'];
+  const DEFAULT_PLATFORMS=['IMG','MSG-SM','MSG-NM','MSG-NW','OCG','Contracting','AP Cons','GAK'];
   const EXPORT_HEADERS=['MemberId','Date','Time In','Time Out','Date Time Out'];
   // The payroll extract stays at five columns. Only the central report adds context.
   const REPORT_HEADERS=[...EXPORT_HEADERS,'Office','MPC','BP'];
@@ -18,10 +18,11 @@
     must(p&&typeof p==='object','Profile is required.');
     const v={username:clean(p.username,80),name:clean(p.name,120),position:clean(p.position,100),email:clean(p.email,200),coop:clean(p.coop,80),platform:clean(p.platform,100),office:clean(p.office,120),accountType:clean(p.accountType||'user',20),officeLat:Number(p.officeLat),officeLng:Number(p.officeLng)};
     must(v.username.length>=3&&!/[\x00-\x1f\x7f]/.test(v.username),'Username needs at least 3 readable characters.');
-    must(v.name&&v.position&&v.office&&v.platform,'Complete full name, position, business platform and office.');
     must(['user','kiosk'].includes(v.accountType),'Choose User or Physical Kiosk.');
+    must(v.office&&v.platform,'Complete business platform and office.');
+    if(v.accountType==='user')must(v.name&&v.position,'Complete full name and position.');
     must(Number.isFinite(v.officeLat)&&Math.abs(v.officeLat)<=90&&Number.isFinite(v.officeLng)&&Math.abs(v.officeLng)<=180,'Capture valid office latitude and longitude.');
-    must(/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.email),'Enter a valid email address.');
+    if(v.accountType==='user')must(/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.email),'Enter a valid email address.');
     must(COOPS.includes(v.coop),'Choose a listed cooperative.');return v;
   }
   function canUseTerminal(u){return !!u&&['registrar','kiosk'].includes(u.role)&&(!u.status||u.status==='active');}
