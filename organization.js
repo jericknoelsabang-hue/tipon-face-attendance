@@ -138,7 +138,7 @@ openSiteForm=function(site){if(!canEdit())return;originalOpenSite(site);TIPONPla
   document.querySelectorAll('[name="siteWorkDay"]').forEach(x=>x.checked=(plan.days||[1,2,3,4,5,6]).includes(Number(x.value)));
 };
 const oldRenderMembers=renderMembers,oldRenderSites=renderSites;
-renderMembers=function(){oldRenderMembers();document.querySelectorAll('[data-member-delete]').forEach(x=>{const m=state.members.find(v=>v.id===x.dataset.memberDelete);x.hidden=!isAdmin()&&!(state.user?.role==='registrar'&&m?.createdBy===state.user?.id);});document.querySelectorAll('[data-member-edit]').forEach(x=>{const m=state.members.find(v=>v.id===x.dataset.memberEdit);x.disabled=!canEdit()||!(m?.createdBy===state.user?.id||(m?.importedWithoutFace===true||m?.importPending===true&&!m?.template)&&TIPONOrgCore.inScope(state.user,m));});};
+renderMembers=function(){oldRenderMembers();document.querySelectorAll('[data-member-delete]').forEach(x=>{const m=state.members.find(v=>v.id===x.dataset.memberDelete);x.hidden=!isAdmin();});document.querySelectorAll('[data-member-edit]').forEach(x=>{const m=state.members.find(v=>v.id===x.dataset.memberEdit);x.disabled=!canEdit()||!(m?.createdBy===state.user?.id||(m?.importedWithoutFace===true||m?.importPending===true&&!m?.template)&&TIPONOrgCore.inScope(state.user,m));});};
 renderSites=function(){oldRenderSites();document.querySelectorAll('[data-site-delete],[data-site-edit]').forEach(x=>{const site=state.sites.find(v=>v.id===(x.dataset.siteDelete||x.dataset.siteEdit));x.hidden=false;x.disabled=!(site&&canEdit()&&TIPONOrgCore.inScope(state.user,site));});};
 filteredAttendanceRows=function(){
   if(!isAdmin())throw Error('Only the administrator can export attendance.');
@@ -206,7 +206,7 @@ window.OrgUI=(()=>{
   }
   function accountStatusBadge(u){
     const status=String(u.status||'unknown').toLowerCase();
-    return '<span class="badge '+(status==='active'?'green':'amber')+'">'+esc(status)+'</span>';
+    return '<span class="badge '+(status==='active'?'green':'amber')+'">'+esc(status.toUpperCase())+'</span>';
   }
   function pendingAccounts(){
     return (state.accounts||[]).filter(u=>u&&!u.deleted&&u.role!=='admin'&&
@@ -232,6 +232,7 @@ window.OrgUI=(()=>{
         esc(u.position||(u.role==='kiosk'?'Physical Kiosk':'Not specified'))+'</td><td>'+
         accountScope(u)+'</td><td>'+esc(roleName(u.role))+'</td><td>'+accountStatusBadge(u)+'</td>'+
         '<td><div class="account-row-actions">'+
+        '<button class="tiny-button" data-account-edit="'+esc(u.id)+'">Edit</button>'+
         '<button class="tiny-button" data-approved-account-id="'+esc(u.id)+'" data-approved-status="'+nextStatus+'">'+
         (enabled?'Disable':'Enable')+'</button>'+
         '<button class="tiny-button delete" data-approved-delete="'+esc(u.id)+'">Delete</button>'+
@@ -266,12 +267,109 @@ window.OrgUI=(()=>{
       '<td>'+esc(u.position||(u.role==='kiosk'?'Physical Kiosk':'Not specified'))+'</td>'+
       '<td>'+accountScope(u)+'</td><td>'+esc(roleName(u.role))+'</td>'+
       '<td>'+accountStatusBadge(u)+'</td><td><div class="account-row-actions">'+
+      '<button class="tiny-button" data-account-edit="'+esc(u.id)+'">Edit</button>'+
       '<button class="tiny-button" data-account-status="active" data-account-id="'+esc(u.id)+'">Approve</button>'+
       '<button class="tiny-button delete" data-account-delete="'+esc(u.id)+'">Delete</button>'+
       '</div></td></tr>').join('')||
       '<tr><td colspan="7"><div class="empty-state">No registrations awaiting administrator approval.</div></td></tr>';
     renderApprovedAccountTable();
   }
+  // Administrator-only account editor. Password resets use proof/salt, never plain text.
+  let editingAccountId=null,editingAccountBusy=false;
+  function editAccountRoleHint(){
+    const role=$('adminAccountRole').value;
+    const coop=$('adminAccountCoop'),platform=$('adminAccountPlatform');
+    if(role==='kiosk'){
+      setText('adminAccountRoleHint','Physical Kiosk access requires previously registered GPS coordinates. Scope may be left unassigned or set to one cooperative and business platform.');
+    }else{
+      setText('adminAccountRoleHint','User access requires a cooperative and business platform. The next login will use the updated account details.');
+    }
+    // Existing kiosk scope can be blank. User assignments must be explicit.
+    coop.required=role==='registrar';platform.required=role==='registrar';
+  }
+  function openAdminAccountEditor(accountId){
+    if(!isAdmin())return;
+    const u=(state.accounts||[]).find(x=>String(x.id)===String(accountId));
+    if(!u||u.deleted||u.role==='admin')return;
+    editingAccountId=u.id;
+    $('adminAccountForm').reset();
+    $('adminAccountName').value=u.name||'';
+    $('adminAccountUsername').value=u.username||'';
+    $('adminAccountPosition').value=u.position|| (u.role==='kiosk'?'Kiosk terminal':'');
+    $('adminAccountRole').value=u.role;
+    const coops=TIPONOrgCore.COOPS;
+    $('adminAccountCoop').innerHTML='<option value="">Unassigned</option>'+
+      coops.map(name=>'<option value="'+esc(name)+'">'+esc(name)+'</option>').join('');
+    $('adminAccountCoop').value=coops.includes(u.coop)?u.coop:'';
+    const platforms=TIPONOrgCore.platformNames([...(TIPONPlatforms.names()||[]),u.platform||'']);
+    $('adminAccountPlatform').innerHTML='<option value="">Unassigned</option>'+
+      platforms.map(name=>'<option value="'+esc(name)+'">'+esc(name)+'</option>').join('');
+    $('adminAccountPlatform').value=u.platform||'';
+    $('adminAccountPassword').value='';
+    $('adminAccountPasswordConfirm').value='';
+    $('adminAccountShowPassword').textContent='Show';
+    $('adminAccountPassword').type='password';
+    $('adminAccountPasswordConfirm').type='password';
+    setText('adminAccountEditStatus','Leave password blank to keep the current password. Existing passwords cannot be displayed.');
+    editAccountRoleHint();
+    $('adminAccountDialog').showModal();
+  }
+  async function saveAdminAccountEdit(event){
+    event.preventDefault();
+    if(!isAdmin()||editingAccountBusy||!editingAccountId)return;
+    if(!navigator.onLine){setText('adminAccountEditStatus','An internet connection is required to save account changes.');return;}
+    const u=(state.accounts||[]).find(x=>String(x.id)===String(editingAccountId));
+    if(!u||u.deleted||u.role==='admin')return;
+    const changes={
+      name:$('adminAccountName').value.trim(),
+      username:$('adminAccountUsername').value.trim(),
+      position:$('adminAccountPosition').value.trim(),
+      coop:$('adminAccountCoop').value,
+      platform:$('adminAccountPlatform').value,
+      role:$('adminAccountRole').value
+    };
+    if(!changes.name||changes.name.length>120||changes.username.length<3||
+       changes.username.length>80||!changes.position||changes.position.length>100||
+       !['registrar','kiosk'].includes(changes.role)){
+      setText('adminAccountEditStatus','Enter a valid Name, Username, Position and Role.');return;
+    }
+    if(changes.role==='registrar'&&(!changes.coop||!changes.platform)){
+      setText('adminAccountEditStatus','A User requires both a Cooperative and Business Platform.');return;
+    }
+    if(changes.role==='kiosk'&&Boolean(changes.coop)!==Boolean(changes.platform)){
+      setText('adminAccountEditStatus','Assign both Cooperative and Business Platform for a kiosk, or leave both blank.');return;
+    }
+    const pass=$('adminAccountPassword').value,confirm=$('adminAccountPasswordConfirm').value;
+    if(pass&&(pass.length<8||pass.length>128||pass!==confirm)){
+      setText('adminAccountEditStatus','New password must be 8–128 characters and match confirmation.');return;
+    }
+    if(!pass&&confirm){setText('adminAccountEditStatus','Enter a new password or clear both password fields.');return;}
+    editingAccountBusy=true;$('adminAccountSave').disabled=true;
+    setText('adminAccountEditStatus','Saving to the central TIPON database...');
+    try{
+      const payload={action:'adminAccountEdit',userId:u.id,baseVersion:Number(u.version)||1,changes};
+      if(pass){
+        const salt=TIPONAuth.randomSalt();
+        payload.password={salt,proof:await TIPONAuth.proof(pass,salt)};
+      }
+      // Clear both password inputs immediately after deriving the proof.
+      $('adminAccountPassword').value='';$('adminAccountPasswordConfirm').value='';
+      const response=await TIPONAPI.call(payload);
+      if(!response.account||String(response.account.id)!==String(u.id)){
+        throw Error('Central database did not confirm the updated account.');
+      }
+      await renderAccounts();
+      $('adminAccountDialog').close();editingAccountId=null;
+      showToast(response.passwordReset?'Account updated and password reset. User must sign in again.':'Account updated. User must sign in again.','success',6500);
+      TIPONSync.kick();
+    }catch(error){
+      const msg=error.code==='ACTION'||/Unknown action/i.test(error.message||'')
+        ?'Admin Edit requires matching TIPON Apps Script backend v5.5.6. Deploy Code.gs and OrgCore.gs first.'
+        :error.message||'Could not update account.';
+      setText('adminAccountEditStatus',msg);showToast(msg,'error',8500);
+    }finally{editingAccountBusy=false;$('adminAccountSave').disabled=false;}
+  }
+
   let accountActionBusy=false;
   async function performAccountAction(userId,desiredStatus,deleteAccount=false){
     if(!isAdmin()||accountActionBusy)return;
@@ -332,16 +430,32 @@ window.OrgUI=(()=>{
     ['reportFrom','reportTo','reportCoop'].forEach(id=>attach(id,'change',renderReports));
     attach('refreshAccounts','click',renderAccounts);
     attach('accountRows','click',async e=>{
+      const edit=e.target.closest('[data-account-edit]');
+      if(edit){openAdminAccountEditor(edit.dataset.accountEdit);return;}
       const del=e.target.closest('[data-account-delete]');
       if(del){await performAccountAction(del.dataset.accountDelete,null,true);return;}
       const approve=e.target.closest('[data-account-id]');
       if(approve)await performAccountAction(approve.dataset.accountId,'active');
     });
     attach('deviceRows','click',async e=>{
+      const edit=e.target.closest('[data-account-edit]');
+      if(edit){openAdminAccountEditor(edit.dataset.accountEdit);return;}
       const del=e.target.closest('[data-approved-delete]');
       if(del){await performAccountAction(del.dataset.approvedDelete,null,true);return;}
       const change=e.target.closest('[data-approved-account-id]');
       if(change)await performAccountAction(change.dataset.approvedAccountId,change.dataset.approvedStatus);
+    });
+    attach('adminAccountForm','submit',saveAdminAccountEdit);
+    attach('adminAccountRole','change',editAccountRoleHint);
+    attach('adminAccountShowPassword','click',()=>{
+      const visible=$('adminAccountPassword').type==='password';
+      $('adminAccountPassword').type=visible?'text':'password';
+      $('adminAccountPasswordConfirm').type=visible?'text':'password';
+      $('adminAccountShowPassword').textContent=visible?'Hide':'Show';
+    });
+    attach('adminAccountDialog','close',()=>{
+      $('adminAccountPassword').value='';$('adminAccountPasswordConfirm').value='';
+      editingAccountId=null;
     });
     attach('registeredDeviceSearch','input',()=>{approvedAccountPage=1;renderApprovedAccountTable();});
     attach('registeredDevicePrev','click',()=>{if(approvedAccountPage>1){approvedAccountPage--;renderApprovedAccountTable();}});
