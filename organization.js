@@ -108,7 +108,7 @@ showPage=async function(page){
   if(!TIPONOrgCore.allowed(state.user,page)||(page==='scanner'&&!hasTerminalSession())){showToast('Your account does not have permission for that screen.','error');return;}
   await originalShowPage(page);applyRoles();
   if(state.user)await OrgDB.rawSave('meta',{id:'tp5-last-page:'+state.user.id,page});
-  if(page==='accounts')await OrgUI.renderAccounts();if(page==='reports')OrgUI.renderReports();if(page==='settings')OrgUI.renderSettings();if(page==='scanner')TIPONCamera.render();if(page==='terminalLogs')renderTerminalLogs();
+  if(page==='accounts')await OrgUI.renderAccounts();if(page==='reports')OrgUI.renderReports();if(page==='settings')OrgUI.renderSettings();if(page==='scanner')TIPONCamera.render();if(page==='terminalLogs')renderTerminalLogs();if(page==='members')renderMembers();if(page==='sites'){renderSites();if(typeof renderOfficeDirectory==='function')renderOfficeDirectory();}
 };
 const originalOpenMember=openMemberForm,originalOpenSite=openSiteForm;
 openMemberForm=function(member){if(!canEdit())return;originalOpenMember(member);if(state.user.role==='registrar'){$('memberCoop').value=state.user.coop;$('memberCoop').disabled=true;fillMemberSites(member?.siteIds||member?.siteId);}else $('memberCoop').disabled=false;};
