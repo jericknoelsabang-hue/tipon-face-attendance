@@ -1,5 +1,5 @@
 {
   "app": "TIPON Face Attendance",
-  "version": "5.3.5",
-  "label": "Kiosk-wide face directory sync and 150 m assigned-office GPS verification"
+  "version": "5.3.6",
+  "label": "Member enrollment, live blink check, terminal attendance logs, and view-only office directory"
 }
