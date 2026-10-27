@@ -1,5 +1,5 @@
 {
   "app": "TIPON Face Attendance",
-  "version": "5.4.18",
-  "label": "Use a plain text field for work location name"
+  "version": "5.4.19",
+  "label": "Work locations list view with edit and delete actions"
 }
