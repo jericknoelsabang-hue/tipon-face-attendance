@@ -359,6 +359,10 @@ window.OrgUI=(()=>{
       }
       // Clear both password inputs immediately after deriving the proof.
       $('adminAccountPassword').value='';$('adminAccountPasswordConfirm').value='';
+      const health=await TIPONAPI.raw({action:'health'});
+      if(!String(health.version||'').startsWith('5.5.8')){
+        throw Error('Admin account edits require Apps Script backend v5.5.8. Deploy Code.gs and OrgCore.gs to the existing Web App first.');
+      }
       const response=await TIPONAPI.call(payload);
       if(!response.account||String(response.account.id)!==String(u.id)){
         throw Error('Central database did not confirm the updated account.');
@@ -369,7 +373,7 @@ window.OrgUI=(()=>{
       TIPONSync.kick();
     }catch(error){
       const msg=error.code==='ACTION'||/Unknown action/i.test(error.message||'')
-        ?'Admin Edit requires matching TIPON Apps Script backend v5.5.6. Deploy Code.gs and OrgCore.gs first.'
+        ?'Admin Edit requires matching TIPON Apps Script backend v5.5.8. Deploy Code.gs and OrgCore.gs first.'
         :error.message||'Could not update account.';
       setText('adminAccountEditStatus',msg);showToast(msg,'error',8500);
     }finally{editingAccountBusy=false;$('adminAccountSave').disabled=false;}
