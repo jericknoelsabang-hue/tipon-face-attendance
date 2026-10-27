@@ -75,3 +75,10 @@ body:not([data-terminal-access="allowed"]) [data-terminal-only]{display:none!imp
 #terminalLogPanel>.page-head{padding:24px 24px 0;margin-bottom:24px}#terminalLogPanel>.filter-bar{padding:0 24px 24px;gap:16px;display:flex;flex-wrap:wrap}#terminalLogPanel>.filter-bar label{flex:1 1 170px;min-width:0}#terminalLogCount{padding:8px 0;align-self:end}#terminalLogPanel{overflow:hidden}#terminalLogPanel .table-wrap{overflow-x:auto}
 
 #terminalLogPanel th:nth-child(6),#terminalLogRows td:nth-child(6){text-align:center;vertical-align:middle;overflow-wrap:anywhere}
+
+/* Equal enrollment controls and inline required labels. */
+#memberDialog .form-row.three>label,#memberDialog .member-site-field{display:flex;flex-direction:column;gap:8px}
+#memberDialog .form-row.three .field-caption,#memberDialog .form-row.three .field-label{height:20px;line-height:20px;margin:0;white-space:nowrap}
+#memberDialog #memberCoop,#memberDialog #memberOffice,#memberDialog #memberSitePicker{height:56px;min-height:56px;width:100%;box-sizing:border-box;margin:0}
+#memberDialog #memberSiteSummary{height:54px;min-height:54px;padding:10px 13px;font-size:12px;line-height:16px;box-sizing:border-box}
+#memberDialog #memberSiteSummary:after{margin-left:auto;padding-left:8px}
