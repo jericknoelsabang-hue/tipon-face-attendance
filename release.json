@@ -1,5 +1,5 @@
 {
   "app": "TIPON Face Attendance",
-  "version": "5.4.17",
-  "label": "Creator delete button for unassigned work locations"
+  "version": "5.4.18",
+  "label": "Use a plain text field for work location name"
 }
