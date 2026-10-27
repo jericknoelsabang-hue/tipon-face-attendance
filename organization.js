@@ -4,7 +4,7 @@
 'use strict';
 window.OrgDB=(()=>{
   const rawSave=saveOne,rawDelete=deleteOne;
-  const entities=['offices','sites','members','schedules'];
+  const entities=['sites','members','schedules'];
   async function saveEntity(type,input){
     const auth=TIPONAuth.current(),u=state.user;
     if(!u||!(canEdit()||isAdmin())||!auth||auth.offlineUntil<Date.now())throw Error('A current approved enrollment/admin account is required.');
@@ -15,17 +15,18 @@ window.OrgDB=(()=>{
     if(old?._pendingOp){existingOp=await getOne('outbox',old._pendingOp);if(existingOp?.everSent)throw Error('This record is waiting for server acknowledgement. Sync before editing it again.');opId=old._pendingOp;}
     const value={...old,...input,orgId:state.orgId,createdBy:old?.createdBy||u.id,updatedAt:new Date().toISOString(),rev:Number(old?.rev)||0};
     if(type==='sites'){
-      value.platform=!value.id.startsWith('office-')&&$('siteDialog')?.open?$('sitePlatform').value.trim():(value.platform||'');
-      if(!value.id.startsWith('office-')&&$('siteDialog')?.open)value.schedule=OrgUI.readSiteSchedule();
+      value.platform=$('siteDialog')?.open?$('sitePlatform').value.trim():(value.platform||'');
+      if($('siteDialog')?.open)value.schedule=OrgUI.readSiteSchedule();
     }
     if(type==='members'){
-      const site=state.sites.find(s=>s.id===value.siteId)||await getOne('sites',value.siteId);value.platform=site?.platform||value.platform||'';
+      const site=value.siteId?(state.sites.find(s=>s.id===value.siteId)||await getOne('sites',value.siteId)):null;value.platform=site?.platform||value.platform||'';
     }
     if(type!=='schedules'){
       if(!value.platform)throw Error('Business platform is required.');
       if(!TIPONOrgCore.inScope(u,value))throw Error('Use your approved cooperative and business platform.');
     }
     if(value.deleted&&!(isAdmin()||u.role==='registrar'&&(type==='members'&&old?.createdBy===u.id||type==='sites'&&old&&TIPONOrgCore.inScope(u,old))))throw Error('Only the administrator or record creator can delete this record.');
+    if(type==='members'||type==='sites'){delete value.officeId;delete value.satelliteOffice;}
     const wire={...value};delete wire._pendingOp;delete wire._row;
     if(type==='members'){
       const hasFace=Array.isArray(value.descriptors)&&value.descriptors.length>=3;
@@ -72,20 +73,13 @@ loadCollections=async function(){
   state.punches=allPunches.filter(x=>belongs(x)&&(u?.role==='admin'||u&&TIPONOrgCore.inScope(u,{...x,platform:x.platform||allSites.find(s=>s.id===x.siteId)?.platform}))).sort((a,b)=>Date.parse(b.timestamp)-Date.parse(a.timestamp));
   state.schedules=schedules.filter(x=>belongs(x)&&!x.deleted);state.users=[];
 };
-loadOfficeDirectory=async function(){
-  const local=await getAll('offices'),legacy=await getOne('meta','officeCatalogueV4');
-  const values=new Map(TIPON_OFFICE_DATA.entries.map(x=>[x.id,{...x,origin:'Official-source reference'}]));
-  for(const v of legacy?.entries||[])values.set(v.id,v);
-  for(const v of local)if(!v.orgId||v.orgId===state.orgId)values.set(v.id,v);
-  const u=state.user;state.offices=[...values.values()].filter(x=>!x.deleted&&(!u||u.role==='admin'||u.role==='registrar'&&x.coop===u.coop||u.role==='kiosk'&&state.sites.some(s=>s.officeId===x.id)));
-};
 enterApp=async function(){
   const bound=await getOne('meta','tp5-boundOrganization');
   if(bound&&bound.orgId!==state.orgId)throw Error('This browser profile already belongs to another organization. Use a separate browser profile; do not overwrite its data.');
   if(!bound)await OrgDB.rawSave('meta',{id:'tp5-boundOrganization',orgId:state.orgId});
   $('appShell').hidden=false;$('mobileNav').hidden=state.user?.role==='kiosk';
   setText('sidebarUserName',state.user.name);setText('sidebarUserRole',roleName(state.user.role));setText('avatarLetter',initial(state.user.name));setText('greetingName',state.user.name.split(' ')[0]);
-  await loadCollections();await loadOfficeDirectory();await TIPONPlatforms.load();fillCoopSelect('memberCoop');
+  await loadCollections();await TIPONPlatforms.load();fillCoopSelect('memberCoop');
   const savedPage=await getOne('meta','tp5-last-page:'+state.user.id),defaultPage=isAdmin()?'dashboard':TIPONOrgCore.canUseTerminal(state.user)?'scanner':'members';
   const startPage=savedPage?.page&&TIPONOrgCore.allowed(state.user,savedPage.page)&&(savedPage.page!=='scanner'||hasTerminalSession())?savedPage.page:defaultPage;
   applyRoles();await showPage(startPage);refreshClock();await checkOfflineReady();
@@ -122,12 +116,12 @@ applyRoles=function(){
   ['importBackup','exportBackup'].forEach(id=>{if($(id))$(id).hidden=!isAdmin();});
 };
 const originalShowPage=showPage;
-Object.assign(pageNames,{accounts:'Accounts & devices',reports:'Upload members & offices',members:'Member list'});
+Object.assign(pageNames,{accounts:'Accounts & devices',members:'Member list'});
 function refreshWorkspaceViews(){
  if(!state.user)return;
  if(state.page==='terminalLogs'||state.page==='records')renderTerminalLogs();
  if(state.page==='members')renderMembers();
- if(state.page==='sites'){renderSites();if(typeof renderOfficeDirectory==='function')renderOfficeDirectory();}
+ if(state.page==='sites')renderSites();
 }
 window.addEventListener('tipon:workspace-data-updated',refreshWorkspaceViews);
 showPage=async function(page){
@@ -139,8 +133,8 @@ showPage=async function(page){
 const originalOpenMember=openMemberForm,originalOpenSite=openSiteForm;
 openMemberForm=function(member){if(!canEdit())return;originalOpenMember(member);if(state.user.role==='registrar'){$('memberCoop').value=state.user.coop;$('memberCoop').disabled=true;fillMemberSites(member?.siteIds||member?.siteId);}else $('memberCoop').disabled=false;};
 openSiteForm=function(site){if(!canEdit())return;originalOpenSite(site);TIPONPlatforms.fill('sitePlatform',site?.platform||(state.user.role==='registrar'?state.user.platform:''));
-  $('siteCoop').disabled=state.user.role==='registrar';$('sitePlatform').disabled=state.user.role==='registrar';if(state.user.role==='registrar'){$('siteCoop').value=state.user.coop;fillSiteOffices(site?.officeId);}
-  fillSiteOffices(site?.officeId);const plan=site?.schedule||{};$('siteScheduleEnabled').checked=!!plan.enabled;$('siteShiftStart').value=plan.start||'06:00';$('siteShiftEnd').value=plan.end||'15:00';$('siteGrace').value=plan.grace||0;
+  $('siteCoop').disabled=state.user.role==='registrar';$('sitePlatform').disabled=state.user.role==='registrar';if(state.user.role==='registrar')$('siteCoop').value=state.user.coop;
+  const plan=site?.schedule||{};$('siteScheduleEnabled').checked=!!plan.enabled;$('siteShiftStart').value=plan.start||'06:00';$('siteShiftEnd').value=plan.end||'15:00';$('siteGrace').value=plan.grace||0;
   document.querySelectorAll('[name="siteWorkDay"]').forEach(x=>x.checked=(plan.days||[1,2,3,4,5,6]).includes(Number(x.value)));
 };
 const oldRenderMembers=renderMembers,oldRenderSites=renderSites;
@@ -231,34 +225,15 @@ window.OrgUI=(()=>{
       if(data.orgId&&data.orgId!==state.orgId)throw Error('Backup belongs to another organization.');
       if(!await confirmAction('Merge device backup?','Existing record IDs are retained. Accounts, credentials and server settings will not be restored. Restored records may need migration/sync.'))return;
       for(const type of ['members','sites','offices','punches','schedules','outbox'])for(const item of data[type]||[]){if(!item.id||await getOne(type,item.id))continue;const clean={...item};await OrgDB.rawSave(type,clean);}
-      await loadCollections();await loadOfficeDirectory();showToast('Backup merged without overwriting existing IDs. Review before syncing.','success');
+      await loadCollections();showToast('Backup merged without overwriting existing IDs. Review before syncing.','success');
     }catch(e){toastError(e,'Restore');}
   }
-  async function migrateLegacy(){
-    if(!isAdmin())return;const bp=$('migrationPlatform').value.trim();
-    if(!bp){showToast('Enter the approved business platform for the local legacy data.','error');return;}
-    if(!$('migrationConfirm').checked){showToast('Confirm the biometric sync notice and the reused worksite GPS coordinates first.','error');return;}
-    if(!await confirmAction('Migrate local v4 records?', 'This uploads old attendance plus encrypted numeric face templates after sync. Existing worksite coordinates will be retained; generated office entries use those worksite coordinates, NOT a guessed head-office address. Review every migrated office.'))return;
-    try{
-      const oldSites=(await getAll('sites')).filter(x=>!x.orgId&&!x.deleted);
-      for(const s of oldSites){
-        const office={id:'migrated-office-'+s.id,name:s.satelliteOffice||s.name,coop:s.coop,platform:bp,address:s.address||s.name,lat:s.lat,lng:s.lng,radius:s.radius,userConfirmed:true,source:'Legacy worksite point; verify actual office address',type:'Migrated worksite office point'};
-        await saveOne('offices',office);await saveOne('sites',{...s,officeId:office.id,satelliteOffice:office.name,platform:bp,schedule:{enabled:false}});
-      }
-      await loadCollections();await loadOfficeDirectory();
-      for(const m of (await getAll('members')).filter(x=>!x.orgId&&!x.deleted))await saveOne('members',m);
-      for(const p of (await getAll('punches')).filter(x=>!x.orgId))await OrgDB.rawSave('punches',{...p,orgId:state.orgId,siteRev:0,cloudAck:false,deviceId:p.deviceId||state.deviceId});
-      await loadCollections();renderDashboard();showToast('Legacy data queued. Confirm migrated offices, then keep this app open until acknowledged.','success',10000);TIPONSync.kick();
-    }catch(e){toastError(e,'Migration paused; completed local steps were retained');}
-  }
+  async function migrateLegacy(){if(isAdmin())showToast('Legacy records remain saved; coordinate a reviewed migration of work locations without satellite-office records.','info',9000);}
   function bind(){
     bindRegistryUploads();
     ['registerCoop','dashboardCoop','reportCoop'].forEach(id=>fillCoopSelect(id,['dashboardCoop','reportCoop'].includes(id)));
     ['dashboardDay','dashboardCoop','presenceFilter'].forEach(id=>attach(id,'change',renderMpc));attach('dashboardRefresh','click',()=>TIPONSync.kick());attach('dashboardResetFilters','click',()=>{$('dashboardCoop').value='';$('presenceFilter').value='';renderMpc();});
     ['reportFrom','reportTo','reportCoop'].forEach(id=>attach(id,'change',renderReports));
-    attach('sitePlatform','change',()=>fillSiteOffices());
-    attach('importOffices','click',()=>$('officeCsvFile').click());attach('officeCsvFile','change',importOfficeCSV);
-    attach('officeCsvTemplate','click',()=>downloadBlob('TIPON_Office_Masterlist_Template.csv',new Blob(['\uFEFF'+window.TIPON_OFFICE_CSV_HEADERS.join(',')+'\r\n'],{type:'text/csv;charset=utf-8'})));
     attach('refreshAccounts','click',renderAccounts);
     attach('accountRows','click',async e=>{
       const del=e.target.closest('[data-account-delete]');
@@ -284,83 +259,59 @@ window.OrgUI=(()=>{
   return {bind,readSiteSchedule,renderMpc,renderReports,renderAccounts,renderSettings,renderQueue,csv};
 })();
 function fillCoopSelect(id,allowAll=false){const el=$(id);if(!el)return;const old=el.value,options=TIPONOrgCore.COOPS;el.innerHTML=(allowAll?'<option value="">All cooperatives</option>':'<option value="">Select cooperative</option>')+options.map(name=>'<option value="'+esc(name)+'">'+esc(name)+'</option>').join('');if(options.includes(old))el.value=old;}
-window.TIPON_OFFICE_CSV_HEADERS=Object.freeze(['Cooperative','Business platform','Office','Address','Latitude','Longitude','Radius','Approval reference']);
-function parseOfficeCSV(text){
+function parseMemberCSV(text){
  const rows=[];let row=[],cell='',quoted=false;
- for(let i=0;i<text.length;i++){const ch=text[i];if(ch==='"'){if(quoted&&text[i+1]==='"'){cell+='"';i++;}else quoted=!quoted;}else if(ch===','&&!quoted){row.push(cell);cell='';}else if((ch==='\n'||ch==='\r')&&!quoted){if(ch==='\r'&&text[i+1]==='\n')i++;row.push(cell);if(row.some(v=>v.trim()))rows.push(row);row=[];cell='';}else cell+=ch;}
- if(quoted)throw Error('CSV contains an unclosed quote.');row.push(cell);if(row.some(v=>v.trim()))rows.push(row);return rows;
+ for(let i=0;i<text.length;i++){const ch=text[i];
+  if(ch==='"'){if(quoted&&text[i+1]==='"'){cell+='"';i++;}else quoted=!quoted;}
+  else if(ch===','&&!quoted){row.push(cell);cell='';}
+  else if((ch==='\n'||ch==='\r')&&!quoted){if(ch==='\r'&&text[i+1]==='\n')i++;row.push(cell);if(row.some(v=>v.trim()))rows.push(row);row=[];cell='';}else cell+=ch;
+ }
+ if(quoted)throw Error('CSV has an unclosed quote.');
+ row.push(cell);if(row.some(v=>v.trim()))rows.push(row);return rows;
 }
-/* Approved office CSV import writes the same durable, scoped queue as the form. */
-async function importOfficeCSV(event){
- const file=event.target.files?.[0];event.target.value='';if(!file||!isAdmin())return;
- const headers=window.TIPON_OFFICE_CSV_HEADERS;
- try{if(file.size>1000000)throw Error('Office CSV limit is 1 MB.');const rows=parseOfficeCSV((await file.text()).replace(/^\uFEFF/,''));if(JSON.stringify(rows[0])!==JSON.stringify(headers))throw Error('Use the v5 office template with eight columns.');if(rows.length<2||rows.length>501)throw Error('Import 1 to 500 offices at a time.');
-  const keys=new Set(),items=rows.slice(1).map((r,i)=>{if(r.length!==8)throw Error('Wrong field count on row '+(i+2));const [coop,platform,name,address,a,b,c,source]=r.map(x=>x.trim()),lat=Number(a),lng=Number(b),radius=Number(c);if(!TIPONOrgCore.COOPS.includes(coop)||!platform||!name||!address||!source||!a||!b||!Number.isFinite(lat)||Math.abs(lat)>90||!Number.isFinite(lng)||Math.abs(lng)>180||radius<20||radius>2000)throw Error('Invalid office / actual GPS / approval reference on row '+(i+2));const key=coop+'|'+platform+'|'+name.toLowerCase();if(keys.has(key))throw Error('Duplicate office: '+name);keys.add(key);const old=state.offices.find(o=>o.coop===coop&&o.platform===platform&&o.name.toLowerCase()===name.toLowerCase());return {id:old?.id||uuid(),coop,platform,name,address,lat,lng,radius,source,userConfirmed:true,type:'Approved organization office',confirmedAt:new Date().toISOString()};});
-  if(!await confirmAction('Import approved office coordinates?',items.length+' offices will be saved and queued. Existing worksites and historical attendance are not changed.'))return;
-  for(const row of items)await saveOne('offices',row);await loadOfficeDirectory();renderOfficeDirectory();showToast(items.length+' offices queued. Add matching work locations before member enrollment.','success');
- }catch(e){toastError(e,'Office import paused; completed rows retained');}
-};
-
-const originalFillSiteOffices=fillSiteOffices;
-fillSiteOffices=function(preferred){
- const coop=$('siteCoop').value,platform=$('sitePlatform')?.value.trim();
- const rows=state.offices.filter(o=>o.coop===coop&&(!o.orgId||o.orgId===state.orgId)&&(!platform||!o.platform||TIPONOrgCore.platformKey(o.platform)===TIPONOrgCore.platformKey(platform)));
- $('siteOffice').innerHTML='<option value="">Select approved satellite office</option>'+rows.map(o=>`<option value="${esc(o.id)}">${esc(o.name)} / ${esc(o.platform)}</option>`).join('');
- if(rows.some(o=>o.id===preferred))$('siteOffice').value=preferred;
- setText('siteOfficeHint','Select an office from the approved reference list. Add missing offices using the approved masterlist import.');
-};
-
 window.addEventListener('DOMContentLoaded',()=>{
  if(typeof enterApp==='function'&&typeof TIPONAuth!=='undefined')window.TIPONWorkspaceEnter=()=>enterApp();
 },{once:true});
 
 /* Registry CSV uploads: validate the complete file before enqueueing rows. */
-const TIPON_MEMBER_CSV_HEADERS=['Member ID','Full name','Cooperative','Business platform','Satellite office','Assigned location'];
-function prepareMemberImport(rows,existing,sites,offices){
- if(JSON.stringify(rows[0])!==JSON.stringify(TIPON_MEMBER_CSV_HEADERS))throw Error('Use the member template with its six original column headings.');
- if(rows.length<2||rows.length>501)throw Error('Upload 1 to 500 members per file.');
- const ids=new Set(existing.map(m=>String(m.id).toLowerCase()));
+const TIPON_MEMBER_CSV_HEADERS=['Member ID','Full name','Cooperative','Business platform'];
+function prepareMemberImport(rows,existing){
+ if(JSON.stringify(rows[0])!==JSON.stringify(TIPON_MEMBER_CSV_HEADERS))throw Error('Download the latest four-column member template from Member List.');
+ if(rows.length<2||rows.length>501)throw Error('Upload 1–500 members per file.');
+ const ids=new Set(existing.filter(m=>!m.deleted).map(m=>String(m.id).trim().toLowerCase()));
  return rows.slice(1).map((r,i)=>{
-  const line=i+2;
-  if(r.length!==6)throw Error('Row '+line+': expected six columns.');
-  const [id,name,coop,platform,officeName,assigned]=r.map(v=>v.trim());
-  if(!id||!name||!platform||!officeName||!assigned||id.length>80||name.length>120||!TIPONOrgCore.COOPS.includes(coop))throw Error('Row '+line+': complete all fields with a valid cooperative.');
-  if(ids.has(id.toLowerCase()))throw Error('Row '+line+': Member ID already exists or is duplicated: '+id);
-  ids.add(id.toLowerCase());
-  const officesFound=offices.filter(x=>!x.deleted&&x.coop===coop&&TIPONOrgCore.platformKey(x.platform)===TIPONOrgCore.platformKey(platform)&&x.name===officeName);
-  if(officesFound.length!==1)throw Error('Row '+line+': satellite office must match exactly one configured office.');
-  const names=[...new Set(assigned.split('|').map(x=>x.trim()).filter(Boolean))];
-  if(!names.length)throw Error('Row '+line+': assigned location is required.');
-  const selected=names.map(n=>{
-   const found=sites.filter(s=>!s.deleted&&s.coop===coop&&TIPONOrgCore.platformKey(s.platform)===TIPONOrgCore.platformKey(platform)&&s.officeId===officesFound[0].id&&s.name===n);
-   if(found.length!==1)throw Error('Row '+line+': location "'+n+'" must match exactly one work location under that office.');
-   return found[0];
-  });
-  return {id,name,coop,platform,siteId:selected[0].id,siteIds:selected.map(s=>s.id),satelliteOffice:officeName,active:false,importPending:true,importedWithoutFace:true,faceEnrollmentStatus:'pending',createdAt:new Date().toISOString()};
+  const row=i+2;if(r.length!==4)throw Error('Row '+row+' must contain Member ID, Full name, Cooperative, Business platform only.');
+  const [id,name,coop,platform]=r.map(v=>String(v||'').trim());
+  if(!id||!name||!platform||id.length>80||name.length>120||!TIPONOrgCore.COOPS.includes(coop))throw Error('Row '+row+': invalid member ID/name/cooperative/platform.');
+  if(ids.has(id.toLowerCase()))throw Error('Row '+row+': duplicate Member ID '+id+'. Use Edit.');
+  ids.add(id.toLowerCase());return {id,name,coop,platform};
  });
 }
 async function importMemberCSV(event){
  const file=event.target.files?.[0];event.target.value='';if(!file||!isAdmin())return;
- let saved=0;
- const button=$('uploadMemberButton');button.disabled=true;
+ const button=$('uploadMemberButton');button.disabled=true;let total=0;
  try{
+  if(!navigator.onLine)throw Error('Connect to the internet to import members to the shared database.');
   if(file.size>1000000)throw Error('CSV limit is 1 MB.');
-  const rows=parseOfficeCSV((await file.text()).replace(/^\uFEFF/,''));
-  const items=prepareMemberImport(rows,await getAll('members'),state.sites,state.offices);
-  if(!await confirmAction('Register '+items.length+' members?', 'These members will be queued without biometric templates. Users in the matching cooperative and business platform will complete face enrollment after synchronization.'))return;
-  for(const item of items){await saveOne('members',item);saved++;}
-  await loadCollections();renderMembers();renderDashboard();
-  setText('memberUploadStatus',saved+' members saved locally and queued for sync. Face enrollment: Not enrolled. Check Settings for server acknowledgement.');
-  showToast(saved+' members queued.','success');
- }catch(err){setText('memberUploadStatus',saved+' rows saved. '+err.message);toastError(err,'Member upload');}
- finally{button.disabled=false;}
+  const members=prepareMemberImport(parseMemberCSV((await file.text()).replace(/^\uFEFF/,'')),await getAll('members'));
+  if(!await confirmAction('Upload '+members.length+' members?', 'Members are registered without a work location or face template. An authorized User assigns the location during enrollment.'))return;
+  for(let n=0;n<members.length;n+=20){
+   const result=await TIPONAPI.call({action:'adminMemberImport',rows:members.slice(n,n+20)});
+   if(typeof result.added!=='number')throw Error('Server did not acknowledge member import.');
+   total+=result.added;setText('memberUploadStatus',total+' members accepted by the central database. Syncing...');
+  }
+  await TIPONSync.run();TIPONSync.kick();await loadCollections();renderMembers();renderDashboard();
+  setText('memberUploadStatus',total+' uploaded. NOT ENROLLED; the User assigns a work location.');
+  showToast(total+' members uploaded.','success');
+ }catch(error){
+  const message=/Unknown action|office required|work location not found/i.test(error.message||'')
+   ?'Deploy the matching updated Apps Script Code.gs and OrgCore.gs to enable four-column imports.':error.message;
+  setText('memberUploadStatus',total+' previously accepted. '+message);showToast(message,'error',9000);
+ }finally{button.disabled=false;}
 }
 function bindRegistryUploads(){
  const download=(name,headers)=>downloadBlob(name,new Blob(['\uFEFF'+headers.join(',')+'\r\n'],{type:'text/csv;charset=utf-8'}));
  attach('uploadMemberTemplate','click',()=>download('TIPON_Member_Upload_Template.csv',TIPON_MEMBER_CSV_HEADERS));
- attach('uploadOfficeTemplate','click',()=>download('TIPON_Satellite_Office_Template.csv',window.TIPON_OFFICE_CSV_HEADERS));
  attach('uploadMemberButton','click',()=>$('uploadMemberFile').click());
- attach('uploadOfficeButton','click',()=>$('uploadOfficeFile').click());
  attach('uploadMemberFile','change',importMemberCSV);
- attach('uploadOfficeFile','change',importOfficeCSV);
 }
