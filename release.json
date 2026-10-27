@@ -1,5 +1,5 @@
 {
   "app": "TIPON Face Attendance",
-  "version": "5.4.2",
-  "label": "Workspace attendance logs, faster face enrollment, required fields and correction safeguards"
+  "version": "5.4.3",
+  "label": "Restore workspace loading and refresh directories after sync"
 }
