@@ -260,7 +260,7 @@ window.OrgUI=(()=>{
     attach('migrateLegacy','click',migrateLegacy);
   }
   saveEncryptedBackup=backup;restoreEncryptedBackup=restore;
-  return {bind,readSiteSchedule,renderMpc,renderOverview,renderReports,renderAccounts,renderSettings,renderQueue,csv};
+  return {bind,readSiteSchedule,renderMpc,renderReports,renderAccounts,renderSettings,renderQueue,csv};
 })();
 function fillCoopSelect(id,allowAll=false){const el=$(id);if(!el)return;const old=el.value,options=TIPONOrgCore.COOPS;el.innerHTML=(allowAll?'<option value="">All cooperatives</option>':'<option value="">Select cooperative</option>')+options.map(name=>'<option value="'+esc(name)+'">'+esc(name)+'</option>').join('');if(options.includes(old))el.value=old;}
 window.TIPON_OFFICE_CSV_HEADERS=Object.freeze(['Cooperative','Business platform','Office','Address','Latitude','Longitude','Radius','Approval reference']);
