@@ -3,15 +3,15 @@
  */
 'use strict';
 window.TIPONPlatforms=(()=>{
-  const selectors=['sitePlatform','officePlatform','registerPlatform','migrationPlatform'];
+  const selectors=['sitePlatform','registerPlatform','migrationPlatform'];
   let target='',busy=false;
   function names(){
-    return TIPONOrgCore.platformNames([...(TIPONOrgCore.DEFAULT_PLATFORMS||[]),...(state.platforms||[]),...(state.sites||[]).map(s=>s.platform),...(state.offices||[]).filter(o=>o.orgId===state.orgId).map(o=>o.platform),state.user?.platform||'']);
+    return TIPONOrgCore.platformNames([...(TIPONOrgCore.DEFAULT_PLATFORMS||[]),...(state.platforms||[]),...(state.sites||[]).map(s=>s.platform),state.user?.platform||'']);
   }
   function fill(id,preferred){
     const el=$(id);if(!el)return;
     const value=preferred===undefined?el.value:String(preferred||'');
-    const scoped=state.user?.role==='registrar'&&['sitePlatform','officePlatform'].includes(id);
+    const scoped=state.user?.role==='registrar'&&['sitePlatform'].includes(id);
     const options=scoped?[state.user.platform]:TIPONOrgCore.platformNames([...names(),value]);
     const html='<option value="">Select business platform</option>'+options.filter(Boolean).map(n=>`<option value="${esc(n)}">${esc(n)}</option>`).join('');
     if(el.innerHTML!==html)el.innerHTML=html;el.disabled=scoped;
