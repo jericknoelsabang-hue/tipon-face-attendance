@@ -119,3 +119,6 @@ body:not([data-terminal-access="allowed"]) [data-terminal-only]{display:none!imp
 .coop-summary[data-coop="Gawa at Kalinga"] .coop-monogram{background-position:-640px -102px}
 .coop-summary[data-coop="Kaakbay sa Kinabukasan"] .coop-monogram{background-position:-768px -102px}
 .coop-summary[data-coop="Worklife"] .coop-monogram{background-position:-896px -102px}
+
+/* White outline follows the transparent cooperative logo artwork. */
+#coopDashboardCards .coop-summary[data-coop] .coop-monogram{filter:drop-shadow(1px 0 0 #fff) drop-shadow(-1px 0 0 #fff) drop-shadow(0 1px 0 #fff) drop-shadow(0 -1px 0 #fff)}
