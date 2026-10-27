@@ -93,7 +93,7 @@ function refreshClock(){const now=new Date();setText('liveDateTime',now.toLocale
 const pageNames={dashboard:'Dashboard',scanner:'Face terminal',terminalLogs:'Attendance logs',members:'Member registry',sites:'Work locations',records:'Attendance logs',settings:'Settings & offline'};
 async function showPage(page){
   if(!pageNames[page])return;
-  if(['members','sites'].includes(page)&&!canEdit())return;
+  if((page==='members'&&!canEdit()&&!isAdmin())||(page==='sites'&&!canEdit()))return;
   
   if(state.page==='scanner'&&page!=='scanner')await stopScanner();
   state.page=page;
