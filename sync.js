@@ -55,7 +55,10 @@ window.TIPONSync=(()=>{
   }
   async function pullCatalog(version){
     const cfgId='tp5-catalog:'+state.orgId+':'+state.user.id+':'+state.user.role+':v5.2-scope:'+String(state.user.version||1)+':'+(state.user.siteIds||[]).join(',');
-    const known=await getOne('meta',cfgId);if(known?.version===version)return;
+    const known=await getOne('meta',cfgId),localMembers=await getAll('members');
+    const hasUsableFaceCatalog=localMembers.some(m=>m.orgId===state.orgId&&!m.deleted&&m.active!==false&&m.template);
+    // A stale catalog marker must never make a fresh/cleared kiosk silently skip face templates.
+    if(known?.version===version&&hasUsableFaceCatalog)return;
     let cursor=0,startVersion=null,pages=0;
     do{
       const response=await TIPONAPI.call({action:'catalog',cursor});if(startVersion===null)startVersion=response.catalogVersion;
