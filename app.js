@@ -316,11 +316,18 @@ function fillLogFilter(id,values,placeholder){
  if(unique.includes(old))el.value=old;
 }
 function filteredTerminalLogRows(){
- const from=$('terminalLogFrom').value,to=$('terminalLogTo').value,coop=$('terminalLogCoop').value,platform=$('terminalLogPlatform').value,siteId=$('terminalLogSite').value;
+ const from=$('terminalLogFrom').value,to=$('terminalLogTo').value,
+  siteId=$('terminalLogSite').value,admin=isAdmin();
+ const coop=admin?$('terminalLogCoop').value:'',platform=admin?$('terminalLogPlatform').value:'';
  if(from&&to&&from>to)throw Error('From date must not be after To date.');
  return TIPONOrgCore.project(state.punches.filter(p=>!p.reviewStatus)).filter(r=>{
   const stamp=r.timeIn||r.timeOut,day=TIPONCore.phStamp(stamp).slice(0,10);
-  return (!from||day>=from)&&(!to||day<=to)&&(!coop||r.coop===coop)&&(!platform||TIPONOrgCore.platformKey(r.platform)===TIPONOrgCore.platformKey(platform))&&(!siteId||r.siteId===siteId);
+  // A hidden filter must never expand data beyond the authenticated User MPC/BP
+  // or a Physical Kiosk's GPS-approved site list.
+  const allowed=admin||TIPONOrgCore.inScope(state.user,r);
+  return allowed&&(!from||day>=from)&&(!to||day<=to)&&
+   (!coop||r.coop===coop)&&(!platform||TIPONOrgCore.platformKey(r.platform)===TIPONOrgCore.platformKey(platform))&&
+   (!siteId||r.siteId===siteId);
  });
 }
 function canCorrectAttendance(){const u=state.user,a=window.TIPONAuth?.current();return !!u&&!!a&&a.account?.id===u.id&&a.orgId===state.orgId&&a.offlineUntil>Date.now()&&(isAdmin()||(u.role==='registrar'&&['supervisor','member supervisor'].includes(String(u.position||'').trim().toLowerCase())));}
@@ -328,20 +335,37 @@ function attendanceAccountLabel(row){const ids=row.eventIds||[],uuidPattern=/^[0
 function renderTerminalLogs(){
  if(!$('terminalLogRows'))return;
  if(state.page==='terminalLogs')$('page-terminalLogs').appendChild($('terminalLogPanel'));
- const adminActions=false;
  const sites=[...state.sites],events=state.punches;
- fillLogFilter('terminalLogCoop',[...state.members.map(m=>m.coop),...events.map(p=>p.coop)],'All cooperatives');
- fillLogFilter('terminalLogPlatform',[...state.members.map(m=>m.platform),...sites.map(s=>s.platform),...events.map(p=>p.platform)],'All business platforms');
- fillLogFilter('terminalLogSite',[...sites.map(s=>s.id+'|'+s.name),...events.map(p=>(p.siteId||'')+'|'+(p.siteName||''))].map(x=>x.split('|')[0]+'|'+x.split('|').slice(1).join('|')),'All work locations');
- const siteSelect=$('terminalLogSite'),old=siteSelect.value;
- const siteMap=new Map([...sites.map(s=>[s.id,s.name]),...events.filter(p=>p.siteId).map(p=>[p.siteId,p.siteName])]);
- siteSelect.innerHTML='<option value="">All work locations</option>'+[...siteMap].map(([id,name])=>'<option value="'+esc(id)+'">'+esc(name)+'</option>').join('');
- if(siteMap.has(old))siteSelect.value=old;
+ if(isAdmin()){
+  fillLogFilter('terminalLogCoop',[...state.members.map(m=>m.coop),...events.map(p=>p.coop)],'All cooperatives');
+  fillLogFilter('terminalLogPlatform',[...state.members.map(m=>m.platform),...sites.map(x=>x.platform),...events.map(p=>p.platform)],'All business platforms');
+ }else{
+  $('terminalLogCoop').value='';$('terminalLogPlatform').value='';
+ }
+ const selector=$('terminalLogSite'),selected=selector.value;
+ const sitesById=new Map([...sites.map(x=>[x.id,x.name]),...events.filter(p=>p.siteId).map(p=>[p.siteId,p.siteName])]);
+ selector.innerHTML='<option value="">All work locations</option>'+
+  [...sitesById].map(([id,name])=>'<option value="'+esc(id)+'">'+esc(name||id)+'</option>').join('');
+ if(sitesById.has(selected))selector.value=selected;
  try{
-  const rows=filteredTerminalLogRows(),table=TIPONExport.table(rows);
-
-  $('terminalLogRows').innerHTML=rows.length?rows.map(row=>'<tr><td>'+esc(row.memberId)+'</td><td>'+esc(TIPONCore.phStamp(row.timeIn||row.timeOut).slice(0,10))+'</td><td>'+esc(TIPONCore.phStamp(row.timeIn).slice(-8))+'</td><td>'+esc(TIPONCore.phStamp(row.timeOut).slice(-8))+'</td><td>'+esc(TIPONCore.phStamp(row.timeOut).slice(0,10))+'</td><td>'+esc(attendanceAccountLabel(row))+'</td>'+(adminActions?'<td><button class="tiny-button" data-attendance-edit="'+esc(row.key)+'" data-in="'+esc(TIPONCore.phStamp(row.timeIn).slice(0,16).replace(' ','T'))+'" data-out="'+esc(TIPONCore.phStamp(row.timeOut).slice(0,16).replace(' ','T'))+'"'+(canCorrectAttendance()?'':' disabled')+'>Edit</button></td>':'')+'</tr>').join(''):'<tr><td colspan="'+(adminActions?7:6)+'">No attendance records match these filters.</td></tr>';
- }catch(err){setText('terminalLogCount',err.message);$('terminalLogRows').innerHTML='<tr><td colspan="8">'+esc(err.message)+'</td></tr>';}
+  const rows=filteredTerminalLogRows();
+  $('terminalLogRows').innerHTML=rows.length?rows.map(row=>{
+   const location=row.location||sitesById.get(row.siteId)||'—';
+   const stamp=row.timeIn||row.timeOut;
+   const data=[
+    row.memberId,
+    stamp?TIPONCore.phStamp(stamp).slice(0,10):'—',
+    row.timeIn?TIPONCore.phStamp(row.timeIn).slice(-8):'—',
+    row.timeOut?TIPONCore.phStamp(row.timeOut).slice(-8):'—',
+    row.timeOut?TIPONCore.phStamp(row.timeOut).slice(0,10):'—',
+    row.coop||'—',row.platform||'—',location,attendanceAccountLabel(row)
+   ];
+   return '<tr>'+data.map(value=>'<td>'+esc(value)+'</td>').join('')+'</tr>';
+  }).join(''):'<tr><td colspan="9">No attendance records match these filters or your approved account scope.</td></tr>';
+ }catch(err){
+  setText('terminalLogCount',err.message);
+  $('terminalLogRows').innerHTML='<tr><td colspan="9">'+esc(err.message)+'</td></tr>';
+ }
 }
 async function exportTerminalLogs(){
  const btn=$('terminalLogExport');try{
