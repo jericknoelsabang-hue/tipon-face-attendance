@@ -202,7 +202,7 @@ window.OrgUI=(()=>{
     return '<b>'+esc(u.coop||'Not assigned')+'</b><small>'+esc(u.platform||'No business platform')+'</small>';
   }
   function accountIdentity(u){
-    return '<b>'+esc(u.name||u.username||'Unnamed account')+'</b><small>'+esc(u.username||'')+'</small>';
+    return '<b>'+esc(u.name||u.username||'Unnamed account')+'</b>';
   }
   function accountStatusBadge(u){
     const status=String(u.status||'unknown').toLowerCase();
@@ -228,7 +228,7 @@ window.OrgUI=(()=>{
     const pageRows=matched.slice(first,first+APPROVED_PAGE_SIZE);
     $('deviceRows').innerHTML=pageRows.map(u=>{
       const enabled=u.status==='active',nextStatus=enabled?'disabled':'active';
-      return '<tr><td>'+accountIdentity(u)+'</td><td>'+
+      return '<tr><td>'+accountIdentity(u)+'</td><td>'+esc(u.username||'')+'</td><td>'+
         esc(u.position||(u.role==='kiosk'?'Physical Kiosk':'Not specified'))+'</td><td>'+
         accountScope(u)+'</td><td>'+esc(roleName(u.role))+'</td><td>'+accountStatusBadge(u)+'</td>'+
         '<td><div class="account-row-actions">'+
@@ -236,7 +236,7 @@ window.OrgUI=(()=>{
         (enabled?'Disable':'Enable')+'</button>'+
         '<button class="tiny-button delete" data-approved-delete="'+esc(u.id)+'">Delete</button>'+
         '</div></td></tr>';
-    }).join('')||'<tr><td colspan="6"><div class="empty-state">No approved accounts match your search.</div></td></tr>';
+    }).join('')||'<tr><td colspan="7"><div class="empty-state">No approved accounts match your search.</div></td></tr>';
     setText('registeredDeviceCount',matched.length?
       'Showing '+(first+1)+'–'+(first+pageRows.length)+' of '+matched.length+' approved accounts':
       '0 approved accounts');
@@ -262,14 +262,14 @@ window.OrgUI=(()=>{
       }
       showToast('Account changes need internet. '+e.message,'info');
     }
-    $('accountRows').innerHTML=pendingAccounts().map(u=>'<tr><td>'+accountIdentity(u)+'</td>'+
+    $('accountRows').innerHTML=pendingAccounts().map(u=>'<tr><td>'+accountIdentity(u)+'</td><td>'+esc(u.username||'')+'</td>'+
       '<td>'+esc(u.position||(u.role==='kiosk'?'Physical Kiosk':'Not specified'))+'</td>'+
       '<td>'+accountScope(u)+'</td><td>'+esc(roleName(u.role))+'</td>'+
       '<td>'+accountStatusBadge(u)+'</td><td><div class="account-row-actions">'+
       '<button class="tiny-button" data-account-status="active" data-account-id="'+esc(u.id)+'">Approve</button>'+
       '<button class="tiny-button delete" data-account-delete="'+esc(u.id)+'">Delete</button>'+
       '</div></td></tr>').join('')||
-      '<tr><td colspan="6"><div class="empty-state">No registrations awaiting administrator approval.</div></td></tr>';
+      '<tr><td colspan="7"><div class="empty-state">No registrations awaiting administrator approval.</div></td></tr>';
     renderApprovedAccountTable();
   }
   let accountActionBusy=false;
