@@ -210,7 +210,7 @@ async function saveSiteForm(e){
  try{await saveOne('sites',site);await loadCollections();$('siteDialog').close();renderSites();renderDashboard();showToast('Work location saved.','success');}catch(err){toastError(err,'Cannot save location');}
 }
 async function handleSiteCardsClick(e){const edit=e.target.closest('[data-site-edit]');const del=e.target.closest('[data-site-delete]');if(edit){const site=state.sites.find(s=>s.id===edit.dataset.siteEdit);if(site)openSiteForm(site);}
- if(del){const site=state.sites.find(s=>s.id===del.dataset.siteDelete);if(!site)return;if(state.members.some(m=>m.siteId===site.id)){showToast('Reassign or delete enrolled members before deleting their site.','error');return;}const ok=await confirmAction('Delete work location',`Remove ${site.name} from this device?`);if(ok){await deleteOne('sites',site.id);await loadCollections();renderSites();showToast('Location removed.','success');}}}
+ if(del){const site=state.sites.find(s=>s.id===del.dataset.siteDelete);if(!site)return;if(state.members.some(m=>m.siteId===site.id||(m.siteIds||[]).includes(site.id))){showToast('Reassign or delete enrolled members before deleting their site.','error');return;}const ok=await confirmAction('Delete work location',`Delete ${site.name}? This change will sync to your organization.`);if(ok){await deleteOne('sites',site.id);await loadCollections();renderSites();showToast('Location removed.','success');}}}
 
 
 
