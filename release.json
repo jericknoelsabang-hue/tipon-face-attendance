@@ -1,5 +1,5 @@
 {
   "app": "TIPON Face Attendance",
-  "version": "5.4.26",
-  "label": "Member and satellite office CSV uploads, member list filters, attendance reset"
+  "version": "5.4.27",
+  "label": "Fix Administrator Member List navigation; preserve enrollment permissions"
 }
