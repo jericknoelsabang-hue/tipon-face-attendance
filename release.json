@@ -1,5 +1,5 @@
 {
   "app": "TIPON Face Attendance",
-  "version": "5.4.27",
-  "label": "Fix Administrator Member List navigation; preserve enrollment permissions"
+  "version": "5.4.28",
+  "label": "Administrator Member List Edit dialog, central save validation and protected face templates"
 }
