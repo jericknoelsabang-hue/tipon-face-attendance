@@ -42,8 +42,8 @@ function displayTime(value){return new Date(value).toLocaleTimeString('en-PH',{t
 function displayDate(value){return new Date(value).toLocaleDateString('en-PH',{timeZone:PH_TIMEZONE,month:'short',day:'numeric',year:'numeric'});}
 function displayStamp(value){return `${displayDate(value)} · ${displayTime(value)}`;}
 function distanceM(a,b,c,d){const R=6371000,rad=Math.PI/180,dl=(c-a)*rad,dn=(d-b)*rad,h=Math.sin(dl/2)**2+Math.cos(a*rad)*Math.cos(c*rad)*Math.sin(dn/2)**2;return 2*R*Math.asin(Math.min(1,Math.sqrt(h)));}
-function canEdit(){return false;}
-function isAdmin(){return false;}
+function canEdit(){return state.user?.role==='registrar'&&window.TIPONAuth?.current()?.offlineUntil>Date.now();}
+function isAdmin(){return state.user?.role==='admin';}
 // A screen role alone is insufficient: the current authenticated lease must
 // match the displayed account. Enrollment uses canEdit(), not this guard.
 function hasTerminalSession(){
@@ -255,6 +255,7 @@ function filteredTerminalLogRows(){
   return (!from||day>=from)&&(!to||day<=to)&&(!coop||r.coop===coop)&&(!platform||TIPONOrgCore.platformKey(r.platform)===TIPONOrgCore.platformKey(platform))&&(!siteId||r.siteId===siteId);
  });
 }
+function canCorrectAttendance(){const u=state.user,a=window.TIPONAuth?.current();return !!u&&!!a&&a.account?.id===u.id&&a.orgId===state.orgId&&a.offlineUntil>Date.now()&&(isAdmin()||(u.role==='registrar'&&['supervisor','member supervisor'].includes(String(u.position||'').trim().toLowerCase())));}
 function renderTerminalLogs(){
  if(!$('terminalLogRows'))return;
  const sites=[...state.sites],events=state.punches;
@@ -268,7 +269,7 @@ function renderTerminalLogs(){
  try{
   const rows=filteredTerminalLogRows(),table=TIPONExport.table(rows);
   setText('terminalLogCount',rows.length+' attendance session(s)');
-  $('terminalLogRows').innerHTML=rows.length?rows.map(row=>{const format=v=>v?new Date(Date.parse(v)+28800000).toISOString().slice(0,16):'';return '<tr><td>'+esc(row.memberId)+'</td><td>'+esc(TIPONCore.phStamp(row.timeIn||row.timeOut).slice(0,10))+'</td><td>'+esc(TIPONCore.phStamp(row.timeIn).slice(-8))+'</td><td>'+esc(TIPONCore.phStamp(row.timeOut).slice(-8))+'</td><td>'+esc(TIPONCore.phStamp(row.timeOut).slice(0,10))+'</td><td>'+(isAdmin()?'<button class="tiny-button" data-attendance-edit="'+esc(row.key)+'" data-in="'+esc(format(row.timeIn))+'" data-out="'+esc(format(row.timeOut))+'" type="button">Edit times</button>':'View only')+'</td></tr>';}).join(''):'<tr><td colspan="6">No attendance records match these filters.</td></tr>';
+  $('terminalLogRows').innerHTML=rows.length?rows.map(row=>{const format=v=>v?new Date(Date.parse(v)+28800000).toISOString().slice(0,16):'';return '<tr><td>'+esc(row.memberId)+'</td><td>'+esc(TIPONCore.phStamp(row.timeIn||row.timeOut).slice(0,10))+'</td><td>'+esc(TIPONCore.phStamp(row.timeIn).slice(-8))+'</td><td>'+esc(TIPONCore.phStamp(row.timeOut).slice(-8))+'</td><td>'+esc(TIPONCore.phStamp(row.timeOut).slice(0,10))+'</td><td>'+(canCorrectAttendance()?'<button class="tiny-button" data-attendance-edit="'+esc(row.key)+'" data-in="'+esc(format(row.timeIn))+'" data-out="'+esc(format(row.timeOut))+'" type="button">Edit times</button>':'View only')+'</td></tr>';}).join(''):'<tr><td colspan="6">No attendance records match these filters.</td></tr>';
  }catch(err){setText('terminalLogCount',err.message);$('terminalLogRows').innerHTML='<tr><td colspan="5">'+esc(err.message)+'</td></tr>';}
 }
 async function exportTerminalLogs(){
@@ -279,7 +280,7 @@ async function exportTerminalLogs(){
   showToast('Exported '+rows.length+' attendance session(s).','success');
  }catch(err){toastError(err,'Attendance export');}finally{btn.disabled=false;}
 }
-async function editAttendanceFromLog(e){const b=e.target.closest('[data-attendance-edit]');if(!b||!isAdmin())return;const row=TIPONOrgCore.project(state.punches.filter(p=>!p.reviewStatus)).find(x=>x.key===b.dataset.attendanceEdit);if(!row)return;const events=state.punches.filter(p=>row.eventIds.includes(p.id));if(events.some(p=>p.cloudAck||p._pendingOp||p.uploadPayload))return showToast('Synced or queued attendance is read-only. Use the approved server correction process.','error',8500);const reason=prompt('Correction reason (required):');if(!reason?.trim())return;const nextIn=prompt('Time In (local YYYY-MM-DDTHH:MM)',b.dataset.in),nextOut=prompt('Time Out (local YYYY-MM-DDTHH:MM)',b.dataset.out),valid=x=>!x||/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(x);if(nextIn===null||nextOut===null)return;if(!nextIn)return showToast('Time In is required.','error');if(!valid(nextIn)||!valid(nextOut))return showToast('Use YYYY-MM-DDTHH:MM format.','error');const iso=x=>x?new Date(x+':00+08:00').toISOString():'';const ti=iso(nextIn),to=iso(nextOut);if(ti&&to&&Date.parse(to)<Date.parse(ti))return showToast('Time Out must be after Time In.','error');if(!await confirmAction('Save attendance correction?',row.memberName+' · '+reason.trim()+' · This updates local unsynced punches and saves correction details.'))return;for(const p of events){const stamp=p.type==='IN'?ti:to;if(!stamp){await deleteOne('punches',p.id);continue;}p.timestamp=stamp;p.day=todayPH(new Date(stamp));delete p.uploadPayload;p.correctionReason=reason.trim();p.correctedAt=new Date().toISOString();p.correctedBy=state.user.username||state.user.id;await saveOne('punches',p);}await loadCollections();renderTerminalLogs();renderDashboard();TIPONSync.kick();showToast('Unsynced attendance correction saved.','success');}
+async function editAttendanceFromLog(e){const b=e.target.closest('[data-attendance-edit]');if(!b||!canCorrectAttendance())return;const row=TIPONOrgCore.project(state.punches.filter(p=>!p.reviewStatus)).find(x=>x.key===b.dataset.attendanceEdit);if(!row)return;const events=state.punches.filter(p=>row.eventIds.includes(p.id));if(events.some(p=>p.cloudAck||p._pendingOp||p.uploadPayload))return showToast('Synced or queued attendance is read-only. Use the approved server correction process.','error',8500);const reason=prompt('Correction reason (required):');if(!reason?.trim())return;const nextIn=prompt('Time In (local YYYY-MM-DDTHH:MM)',b.dataset.in),nextOut=prompt('Time Out (local YYYY-MM-DDTHH:MM)',b.dataset.out),valid=x=>!x||/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(x);if(nextIn===null||nextOut===null)return;if(!nextIn)return showToast('Time In is required.','error');if(!valid(nextIn)||!valid(nextOut))return showToast('Use YYYY-MM-DDTHH:MM format.','error');const iso=x=>x?new Date(x+':00+08:00').toISOString():'';const ti=iso(nextIn),to=iso(nextOut);if(ti&&to&&Date.parse(to)<Date.parse(ti))return showToast('Time Out must be after Time In.','error');if(!await confirmAction('Save attendance correction?',row.memberName+' · '+reason.trim()+' · This updates local unsynced punches and saves correction details.'))return;for(const p of events){const stamp=p.type==='IN'?ti:to;if(!stamp){await deleteOne('punches',p.id);continue;}p.timestamp=stamp;p.day=todayPH(new Date(stamp));delete p.uploadPayload;p.correctionReason=reason.trim();p.correctedAt=new Date().toISOString();p.correctedBy=state.user.username||state.user.id;await saveOne('punches',p);}await loadCollections();renderTerminalLogs();renderDashboard();TIPONSync.kick();showToast('Unsynced attendance correction saved.','success');}
 function loadScript(url,check){if(check())return Promise.resolve();return new Promise((resolve,reject)=>{const old=document.querySelector(`script[data-remote="${url}"]`);if(old)old.remove();const el=document.createElement('script');el.src=url;el.crossOrigin='anonymous';el.dataset.remote=url;el.onload=()=>resolve();el.onerror=()=>reject(Error(`Could not load ${url.split('/').pop()}. Download offline resources while connected.`));document.body.appendChild(el);});}
 async function exportExcel(){
  let data;try{data=filteredAttendanceRows();}catch(err){toastError(err,'Export');return;}
@@ -404,6 +405,8 @@ function commitPunch(punch,mode){return new Promise((resolve,reject)=>{
  const tx=db.transaction('punches','readwrite'),store=tx.objectStore('punches');let problem;
  const req=store.getAll();req.onsuccess=()=>{try{
    const previous=TIPONCore.normalize(req.result.filter(p=>(p.orgId===state.orgId||!p.orgId)&&!p.reviewStatus),state.deviceId);const action=TIPONCore.transition(previous,punch.memberId,mode,Date.parse(punch.timestamp),COOLDOWN_MS);
+   const attendanceDay=action.type==='OUT'?todayPH(new Date(action.last.timestamp)):todayPH(new Date(punch.timestamp));
+   if(previous.some(p=>String(p.memberId)===String(punch.memberId)&&p.siteId===punch.siteId&&p.type===action.type&&todayPH(new Date(p.timestamp))===attendanceDay))throw Error('Time '+action.type+' already recorded for this member at this location today.');
    punch.sessionId=action.type==='IN'?punch.id:action.last.sessionId;
    if(action.type==='OUT'){punch.siteName=action.last.siteName;punch.satelliteOffice=action.last.satelliteOffice||'';}
    store.add(punch);
