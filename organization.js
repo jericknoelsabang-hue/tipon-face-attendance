@@ -10,7 +10,13 @@ window.OrgDB=(()=>{
     if(!u||!(canEdit()||isAdmin())||!auth||auth.offlineUntil<Date.now())throw Error('A current approved enrollment/admin account is required.');
     if(type==='schedules'&&!isAdmin())throw Error('Only the administrator can change attendance schedules.');
     const old=await getOne(type,input.id);if(old?.orgId&&old.orgId!==state.orgId)throw Error('Record belongs to a different organization.');
-    if(old&&u.role==='registrar'&&old.createdBy!==u.id&&!((type==='sites'||type==='members'&&(old.importedWithoutFace===true||old.importPending===true&&!old.template))&&TIPONOrgCore.inScope(u,old)))throw Error('Only the creator or administrator can edit this record.');
+    if(old&&u.role==='registrar'&&old.createdBy!==u.id){
+      const canClaim=(type==='sites'||type==='members'&&(
+        old.importedWithoutFace===true||old.importPending===true&&!old.template||
+        old.workLocationReassignmentRequired===true
+      ))&&TIPONOrgCore.inScope(u,old);
+      if(!canClaim)throw Error('Only the creator or a User authorized for the new member scope can edit this record.');
+    }
     let opId=uuid();let existingOp;
     if(old?._pendingOp){existingOp=await getOne('outbox',old._pendingOp);if(existingOp?.everSent)throw Error('This record is waiting for server acknowledgement. Sync before editing it again.');opId=old._pendingOp;}
     const value={...old,...input,orgId:state.orgId,createdBy:old?.createdBy||u.id,updatedAt:new Date().toISOString(),rev:Number(old?.rev)||0};
@@ -40,6 +46,12 @@ window.OrgDB=(()=>{
         wire.faceEnrollmentStatus=value.faceEnrollmentStatus='enrolled';
         if(old&&!old.template&&(old.importPending===true||old.importedWithoutFace===true)){
           wire.createdBy=value.createdBy=u.id;
+        }
+        if(old?.workLocationReassignmentRequired===true){
+          // Transfer member enrollment ownership only to the authorized User
+          // who selected valid work locations in the newly assigned MPC/BP.
+          wire.createdBy=value.createdBy=u.id;
+          wire.workLocationReassignmentRequired=value.workLocationReassignmentRequired=false;
         }
       }else{
         // Uploaded members remain inactive until the authorized User completes face enrollment.
