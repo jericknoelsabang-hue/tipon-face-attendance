@@ -46,8 +46,9 @@ roleName=role=>({admin:'Administrator',registrar:'User',kiosk:'Physical Kiosk'}[
 loadCollections=async function(){
   const [allMembers,allSites,allPunches,schedules]=await Promise.all(['members','sites','punches','schedules'].map(getAll));
   const u=state.user,belongs=x=>x.orgId===state.orgId||(!x.orgId&&u?.role==='admin');
-  state.sites=allSites.filter(x=>!x.deleted&&belongs(x)&&(u?.role==='admin'||u&&TIPONOrgCore.inScope(u,x)));
-  state.members=allMembers.filter(x=>!x.deleted&&belongs(x)&&(u?.role==='admin'||u&&TIPONOrgCore.inScope(u,x)));
+  state.sites=allSites.filter(x=>!x.deleted&&belongs(x)&&(u?.role==='admin'||u?.role==='kiosk'||u&&TIPONOrgCore.inScope(u,x)));
+  // Physical kiosks identify members across the organization; assigned-office GPS is verified before recording.
+  state.members=allMembers.filter(x=>!x.deleted&&belongs(x)&&(u?.role==='admin'||u?.role==='kiosk'||u&&TIPONOrgCore.inScope(u,x)));
   for(const m of state.members){if(m.template&&!m.descriptors){try{m.descriptors=await TIPONAuth.unseal(m.template,TIPONAuth.current().faceKey,'member:'+m.id);}catch{m.descriptors=[];m.templateError='Face template could not be decrypted; re-enroll after review.';}}}
   state.punches=allPunches.filter(x=>belongs(x)&&(u?.role==='admin'||u&&TIPONOrgCore.inScope(u,{...x,platform:x.platform||allSites.find(s=>s.id===x.siteId)?.platform}))).sort((a,b)=>Date.parse(b.timestamp)-Date.parse(a.timestamp));
   state.schedules=schedules.filter(x=>belongs(x)&&!x.deleted);state.users=[];
