@@ -1,5 +1,5 @@
 {
   "app": "TIPON Face Attendance",
-  "version": "5.4.16",
-  "label": "Remove office directory subtitle"
+  "version": "5.4.17",
+  "label": "Creator delete button for unassigned work locations"
 }
