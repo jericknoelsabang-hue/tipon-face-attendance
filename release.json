@@ -1,5 +1,5 @@
 {
   "app": "TIPON Face Attendance",
-  "version": "5.5.7",
-  "label": "Admin User/Kiosk Edit, secure password reset, uppercase statuses, central member deletion and legacy delete recovery, near-live catalog reconciliation"
+  "version": "5.5.8",
+  "label": "GPS-only kiosk registration/edit; editable Admin member MPC/BP; scoped member/log visibility; attendance MPC/BP/work location columns; spoken Time In/Out and errors"
 }
