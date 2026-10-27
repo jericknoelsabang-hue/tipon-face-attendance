@@ -100,7 +100,7 @@ async function showPage(page){
   document.querySelectorAll('.page').forEach(section=>section.hidden=section.id!==`page-${page}`);
   document.querySelectorAll('[data-page]').forEach(button=>button.classList.toggle('active',button.dataset.page===page));
   setText('crumbTitle',pageNames[page]);window.scrollTo({top:0,behavior:'instant'});
-  if(page==='dashboard')renderDashboard();if(page==='scanner'){renderTerminal();if(!state.scanning)startScanner();}if(page==='terminalLogs')renderTerminalLogs();if(page==='members')renderMembers();if(page==='sites'){renderSites();renderOfficeDirectory();}if(page==='records')renderRecords();if(page==='settings')await checkOfflineReady();
+  if(page==='dashboard')renderDashboard();if(page==='scanner'){renderTerminal();if(!state.scanning)startScanner();}if(page==='terminalLogs')renderTerminalLogs();if(page==='members')renderMembers();if(page==='sites'){renderSites();if(typeof renderOfficeDirectory==='function')renderOfficeDirectory();}if(page==='records')renderRecords();if(page==='settings')await checkOfflineReady();
 }
 function renderDashboard(){const today=todayPH();const todayPunches=state.punches.filter(e=>e.day===today&&!e.reviewStatus);const present=new Set(todayPunches.filter(e=>e.type==='IN').map(e=>e.memberId));
  setText('metricMembers',state.members.length);setText('metricPresent',present.size);setText('metricPunches',todayPunches.length);setText('metricSites',state.sites.length);
