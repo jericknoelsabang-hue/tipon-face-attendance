@@ -1,5 +1,5 @@
 {
   "app": "TIPON Face Attendance",
-  "version": "5.4.28",
-  "label": "Administrator Member List Edit dialog, central save validation and protected face templates"
+  "version": "5.4.29",
+  "label": "Admin Member List Edit: member name and approved work locations, preserves biometric records"
 }
