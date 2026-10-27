@@ -114,12 +114,37 @@ function renderTerminal(){const d=state.lastGPS;
   setText('scannerModelState',state.modelReady?'AI: Loaded':'AI: Not loaded');
   $('terminalRecent').innerHTML=state.punches.length?state.punches.slice(0,4).map(e=>`<div class="mini-feed-item"><div class="initial-avatar">${esc(initial(e.memberName))}</div><div class="desc"><b>${esc(e.memberName)} <span class="badge ${e.type==='IN'?'green':'amber'}">${e.type}</span></b><small>${esc(displayStamp(e.timestamp))} · ${esc(e.siteName)}</small></div></div>`).join(''):`<div class="empty-state">No check-ins yet</div>`;
 }
-function updateScanResult(title,detail,kind='neutral'){const el=$('scanResult');if(!el)return;el.className=`scan-message ${kind}`;el.innerHTML=`${pageIcon(kind==='success'?'check':kind==='error'?'alert':'scan')}<div><b>${esc(title)}</b><p>${esc(detail)}</p></div>`;}
+function updateScanResult(title,detail,kind='neutral'){const el=$('scanResult');if(!el)return;el.className=`scan-message ${kind}`;el.innerHTML=`${pageIcon(kind==='success'?'check':kind==='error'?'alert':'scan')}<div><b>${esc(title)}</b><p>${esc(detail)}</p></div>`;if(kind==='error'&&state.page==='scanner')speakTerminal(title+'. '+detail,'error',title);}
 
 let terminalAudio=null;
 function unlockTerminalAudio(){try{const C=window.AudioContext||window.webkitAudioContext;if(!C)return;terminalAudio||=new C();if(terminalAudio.state==='suspended')terminalAudio.resume().catch(()=>{});}catch{}}
 document.addEventListener('pointerdown',unlockTerminalAudio,{once:true});document.addEventListener('keydown',unlockTerminalAudio,{once:true});
 function playTerminalSound(kind='face'){try{const C=window.AudioContext||window.webkitAudioContext;if(!C)return;terminalAudio||=new C();if(terminalAudio.state==='suspended')terminalAudio.resume().catch(()=>{});const tones=kind==='success'?[880,1174.66]:kind==='error'?[440,329.63]:[659.25];tones.forEach((hz,i)=>{const t=terminalAudio.currentTime+i*.12,o=terminalAudio.createOscillator(),g=terminalAudio.createGain();o.type='sine';o.frequency.value=hz;g.gain.setValueAtTime(.0001,t);g.gain.exponentialRampToValueAtTime(.14,t+.015);g.gain.exponentialRampToValueAtTime(.0001,t+.12);o.connect(g);g.connect(terminalAudio.destination);o.start(t);o.stop(t+.13);});}catch{}}
+
+// Speak attendance confirmations and errors using the device/browser voice.
+// Continuous face-scan failures are throttled so they do not repeat each frame.
+const terminalSpeechHistory=new Map();
+let lastTerminalSpokenAt=0;
+function speakTerminal(text,kind='success',reason=''){
+ try{
+  if(state.page!=='scanner'||!window.speechSynthesis||typeof window.SpeechSynthesisUtterance!=='function')return false;
+  const message=String(text||'').replace(/[\x00-\x1f\x7f]+/g,' ').trim().slice(0,220);
+  if(!message)return false;
+  const now=Date.now(),key=(kind==='error'?'error:':'success:')+String(reason||message).slice(0,110);
+  const lastSame=terminalSpeechHistory.get(key)||0;
+  if(kind==='error'&&(now-lastSame<25000||now-lastTerminalSpokenAt<9000))return false;
+  if(kind!=='error'&&now-lastSame<5000)return false;
+  terminalSpeechHistory.set(key,now);lastTerminalSpokenAt=now;
+  if(terminalSpeechHistory.size>40){
+   for(const [k,t] of terminalSpeechHistory)if(now-t>60000)terminalSpeechHistory.delete(k);
+  }
+  const spoken=new window.SpeechSynthesisUtterance(message);
+  spoken.lang='en-PH';spoken.rate=0.95;spoken.pitch=1;spoken.volume=1;
+  window.speechSynthesis.cancel();
+  window.speechSynthesis.speak(spoken);
+  return true;
+ }catch(error){console.warn('Terminal speech unavailable',error);return false;}
+}
 
 // Member registry and assigned GPS work locations.
 function siteForMember(member){return state.sites.find(s=>s.id===member.siteId)||state.sites.find(s=>member.siteIds?.includes(s.id));}
@@ -460,8 +485,8 @@ async function scanTick(){if(!state.scanning)return;if(!hasTerminalSession()){aw
  finally{if(state.scanning&&state.scanRun===run)state.scanTimer=setTimeout(scanTick,SCAN_DELAY_MS);}
 }
 async function recordRecognizedFace(member,faceDistance){
- if(member.active===false||member.deleted){playTerminalSound('error');showToast('This member is inactive.','error');return;}
- if(!hasTerminalSession()){showToast('Sign in or authorize this kiosk again.','error');return;}
+ if(member.active===false||member.deleted){playTerminalSound('error');speakTerminal('Attendance error. This member is inactive.','error','inactive');showToast('This member is inactive.','error');return;}
+ if(!hasTerminalSession()){speakTerminal('Attendance error. Sign in or authorize this kiosk again.','error','session');showToast('Sign in or authorize this kiosk again.','error');return;}
  if(state.scanBusy)return;state.scanBusy=true;const mode=state.scanMode,run=state.scanRun,actorId=state.user.id;
  document.querySelectorAll('.mode-option').forEach(b=>b.disabled=true);
  try{
@@ -490,7 +515,7 @@ async function recordRecognizedFace(member,faceDistance){
     accuracy:gps.accuracy,distance,faceDistance,performedBy:state.user.username||state.user.name};
   await commitPunch(punch,mode);await loadCollections();renderTerminal();renderTerminalLogs();renderDashboard();
   updateScanResult(`TIME ${punch.type} saved`,`${member.name} | ${member.id} | ${site.name} | ${displayTime(stamp)}. Saved on this phone.`,'success');
-  playTerminalSound('success');showToast(`${member.name}: TIME ${punch.type} recorded.`,'success');
+  playTerminalSound('success');speakTerminal('Time '+(punch.type==='IN'?'in':'out')+' recorded for '+member.name+'.','success','punch:'+punch.id);showToast(`${member.name}: TIME ${punch.type} recorded.`,'success');
   if(navigator.vibrate){try{navigator.vibrate(80);}catch{}}
   if(window.TIPONSync)TIPONSync.kick();
  }catch(err){playTerminalSound('error');updateScanResult('Attendance NOT recorded',err.message,'error');showToast(err.message,'error',6500);}
