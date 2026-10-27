@@ -1,5 +1,5 @@
 {
   "app": "TIPON Face Attendance",
-  "version": "5.5.0",
-  "label": "4-field member CSV in Member List; User assigns GPS work location; location setup simplified"
+  "version": "5.5.1",
+  "label": "Admin login crash fix: backward-compatible dashboard and refreshed offline app cache"
 }
