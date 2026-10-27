@@ -213,7 +213,19 @@ async function handleSiteCardsClick(e){const edit=e.target.closest('[data-site-e
 
 
 
-function confirmAction(title,body){return new Promise(resolve=>{state.confirmResolver=resolve;setText('confirmTitle',title);setText('confirmBody',body);$('confirmDialog').showModal();});}
+function confirmAction(title,body){
+ return new Promise(resolve=>{
+  state.confirmResolver=resolve;
+  setText('confirmTitle',title);
+  setText('confirmBody',body);
+  const destructive=/^(?:delete|remove|replace|revoke)\b/i.test(String(title||''));
+  const confirmButton=$('confirmYes');
+  // Ordinary confirms (including member CSV upload) are green; destructive actions remain red.
+  confirmButton.classList.toggle('confirm-success',!destructive);
+  confirmButton.classList.toggle('danger-button',destructive);
+  $('confirmDialog').showModal();
+ });
+}
 function resolveConfirm(answer){if($('confirmDialog').open)$('confirmDialog').close();const r=state.confirmResolver;state.confirmResolver=null;if(r)r(answer);}
 
 // GPS reading on demand. Attendance *always* obtains a fresh reading at punch time.
@@ -554,6 +566,11 @@ function bindEvents(){
  attach('topStartScan','click',()=>showPage('scanner'));
  attach('memberSearch','input',renderMembers);
  ['memberFilterCoop','memberFilterPlatform','memberFilterOffice','memberFilterFace'].forEach(id=>attach(id,'change',renderMembers));
+ attach('memberResetFilters','click',()=>{
+  $('memberSearch').value='';
+  ['memberFilterCoop','memberFilterPlatform','memberFilterOffice','memberFilterFace'].forEach(id=>{$(id).value='';});
+  renderMembers();
+ });
  ['terminalLogFrom','terminalLogTo','terminalLogCoop','terminalLogPlatform','terminalLogSite'].forEach(id=>attach(id,'change',renderTerminalLogs));attach('terminalLogReset','click',()=>{['terminalLogFrom','terminalLogTo','terminalLogCoop','terminalLogPlatform','terminalLogSite'].forEach(id=>$(id).value='');renderTerminalLogs();});
  attach('terminalLogExport','click',exportTerminalLogs);attach('terminalLogSync','click',()=>TIPONSync.kick());
  attach('kioskFullscreen','click',async()=>{try{if(document.fullscreenElement){await document.exitFullscreen();return;}if(!document.documentElement.requestFullscreen)throw Error('Full screen is unavailable in this browser.');await document.documentElement.requestFullscreen();}catch(e){showToast(e.message,'error');}});
