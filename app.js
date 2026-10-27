@@ -17,7 +17,7 @@ const DB_NAME='tipon-face-local-v1';
 const DB_STORE=['users','members','sites','punches','meta','outbox','offices','schedules'];
 const MATCH_LIMIT=.60;
 const AMBIGUITY_GAP=.035;
-const SCAN_DELAY_MS=1100;
+const SCAN_DELAY_MS=650;
 const COOLDOWN_MS=90000;
 const GPS_MIN_RADIUS=20;
 const GPS_MAX_ACCURACY=80;
@@ -89,7 +89,7 @@ async function enterApp(){
 function applyRoles(){document.querySelectorAll('[data-roles]').forEach(el=>el.hidden=true);}
 function refreshClock(){const now=new Date();setText('liveDateTime',now.toLocaleString('en-PH',{timeZone:PH_TIMEZONE,weekday:'short',month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}));setText('bigDate',now.toLocaleDateString('en-PH',{timeZone:PH_TIMEZONE,weekday:'long',month:'short',day:'numeric',year:'numeric'}));const connected=navigator.onLine;setText('connectionText',connected?'Online / local storage':'Offline / local storage');setText('headerOnlineText',connected?'Network online':state.offlineReady?'Offline ready':'Offline / setup needed');$('onlineDot').className=`status-dot ${connected?'success':'offline'}`;$('headerOnlineDot').className=`status-dot ${connected?'success':'offline'}`;}
 
-const pageNames={dashboard:'Overview',scanner:'Face terminal',members:'Member registry',sites:'Work locations',records:'Attendance logs',settings:'Settings & offline'};
+const pageNames={dashboard:'Overview',scanner:'Face terminal',terminalLogs:'Attendance logs',members:'Member registry',sites:'Work locations',records:'Attendance logs',settings:'Settings & offline'};
 async function showPage(page){
   if(!pageNames[page])return;
   if(['members','sites'].includes(page)&&!canEdit())return;
@@ -99,7 +99,7 @@ async function showPage(page){
   document.querySelectorAll('.page').forEach(section=>section.hidden=section.id!==`page-${page}`);
   document.querySelectorAll('[data-page]').forEach(button=>button.classList.toggle('active',button.dataset.page===page));
   setText('crumbTitle',pageNames[page]);window.scrollTo({top:0,behavior:'instant'});
-  if(page==='dashboard')renderDashboard();if(page==='scanner'){renderTerminal();renderTerminalLogs();if(!state.scanning)startScanner();}if(page==='members')renderMembers();if(page==='sites'){renderSites();renderOfficeDirectory();}if(page==='records')renderRecords();if(page==='settings')await checkOfflineReady();
+  if(page==='dashboard')renderDashboard();if(page==='scanner'){renderTerminal();if(!state.scanning)startScanner();}if(page==='terminalLogs')renderTerminalLogs();if(page==='members')renderMembers();if(page==='sites'){renderSites();renderOfficeDirectory();}if(page==='records')renderRecords();if(page==='settings')await checkOfflineReady();
 }
 function renderDashboard(){const today=todayPH();const todayPunches=state.punches.filter(e=>e.day===today&&!e.reviewStatus);const present=new Set(todayPunches.filter(e=>e.type==='IN').map(e=>e.memberId));
  setText('metricMembers',state.members.length);setText('metricPresent',present.size);setText('metricPunches',todayPunches.length);setText('metricSites',state.sites.length);
@@ -267,7 +267,7 @@ function renderTerminalLogs(){
  try{
   const rows=filteredTerminalLogRows(),table=TIPONExport.table(rows);
   setText('terminalLogCount',rows.length+' attendance session(s)');
-  $('terminalLogRows').innerHTML=table.length>1?table.slice(1).map(row=>'<tr>'+row.map(v=>'<td>'+esc(v)+'</td>').join('')+'</tr>').join(''):'<tr><td colspan="5">No attendance records match these filters.</td></tr>';
+  $('terminalLogRows').innerHTML=rows.length?rows.map(row=>{const format=v=>v?new Date(Date.parse(v)+28800000).toISOString().slice(0,16):'';return '<tr><td>'+esc(row.memberId)+'</td><td>'+esc(TIPONCore.phStamp(row.timeIn||row.timeOut).slice(0,10))+'</td><td>'+esc(TIPONCore.phStamp(row.timeIn).slice(-8))+'</td><td>'+esc(TIPONCore.phStamp(row.timeOut).slice(-8))+'</td><td>'+esc(TIPONCore.phStamp(row.timeOut).slice(0,10))+'</td><td>'+(isAdmin()?'<button class="tiny-button" data-attendance-edit="'+esc(row.key)+'" data-in="'+esc(format(row.timeIn))+'" data-out="'+esc(format(row.timeOut))+'" type="button">Edit times</button>':'View only')+'</td></tr>';}).join(''):'<tr><td colspan="6">No attendance records match these filters.</td></tr>';
  }catch(err){setText('terminalLogCount',err.message);$('terminalLogRows').innerHTML='<tr><td colspan="5">'+esc(err.message)+'</td></tr>';}
 }
 async function exportTerminalLogs(){
@@ -278,6 +278,7 @@ async function exportTerminalLogs(){
   showToast('Exported '+rows.length+' attendance session(s).','success');
  }catch(err){toastError(err,'Attendance export');}finally{btn.disabled=false;}
 }
+async function editAttendanceFromLog(e){const b=e.target.closest('[data-attendance-edit]');if(!b||!isAdmin())return;const row=TIPONOrgCore.project(state.punches.filter(p=>!p.reviewStatus)).find(x=>x.key===b.dataset.attendanceEdit);if(!row)return;const events=state.punches.filter(p=>row.eventIds.includes(p.id));if(events.some(p=>p.cloudAck||p._pendingOp||p.uploadPayload))return showToast('Synced or queued attendance is read-only. Use the approved server correction process.','error',8500);const reason=prompt('Correction reason (required):');if(!reason?.trim())return;const nextIn=prompt('Time In (local YYYY-MM-DDTHH:MM)',b.dataset.in),nextOut=prompt('Time Out (local YYYY-MM-DDTHH:MM)',b.dataset.out),valid=x=>!x||/^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}$/.test(x);if(!valid(nextIn)||!valid(nextOut))return showToast('Use YYYY-MM-DDTHH:MM format.','error');const iso=x=>x?new Date(x+':00+08:00').toISOString():'';const ti=iso(nextIn),to=iso(nextOut);if(ti&&to&&Date.parse(to)<Date.parse(ti))return showToast('Time Out must be after Time In.','error');if(!await confirmAction('Save attendance correction?',row.memberName+' · '+reason.trim()+' · This updates local unsynced punches and saves correction details.'))return;for(const p of events){const stamp=p.type==='IN'?ti:to;if(!stamp){await deleteOne('punches',p.id);continue;}p.timestamp=stamp;p.day=todayPH(new Date(stamp));delete p.uploadPayload;p.correctionReason=reason.trim();p.correctedAt=new Date().toISOString();p.correctedBy=state.user.username||state.user.id;await saveOne('punches',p);}await loadCollections();renderTerminalLogs();renderDashboard();TIPONSync.kick();showToast('Unsynced attendance correction saved.','success');}
 function loadScript(url,check){if(check())return Promise.resolve();return new Promise((resolve,reject)=>{const old=document.querySelector(`script[data-remote="${url}"]`);if(old)old.remove();const el=document.createElement('script');el.src=url;el.crossOrigin='anonymous';el.dataset.remote=url;el.onload=()=>resolve();el.onerror=()=>reject(Error(`Could not load ${url.split('/').pop()}. Download offline resources while connected.`));document.body.appendChild(el);});}
 async function exportExcel(){
  let data;try{data=filteredAttendanceRows();}catch(err){toastError(err,'Export');return;}
@@ -352,13 +353,13 @@ async function scanTick(){if(!state.scanning)return;if(!hasTerminalSession()){aw
       if(!state.scanArmed){setText('cameraBottomTag','Scan checked. Move out of frame before trying again.');}
       else {
         if(state.scanCandidate===member.id)state.scanCandidateCount++;else {state.scanCandidate=member.id;state.scanCandidateCount=1;}
-        setText('cameraBottomTag',`Identifying: ${member.name}…`);
+        setText('cameraBottomTag',`Face detected: ${member.name}. Checking office GPS…`);
         if(state.scanCandidateCount>=2){state.scanArmed=false;state.lastRecognized=member.id;state.scanCandidate=null;state.scanCandidateCount=0;playTerminalSound('face');await recordRecognizedFace(member,found.best.distance);}
       }
     }
    }
   }
- }catch(e){console.error('Face recognition tick',e);updateScanResult('Camera processing issue',e.message,'error');}
+ }catch(e){console.error('Face recognition tick',e);playTerminalSound('error');updateScanResult('Camera processing issue',e.message,'error');}
  finally{if(state.scanning&&state.scanRun===run)state.scanTimer=setTimeout(scanTick,SCAN_DELAY_MS);}
 }
 async function recordRecognizedFace(member,faceDistance){
@@ -450,19 +451,19 @@ async function enrollTick(){if(!state.enrollActive)return;const run=state.enroll
        if(previous&&euclidean(previous,descriptor)<.035){
          setText('enrollStatus',state.enrollCollected.length===1?'Turn slightly left for a distinct sample.':'Turn slightly right for a distinct sample.');
        }else{
-         state.enrollCollected.push(descriptor);setText('enrollCount',`${state.enrollCollected.length} / 3 samples`);
+         state.enrollCollected.push(descriptor);playTerminalSound('success');setText('enrollCount',`${state.enrollCollected.length} / 3 samples`);
          setText('enrollStatus',state.enrollCollected.length===1?'Sample 1 saved. Turn slightly right.':state.enrollCollected.length===2?'Sample 2 saved. Look toward the camera again.':'3 samples collected.');
          $('enrollProgress').style.width=`${state.enrollCollected.length/3*100}%`;
          if(state.enrollCollected.length===3){
            state.pendingDescriptors=state.enrollCollected;setText('enrollFaceLabel','ENROLLED · 3 live samples ready to save');
-           showToast('Live face enrollment complete. Save the member record next.','success');await finishEnrollment(false);return;
+           playTerminalSound('success');showToast('Live face enrollment complete. Save the member record next.','success');await finishEnrollment(false);return;
          }
        }
      }
    }
   }
  }catch(err){setText('enrollStatus',`Recognition error: ${err.message}`);$('retryEnrollment').hidden=false;}
- if(state.enrollActive&&state.enrollRun===run)state.enrollTimer=setTimeout(enrollTick,950);
+ if(state.enrollActive&&state.enrollRun===run)state.enrollTimer=setTimeout(enrollTick,500);
 }
 async function stopEnrollment(keepOpen=false){state.enrollRun=(state.enrollRun||0)+1;state.enrollActive=false;if(state.enrollTimer){clearTimeout(state.enrollTimer);state.enrollTimer=null;}const v=$('enrollVideo');v.pause();v.srcObject=null;if(state.enrollStream){state.enrollStream.getTracks().forEach(x=>x.stop());state.enrollStream=null;}if(!keepOpen&&$('enrollDialog').open)$('enrollDialog').close();}
 async function finishEnrollment(cancel){await stopEnrollment();if(cancel)showToast('Face enrollment canceled. Previous samples, if any, were retained.');if(!$('memberDialog').open)$('memberDialog').showModal();}
@@ -538,7 +539,7 @@ function bindEvents(){
  attach('topStartScan','click',()=>showPage('scanner'));
  attach('memberSearch','input',renderMembers);
  ['memberFilterCoop','memberFilterPlatform','memberFilterOffice'].forEach(id=>attach(id,'change',renderMembers));
- ['terminalLogFrom','terminalLogTo','terminalLogCoop','terminalLogPlatform','terminalLogSite'].forEach(id=>attach(id,'change',renderTerminalLogs));
+ ['terminalLogFrom','terminalLogTo','terminalLogCoop','terminalLogPlatform','terminalLogSite'].forEach(id=>attach(id,'change',renderTerminalLogs));attach('terminalLogRows','click',editAttendanceFromLog);
  attach('terminalLogExport','click',exportTerminalLogs);attach('terminalLogSync','click',()=>TIPONSync.kick());
  attach('kioskFullscreen','click',async()=>{try{if(document.fullscreenElement){await document.exitFullscreen();return;}if(!document.documentElement.requestFullscreen)throw Error('Full screen is unavailable in this browser.');await document.documentElement.requestFullscreen();}catch(e){showToast(e.message,'error');}});
  document.addEventListener('fullscreenchange',()=>document.body.classList.toggle('terminal-fullscreen',!!document.fullscreenElement&&state.page==='scanner'));
