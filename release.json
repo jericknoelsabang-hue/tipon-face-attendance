@@ -1,5 +1,5 @@
 {
   "app": "TIPON Face Attendance",
-  "version": "5.5.2",
-  "label": "Member upload: detect old Apps Script and invalid Business Platforms before sending CSV"
+  "version": "5.5.3",
+  "label": "Member List Reset filters, clean Edit Member label, green non-destructive Confirm button"
 }
