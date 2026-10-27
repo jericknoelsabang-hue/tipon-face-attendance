@@ -133,7 +133,7 @@ filteredAttendanceRows=function(){
 };
 const originalDashboard=renderDashboard;
 renderDashboard=function(){
-  if(!isAdmin())return;originalDashboard();OrgUI.renderMpc();
+  if(!isAdmin())return;OrgUI.renderMpc();
 };
 window.OrgUI=(()=>{
   let editingSchedule=null;
@@ -149,34 +149,29 @@ window.OrgUI=(()=>{
   }
   function renderMpc(){
     if(!isAdmin())return;
-    if(!$('dashboardDay').value)$('dashboardDay').value=todayPH();renderDashboardPlatformFilter();
-    const day=$('dashboardDay').value,f=dashboardFilter(),members=filteredMembers();
-    renderOverview(day,f.coop,f.platform);
-    const result=TIPONOrgCore.dashboard(members,state.sites,state.punches.filter(p=>!p.reviewStatus),day,state.schedules||[]);
-    $('mpcRows').innerHTML=result.groups.map(r=>'<tr>'+[r.coop,r.enrolled,r.scheduled,r.present,r.clockedIn,r.late,r.missing,r.absent,r.rest+r.leave,r.unscheduled].map(v=>'<td>'+esc(v)+'</td>').join('')+'</tr>').join('')||'<tr><td colspan="10">No enrolled members for this MPC / BP selection.</td></tr>';
-    const filter=$('presenceFilter').value;
-    $('presenceRows').innerHTML=result.details.filter(r=>!filter||r.status.includes(filter)).map(r=>`<tr><td>${esc(r.memberId)}</td><td>${esc(r.name)}</td><td>${esc(r.coop)}</td><td>${esc(r.platform)}</td><td>${esc(r.site)}</td><td><span class="badge ${r.status==='PRESENT'?'green':r.status.includes('ABSENT')?'amber':'gray'}">${esc(r.status)}${r.late?' / LATE':''}</span></td></tr>`).join('')||'<tr><td colspan="6">No members for this selection.</td></tr>';
-    const devices=state.devices||[],stale=devices.filter(d=>!d.disabled&&Date.now()-Date.parse(d.lastSeen)>300000).length;
-    setText('absenceCaution',`Absence is provisional and needs a schedule. ${stale} registered device(s) last seen over 5 minutes ago. Offline punches are not visible centrally until uploaded. No schedule = Unscheduled, not Absent. Member-status filter applies only to the individual list.`);
-    const legacy=state.members.some(m=>!m.orgId)||state.sites.some(s=>!s.orgId)||state.punches.some(p=>!p.orgId);$('legacyNotice').hidden=!legacy;
-  }
-  function renderOverview(day,coop,platform){
-    const data=TIPONOrgCore.overview(state.members,state.punches,day,TIPONOrgCore.COOPS,{coop,platform,sites:state.sites,platforms:TIPONPlatforms.names()});
-    const today=day===todayPH();
-    // Top KPIs always span all MPCs and BPs, regardless of the two dropdowns.
-    setText('metricMembers',data.overall.members);setText('metricPresent',data.overall.present);setText('metricPunches',data.overall.entries);
-    setText('metricSites',state.sites.filter(s=>!s.deleted).length);
-    setText('metricPresentLabel',today?'Present today':'Present on selected day');
-    setText('metricEntriesHint',(today?"Today's":"Selected day's")+' time in & out / all MPCs & BPs');
-    setText('overallScopeNote','OVERALL / all MPCs and business platforms / '+day+' / MPC and BP filters affect only the breakdown below.');
-    setText('selectedScopeLabel',(coop||'All MPCs')+' / '+(platform||'All business platforms'));
-    setText('filteredMembers',data.filtered.members);setText('filteredPresent',data.filtered.present);setText('filteredEntries',data.filtered.entries);
-    setText('filteredPending',data.filtered.pending?data.filtered.pending+' local event(s) waiting to sync':'Based on records available on this device.');
-    setText('mpcOverviewTitle','MPC overview / '+day);
-    $('mpcOverviewCards').innerHTML=data.groups.map(g=>`<article class="mpc-overview-card" data-mpc="${esc(g.coop)}"><div class="mpc-card-name"><span class="mpc-card-dot"></span><h4>${esc(g.coop)}</h4></div><div class="mpc-card-metrics"><div><strong>${g.members}</strong><span>Members</span></div><div><strong>${g.present}</strong><span>${today?'Present today':'Present'}</span></div><div><strong>${g.entries}</strong><span>Attendance entries</span></div></div>${g.pending?`<small class="mpc-pending">${g.pending} local event(s) waiting to sync</small>`:'<small class="mpc-synced">Based on available records</small>'}</article>`).join('')||'<p>No MPC matches this selection.</p>';
-    $('bpOverviewRows').innerHTML=data.bpGroups.map(g=>`<tr data-bp="${esc(g.platform)}"><td>${esc(g.platform)}</td><td>${g.members}</td><td>${g.present}</td><td>${g.entries}</td></tr>`).join('')||'<tr><td colspan="4">No business platforms for this selection.</td></tr>';
-    setText('bpOverviewScope',(coop||'All MPCs')+' / '+day+' / '+(platform||'All business platforms'));
-    setText('mpcOverviewNote','Members = active enrolled members. Present = unique members with a Time In on the Philippine calendar date. Entries = individual Time In + Time Out events; IN and OUT count as two. Overall totals stay visible. Offline-device punches appear centrally only after upload.');
+    if(!$('dashboardDay').value)$('dashboardDay').value=todayPH();
+    renderDashboardPlatformFilter();
+    const day=$('dashboardDay').value, f=dashboardFilter();
+    const all=state.members.filter(m=>!m.deleted&&m.active!==false);
+    const coops=[...new Set([...TIPONOrgCore.COOPS,...all.map(m=>m.coop).filter(Boolean)])];
+    $('coopDashboardCards').innerHTML=coops.map(coop=>'<article class="coop-summary"><span class="coop-monogram" aria-hidden="true">'+esc(coop.split(' ').map(w=>w[0]).join('').slice(0,3))+'</span><h3>'+esc(coop)+'</h3><strong>'+all.filter(m=>m.coop===coop).length+'</strong><small>Registered members</small></article>').join('');
+    const members=filteredMembers().filter(m=>!m.deleted&&m.active!==false);
+    const events=state.punches.filter(p=>!p.reviewStatus&&!p.deleted&&TIPONCore.phStamp(p.timestamp).slice(0,10)===day);
+    const tally=items=>{
+      let timedIn=0,timedOut=0,complete=0,missing=0;
+      for(const m of items){
+        const punches=events.filter(p=>String(p.memberId)===String(m.id)&&(!p.coop||p.coop===m.coop));
+        const i=punches.some(p=>p.type==='IN'),out=punches.some(p=>p.type==='OUT');
+        if(i)timedIn++;if(out)timedOut++;if(i&&out)complete++;if(!i&&!out)missing++;
+      }
+      return {members:items.length,timedIn,timedOut,complete,missing};
+    };
+    const total=tally(members);
+    $('dashboardSummary').innerHTML=[['Registered / enrolled',total.members],['With Time In',total.timedIn],['With Time Out',total.timedOut],['Complete In & Out',total.complete],['No Time In / Out',total.missing]].map(([label,n])=>'<article class="kpi-card"><span>'+label+'</span><strong>'+n+'</strong><small>'+esc(day)+'</small></article>').join('');
+    const ranked=coops.filter(c=>!f.coop||c===f.coop).map(coop=>({coop,...tally(members.filter(m=>m.coop===coop))})).sort((a,b)=>a.missing-b.missing||a.coop.localeCompare(b.coop));
+    $('dashboardRanking').innerHTML=ranked.map((r,i)=>{const rate=r.members?100*r.missing/r.members:0;return '<tr><td>'+(i+1)+'</td><td><b>'+esc(r.coop)+'</b></td><td>'+r.members+'</td><td>'+r.timedIn+'</td><td>'+r.timedOut+'</td><td>'+r.complete+'</td><td>'+r.missing+'</td><td><div class="attendance-rate"><span style="width:'+rate+'%"></span></div><small>'+(r.members?rate.toFixed(1)+'%':'No members')+'</small></td></tr>';}).join('');
+    const legacy=state.members.some(m=>!m.orgId)||state.sites.some(s=>!s.orgId)||state.punches.some(p=>!p.orgId);
+    $('legacyNotice').hidden=!legacy;
   }
   function renderReports(){
     if(!isAdmin())return;const from=$('reportFrom').value,to=$('reportTo').value,coop=$('reportCoop').value;
