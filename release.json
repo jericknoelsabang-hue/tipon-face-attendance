@@ -1,5 +1,5 @@
 {
   "app": "TIPON Face Attendance",
-  "version": "5.3.4",
-  "label": "Persistent sign-in and restore the last permitted screen after refresh"
+  "version": "5.3.5",
+  "label": "Kiosk-wide face directory sync and 150 m assigned-office GPS verification"
 }
