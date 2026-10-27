@@ -1,5 +1,5 @@
 {
   "app": "TIPON Face Attendance",
-  "version": "5.5.6",
-  "label": "Admin User/Kiosk account editor and password reset; uppercase status; server-acknowledged member deletion and catalog reconciliation; simplified connection check"
+  "version": "5.5.7",
+  "label": "Admin User/Kiosk Edit, secure password reset, uppercase statuses, central member deletion and legacy delete recovery, near-live catalog reconciliation"
 }
