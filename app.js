@@ -327,7 +327,7 @@ async function recordRecognizedFace(member,faceDistance){
  try{
   await loadCollections();const tx=TIPONCore.transition(state.punches,member.id,mode,Date.now(),COOLDOWN_MS);
   const site=siteForMember(member);if(!site)throw Error('Assigned work location is missing.');
-  if(!TIPONOrgCore.inScope(state.user,site))throw Error('This worksite is outside your approved account or kiosk scope.');
+  if(state.user.role!=='kiosk'&&!TIPONOrgCore.inScope(state.user,site))throw Error('This worksite is outside your approved account scope.');
   if(!site.satelliteOffice)throw Error('Set a satellite office in this work location before recording attendance.');
   if(tx.type==='OUT'&&tx.last.siteId!==site.id)throw Error('The assigned worksite changed after Time In. Review the record first.');
   updateScanResult('Checking current GPS',`${member.name} - TIME ${tx.type}. Keep the phone at the approved worksite.`);
@@ -337,13 +337,13 @@ async function recordRecognizedFace(member,faceDistance){
   const limit=Math.min(GPS_MAX_ACCURACY,Math.max(30,site.radius));
   if(gps.accuracy>limit)throw Error(`GPS accuracy ${Math.round(gps.accuracy)} m is too poor. Required: ${limit} m or better.`);
   // Face identity is already resolved. Independently verify that this member is physically at the assigned office before saving attendance.
-  const distance=distanceM(site.lat,site.lng,gps.latitude,gps.longitude);
-  if(distance>site.radius)throw Error(`Outside assigned worksite: ${Math.round(distance)} m away; permitted radius ${site.radius} m.`);
+  const distance=distanceM(site.lat,site.lng,gps.latitude,gps.longitude),allowedRadius=150;
+  if(distance>allowedRadius)throw Error(`Face recognized: ${member.name}. Outside assigned office: ${Math.round(distance)} m away; permitted radius ${allowedRadius} m.`);
   const stamp=new Date();
   const punch={id:uuid(),orgId:state.orgId,siteRev:site.rev||0,deviceId:state.deviceId,timestamp:stamp.toISOString(),day:todayPH(stamp),type:tx.type,
     memberId:member.id,memberName:member.name,coop:member.coop,platform:site.platform,recordedById:state.user.id,siteId:site.id,siteName:site.name,satelliteOffice:site.satelliteOffice,
     officeId:site.officeId,siteLat:site.lat,siteLng:site.lng,radius:site.radius,lat:gps.latitude,lng:gps.longitude,
-    accuracy:gps.accuracy,distance,faceDistance,performedBy:state.user.username||state.user.name};
+    accuracy:gps.accuracy,distance,faceDistance,radius:150,performedBy:state.user.username||state.user.name};
   await commitPunch(punch,mode);await loadCollections();renderTerminal();renderDashboard();
   updateScanResult(`TIME ${punch.type} saved`,`${member.name} | ${member.id} | ${site.satelliteOffice} | ${displayTime(stamp)}. Saved on this phone.`,'success');
   playTerminalSound('success');showToast(`${member.name}: TIME ${punch.type} recorded.`,'success');
