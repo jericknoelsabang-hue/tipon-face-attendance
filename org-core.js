@@ -5,31 +5,39 @@
   else root.TIPONOrgCore = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this, function() {
   'use strict';
-  const VERSION='5.2.0', PROTOCOL='tipon-org-v5', PBKDF2_ITERATIONS=600000;
+  const VERSION='5.5.0', PROTOCOL='tipon-org-v5', PBKDF2_ITERATIONS=600000;
   const COOPS=['Asiapro','Gawa at Kalinga','Kaakbay sa Kinabukasan','Kadayawan','Kaamulan','Tnalak','Victory','Worklife'];
   const DEFAULT_PLATFORMS=['IMG','MSG-SM','MSG-NM','MSG-NW','OCG','Contracting','AP Cons','GAK'];
   const EXPORT_HEADERS=['MemberId','Date','Time In','Time Out','Date Time Out'];
   // The payroll extract stays at five columns. Only the central report adds context.
-  const REPORT_HEADERS=[...EXPORT_HEADERS,'Office','MPC','BP'];
+  const REPORT_HEADERS=[...EXPORT_HEADERS,'Work location','MPC','BP'];
   const clean=(v,n=160)=>String(v==null?'':v).trim().slice(0,n);
   const userKey=v=>clean(v,80).normalize('NFKC').toLowerCase();
   function must(ok,message,code='VALIDATION'){if(!ok){const e=new Error(message);e.code=code;throw e;}}
   function profile(p){
     must(p&&typeof p==='object','Profile is required.');
-    const v={username:clean(p.username,80),name:clean(p.name,120),position:clean(p.position,100),email:clean(p.email,200),coop:clean(p.coop,80),platform:clean(p.platform,100),office:clean(p.office,120),accountType:clean(p.accountType||'user',20),officeLat:Number(p.officeLat),officeLng:Number(p.officeLng)};
+    const v={username:clean(p.username,80),name:clean(p.name,120),position:clean(p.position,100),
+      email:clean(p.email,200),coop:clean(p.coop,80),platform:clean(p.platform,100),office:clean(p.office,120),
+      accountType:clean(p.accountType||'user',20),officeLat:Number(p.officeLat),officeLng:Number(p.officeLng),gpsAccuracy:Number(p.gpsAccuracy)};
     must(v.username.length>=3&&!/[\x00-\x1f\x7f]/.test(v.username),'Username needs at least 3 readable characters.');
     must(['user','kiosk'].includes(v.accountType),'Choose User or Physical Kiosk.');
-    must(v.office&&v.platform,'Complete business platform and office.');
-    if(v.accountType==='user')must(v.name&&v.position,'Complete full name and position.');
-    must(Number.isFinite(v.officeLat)&&Math.abs(v.officeLat)<=90&&Number.isFinite(v.officeLng)&&Math.abs(v.officeLng)<=180,'Capture valid office latitude and longitude.');
-    if(v.accountType==='user')must(/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.email),'Enter a valid email address.');
-    must(COOPS.includes(v.coop),'Choose a listed cooperative.');return v;
+    if(v.accountType==='user'){
+      must(v.name&&v.position&&v.platform,'Complete full name, position and business platform.');
+      must(COOPS.includes(v.coop),'Choose a listed cooperative.');
+      must(/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.email),'Enter a valid email address.');
+      v.office='';v.officeLat=null;v.officeLng=null;delete v.gpsAccuracy;
+    }else{
+      must(v.office,'Enter the kiosk location label.');
+      must(Number.isFinite(v.officeLat)&&Math.abs(v.officeLat)<=90&&Number.isFinite(v.officeLng)&&Math.abs(v.officeLng)<=180,'Capture kiosk GPS coordinates.');
+      must(Number.isFinite(v.gpsAccuracy)&&v.gpsAccuracy>=0&&v.gpsAccuracy<=100,'Capture accurate current kiosk GPS.');
+    }
+    return v;
   }
   function canUseTerminal(u){return !!u&&['registrar','kiosk'].includes(u.role)&&(!u.status||u.status==='active');}
   function allowed(u,page){
     if(!u)return false;
     if(page==='scanner')return canUseTerminal(u);
-    const pages={admin:['dashboard','members','records','accounts','reports','settings','terminalLogs'],registrar:['scanner','members','sites','settings','terminalLogs'],kiosk:['scanner','terminalLogs']};
+    const pages={admin:['dashboard','members','records','accounts','settings','terminalLogs'],registrar:['scanner','members','sites','settings','terminalLogs'],kiosk:['scanner','terminalLogs']};
     return (pages[u.role]||[]).includes(page);
   }
   function platformKey(v){return clean(v,100).normalize('NFKC').replace(/\s+/g,' ').toLowerCase();}
@@ -67,7 +75,17 @@
     const finish=g=>{const {_members,_present,...rest}=g;return {...rest,members:_members.size,present:_present.size};};
     return {day,overall:finish(overall),filtered:finish(filtered),groups:[...groups.values()].map(finish),bpGroups:[...bps.values()].map(finish).sort((a,b)=>a.platform.localeCompare(b.platform))};
   }
-  function inScope(u,r){if(u.role==='admin')return true;if(u.role==='kiosk'){const ids=u.siteIds||[];if(ids.length)return ids.includes(r.siteId||r.id);const office=clean(r.satelliteOffice||r.office,120);return r.coop===u.coop&&(!u.platform||platformKey(r.platform)===platformKey(u.platform))&&(!u.office||office===u.office);}return r.coop===u.coop&&(!u.platform||platformKey(r.platform)===platformKey(u.platform));}
+  function inScope(u,r){
+    if(!u||!r)return false;
+    if(u.role==='admin')return true;
+    if(u.role==='kiosk'){
+      const ids=u.siteIds||[];
+      if(!ids.length)return false;
+      const assignment=Array.isArray(r.siteIds)&&r.siteIds.length?r.siteIds:[r.siteId||r.id];
+      return assignment.some(id=>ids.includes(id));
+    }
+    return r.coop===u.coop&&(!u.platform||platformKey(r.platform)===platformKey(u.platform));
+  }
   function distance(a,b,c,d){const rad=Math.PI/180,h=Math.sin((c-a)*rad/2)**2+Math.cos(a*rad)*Math.cos(c*rad)*Math.sin((d-b)*rad/2)**2;return 12742000*Math.asin(Math.min(1,Math.sqrt(h)));}
   function gps(site,event){
     const {lat,lng,accuracy}=event;
@@ -82,7 +100,7 @@
     const m=new Map(),seen=new Set();
     [...events].sort((a,b)=>Date.parse(a.timestamp)-Date.parse(b.timestamp)||String(a.id).localeCompare(String(b.id))).forEach(e=>{
       if(seen.has(e.id)||e.reviewStatus==='rejected')return;seen.add(e.id);
-      const key=e.sessionId||e.id;const r=m.get(key)||{key,memberId:String(e.memberId),memberName:e.memberName||'',coop:e.coop||'',platform:e.platform||'',officeId:e.officeId||'',siteId:e.siteId||'',location:e.siteName||e.location||'',satelliteOffice:e.satelliteOffice||'',timeIn:'',timeOut:'',eventIds:[]};
+      const key=e.sessionId||e.id;const r=m.get(key)||{key,memberId:String(e.memberId),memberName:e.memberName||'',coop:e.coop||'',platform:e.platform||'',siteId:e.siteId||'',location:e.siteName||e.location||'',timeIn:'',timeOut:'',eventIds:[]};
       must(r.memberId===String(e.memberId),'Session contains conflicting member IDs.','SESSION');
       const col=e.type==='IN'?'timeIn':'timeOut';must(!r[col],'Duplicate direction within a session.','SESSION');r[col]=e.timestamp;r.eventIds.push(e.id);m.set(key,r);
     });
@@ -109,7 +127,7 @@
       if(!present&&plan.kind==='REQUIRED')status=now<plan.start?'UPCOMING':now<=plan.deadline?'EXPECTED':now<plan.end?'NO TIME IN':'ABSENT (PROVISIONAL)';
       const late=present&&plan.kind==='REQUIRED'&&first>plan.deadline;
       const clockedIn=rows.some(r=>r.memberId===member.id&&r.timeIn&&!r.timeOut);
-      const d={memberId:member.id,name:member.name,coop:member.coop,platform:site?.platform||member.platform||'',office:site?.satelliteOffice||'',site:site?.name||'',status,late,clockedIn,firstIn:first?new Date(first).toISOString():''};details.push(d);
+      const d={memberId:member.id,name:member.name,coop:member.coop,platform:site?.platform||member.platform||'',office:'',site:site?.name||'',status,late,clockedIn,firstIn:first?new Date(first).toISOString():''};details.push(d);
       const key=member.coop||'Unassigned';const g=groups.get(key)||{coop:key,enrolled:0,scheduled:0,present:0,late:0,clockedIn:0,missing:0,absent:0,leave:0,rest:0,unscheduled:0};
       g.enrolled++;if(plan.kind==='REQUIRED')g.scheduled++;if(present)g.present++;if(late)g.late++;if(clockedIn)g.clockedIn++;if(status==='NO TIME IN')g.missing++;if(status==='ABSENT (PROVISIONAL)')g.absent++;if(['LEAVE','EXCUSED'].includes(status))g.leave++;if(status==='REST')g.rest++;if(status==='UNSCHEDULED')g.unscheduled++;groups.set(key,g);
     }
@@ -117,6 +135,6 @@
   }
   function periodSummary(rows){const m=new Map();for(const r of rows){const k=r.memberId,s=m.get(k)||{memberId:k,name:r.memberName||'',coop:r.coop||'',sessions:0,complete:0,hours:0,open:0};s.sessions++;if(r.timeIn&&r.timeOut){s.complete++;s.hours+=(Date.parse(r.timeOut)-Date.parse(r.timeIn))/3600000;}else s.open++;m.set(k,s);}return [...m.values()];}
   function sheetRow(r){const f=t=>{if(!t)return null;const ms=Date.parse(t)+28800000,d=new Date(ms);return {date:Math.floor(ms/86400000)+25569,time:(d.getUTCHours()*3600+d.getUTCMinutes()*60+d.getUTCSeconds())/86400};};const a=f(r.timeIn),b=f(r.timeOut);return [String(r.memberId),a?a.date:'',a?a.time:'',b?b.time:'',b?b.date:''];}
-  function reportRow(row){return [...sheetRow(row),String(row.satelliteOffice||''),String(row.coop||''),String(row.platform||'')];}
+  function reportRow(row){return [...sheetRow(row),String(row.location||''),String(row.coop||''),String(row.platform||'')];}
   return {VERSION,PROTOCOL,PBKDF2_ITERATIONS,COOPS,DEFAULT_PLATFORMS,EXPORT_HEADERS,REPORT_HEADERS,clean,userKey,must,profile,allowed,canUseTerminal,inScope,platformKey,platformNames,overview,distance,gps,phDay,project,scheduled,dashboard,periodSummary,sheetRow,reportRow};
 });
