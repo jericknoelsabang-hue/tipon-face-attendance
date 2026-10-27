@@ -128,26 +128,6 @@ const originalDashboard=renderDashboard;
 renderDashboard=function(){
   if(!isAdmin())return;originalDashboard();OrgUI.renderMpc();
 };
-openOfficeForm=function(id){
-  if(!canEdit())return;const office=state.offices.find(v=>v.id===id);editingOfficeId=office?.id||null;$('officeForm').reset();fillCoopSelect('officeCoop');TIPONPlatforms.fill('officePlatform',office?.platform||state.user.platform||'');
-  $('officeCoop').value=office?.coop||state.user.coop||'';$('officeCoop').disabled=state.user.role==='registrar';
-  for(const [field,key] of [['officeName','name'],['officeProvince','province'],['officeAddress','address'],['officeSource','source'],['officePlatform','platform'],['officeLat','lat'],['officeLng','lng']])$(field).value=office?.[key]??'';
-  if(state.user.role==='registrar')$('officePlatform').value=state.user.platform;$('officePlatform').disabled=state.user.role==='registrar';
-  $('officeRadius').value=office?.radius||150;$('officeCreateSite').checked=!office?.orgId;$('officeDialog').showModal();
-};
-saveOfficeForm=async function(event){
-  event.preventDefault();if(!canEdit())return;
-  try{
-    if(!$('officeApproved').checked)throw Error('Confirm the authorized office details.');
-    const lat=Number($('officeLat').value),lng=Number($('officeLng').value),radius=Number($('officeRadius').value);
-    if(!$('officeLat').value||!$('officeLng').value||!Number.isFinite(lat)||!Number.isFinite(lng)||Math.abs(lat)>90||Math.abs(lng)>180||radius<20||radius>2000)throw Error('Use actual office GPS coordinates and a 20-2000 meter radius.');
-    const r={id:editingOfficeId||uuid(),coop:$('officeCoop').value,platform:$('officePlatform').value.trim(),name:$('officeName').value.trim(),province:$('officeProvince').value.trim(),address:$('officeAddress').value.trim(),source:$('officeSource').value.trim(),lat,lng,radius,userConfirmed:true,type:'Organization-confirmed office',confirmedAt:new Date().toISOString()};
-    if(!r.address||!r.name||!r.platform)throw Error('Complete the office name, address and business platform.');
-    await saveOne('offices',r);
-    if($('officeCreateSite').checked){await saveOne('sites',{id:'office-'+r.id,name:r.name,officeId:r.id,satelliteOffice:r.name,coop:r.coop,platform:r.platform,address:r.address,lat,lng,radius,schedule:{enabled:false,days:[1,2,3,4,5,6],start:'06:00',end:'15:00',grace:0}});}
-    await loadCollections();await loadOfficeDirectory();renderOfficeDirectory();renderSites();if($('siteDialog').open)fillSiteOffices(r.id);$('officeDialog').close();showToast('Office saved locally; queued for organization sync.','success');
-  }catch(e){toastError(e,'Office not saved');}
-};
 window.OrgUI=(()=>{
   let editingSchedule=null;
   function readSiteSchedule(){return {enabled:$('siteScheduleEnabled').checked,days:[...document.querySelectorAll('[name="siteWorkDay"]:checked')].map(x=>Number(x.value)),start:$('siteShiftStart').value,end:$('siteShiftEnd').value,grace:Number($('siteGrace').value)||0};}
@@ -253,9 +233,9 @@ window.OrgUI=(()=>{
     ['registerCoop','dashboardCoop','reportCoop'].forEach(id=>fillCoopSelect(id,['dashboardCoop','reportCoop'].includes(id)));
     ['dashboardDay','dashboardCoop','dashboardPlatform','presenceFilter'].forEach(id=>attach(id,'change',renderMpc));attach('dashboardRefresh','click',()=>TIPONSync.kick());attach('dashboardResetFilters','click',()=>{$('dashboardCoop').value='';$('dashboardPlatform').value='';$('presenceFilter').value='';renderMpc();});
     ['reportFrom','reportTo','reportCoop'].forEach(id=>attach(id,'change',renderReports));
-    attach('officeUseGps','click',async()=>{try{const g=await readGPS();$('officeLat').value=g.latitude.toFixed(7);$('officeLng').value=g.longitude.toFixed(7);setText('officeGpsState',`GPS ${g.latitude.toFixed(6)}, ${g.longitude.toFixed(6)} | accuracy +/-${Math.round(g.accuracy)} m`);}catch(e){toastError(e,'Office GPS');}});
     attach('sitePlatform','change',()=>fillSiteOffices());
-    attach('officeMap','click',()=>{const a=$('officeLat').value,b=$('officeLng').value;if(a&&b)window.open('https://www.openstreetmap.org/?mlat='+encodeURIComponent(a)+'&mlon='+encodeURIComponent(b)+'#map=17/'+encodeURIComponent(a)+'/'+encodeURIComponent(b),'_blank','noopener');});
+    attach('importOffices','click',()=>$('officeCsvFile').click());attach('officeCsvFile','change',importOfficeCSV);
+    attach('officeCsvTemplate','click',()=>downloadBlob('TIPON_Office_Masterlist_Template.csv',new Blob(['\uFEFF'+window.TIPON_OFFICE_CSV_HEADERS.join(',')+'\r\n'],{type:'text/csv;charset=utf-8'})));
     attach('refreshAccounts','click',renderAccounts);
     attach('accountRows','click',async e=>{
       const del=e.target.closest('[data-account-delete]');
@@ -280,10 +260,16 @@ window.OrgUI=(()=>{
   saveEncryptedBackup=backup;restoreEncryptedBackup=restore;
   return {bind,readSiteSchedule,renderMpc,renderOverview,renderReports,renderAccounts,renderSettings,renderQueue,csv};
 })();
+window.TIPON_OFFICE_CSV_HEADERS=Object.freeze(['Cooperative','Business platform','Office','Address','Latitude','Longitude','Radius','Approval reference']);
+function parseOfficeCSV(text){
+ const rows=[];let row=[],cell='',quoted=false;
+ for(let i=0;i<text.length;i++){const ch=text[i];if(ch==='"'){if(quoted&&text[i+1]==='"'){cell+='"';i++;}else quoted=!quoted;}else if(ch===','&&!quoted){row.push(cell);cell='';}else if((ch==='\n'||ch==='\r')&&!quoted){if(ch==='\r'&&text[i+1]==='\n')i++;row.push(cell);if(row.some(v=>v.trim()))rows.push(row);row=[];cell='';}else cell+=ch;}
+ if(quoted)throw Error('CSV contains an unclosed quote.');row.push(cell);if(row.some(v=>v.trim()))rows.push(row);return rows;
+}
 /* Approved office CSV import writes the same durable, scoped queue as the form. */
 importOfficeCSV=async function(event){
  const file=event.target.files?.[0];event.target.value='';if(!file||!isAdmin())return;
- const headers=['Cooperative','Business platform','Office','Address','Latitude','Longitude','Radius','Approval reference'];
+ const headers=window.TIPON_OFFICE_CSV_HEADERS;
  try{if(file.size>1000000)throw Error('Office CSV limit is 1 MB.');const rows=parseOfficeCSV((await file.text()).replace(/^\uFEFF/,''));if(JSON.stringify(rows[0])!==JSON.stringify(headers))throw Error('Use the v5 office template with eight columns.');if(rows.length<2||rows.length>501)throw Error('Import 1 to 500 offices at a time.');
   const keys=new Set(),items=rows.slice(1).map((r,i)=>{if(r.length!==8)throw Error('Wrong field count on row '+(i+2));const [coop,platform,name,address,a,b,c,source]=r.map(x=>x.trim()),lat=Number(a),lng=Number(b),radius=Number(c);if(!TIPONOrgCore.COOPS.includes(coop)||!platform||!name||!address||!source||!a||!b||!Number.isFinite(lat)||Math.abs(lat)>90||!Number.isFinite(lng)||Math.abs(lng)>180||radius<20||radius>2000)throw Error('Invalid office / actual GPS / approval reference on row '+(i+2));const key=coop+'|'+platform+'|'+name.toLowerCase();if(keys.has(key))throw Error('Duplicate office: '+name);keys.add(key);const old=state.offices.find(o=>o.coop===coop&&o.platform===platform&&o.name.toLowerCase()===name.toLowerCase());return {id:old?.id||uuid(),coop,platform,name,address,lat,lng,radius,source,userConfirmed:true,type:'Approved organization office',confirmedAt:new Date().toISOString()};});
   if(!await confirmAction('Import approved office coordinates?',items.length+' offices will be saved and queued. Existing worksites and historical attendance are not changed.'))return;
