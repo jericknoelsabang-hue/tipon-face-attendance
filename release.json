@@ -1,5 +1,5 @@
 {
   "app": "TIPON Face Attendance",
-  "version": "5.4.22",
-  "label": "Fix dashboard startup error and add supplied cooperative logos"
+  "version": "5.4.23",
+  "label": "Single-row cooperative logos with transparent backgrounds"
 }
