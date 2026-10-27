@@ -66,7 +66,7 @@ enterApp=async function(){
   if(!bound)await OrgDB.rawSave('meta',{id:'tp5-boundOrganization',orgId:state.orgId});
   $('appShell').hidden=false;$('mobileNav').hidden=state.user?.role==='kiosk';
   setText('sidebarUserName',state.user.name);setText('sidebarUserRole',roleName(state.user.role));setText('avatarLetter',initial(state.user.name));setText('greetingName',state.user.name.split(' ')[0]);
-  await loadCollections();await loadOfficeDirectory();await TIPONPlatforms.load();
+  await loadCollections();await loadOfficeDirectory();await TIPONPlatforms.load();fillCoopSelect('memberCoop');
   const savedPage=await getOne('meta','tp5-last-page:'+state.user.id),defaultPage=isAdmin()?'dashboard':TIPONOrgCore.canUseTerminal(state.user)?'scanner':'members';
   const startPage=savedPage?.page&&TIPONOrgCore.allowed(state.user,savedPage.page)&&(savedPage.page!=='scanner'||hasTerminalSession())?savedPage.page:defaultPage;
   applyRoles();await showPage(startPage);refreshClock();await checkOfflineReady();
@@ -108,7 +108,7 @@ showPage=async function(page){
   if(!TIPONOrgCore.allowed(state.user,page)||(page==='scanner'&&!hasTerminalSession())){showToast('Your account does not have permission for that screen.','error');return;}
   await originalShowPage(page);applyRoles();
   if(state.user)await OrgDB.rawSave('meta',{id:'tp5-last-page:'+state.user.id,page});
-  if(page==='accounts')await OrgUI.renderAccounts();if(page==='reports')OrgUI.renderReports();if(page==='settings')OrgUI.renderSettings();if(page==='scanner')TIPONCamera.render();
+  if(page==='accounts')await OrgUI.renderAccounts();if(page==='reports')OrgUI.renderReports();if(page==='settings')OrgUI.renderSettings();if(page==='scanner')TIPONCamera.render();if(page==='terminalLogs')renderTerminalLogs();
 };
 const originalOpenMember=openMemberForm,originalOpenSite=openSiteForm;
 openMemberForm=function(member){if(!canEdit())return;originalOpenMember(member);if(state.user.role==='registrar'){$('memberCoop').value=state.user.coop;$('memberCoop').disabled=true;fillMemberSites(member?.siteIds||member?.siteId);}else $('memberCoop').disabled=false;};
@@ -260,6 +260,7 @@ window.OrgUI=(()=>{
   saveEncryptedBackup=backup;restoreEncryptedBackup=restore;
   return {bind,readSiteSchedule,renderMpc,renderOverview,renderReports,renderAccounts,renderSettings,renderQueue,csv};
 })();
+function fillCoopSelect(id,allowAll=false){const el=$(id);if(!el)return;const old=el.value,options=TIPONOrgCore.COOPS;el.innerHTML=(allowAll?'<option value="">All cooperatives</option>':'<option value="">Select cooperative</option>')+options.map(name=>'<option value="'+esc(name)+'">'+esc(name)+'</option>').join('');if(options.includes(old))el.value=old;}
 window.TIPON_OFFICE_CSV_HEADERS=Object.freeze(['Cooperative','Business platform','Office','Address','Latitude','Longitude','Radius','Approval reference']);
 function parseOfficeCSV(text){
  const rows=[];let row=[],cell='',quoted=false;
