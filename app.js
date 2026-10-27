@@ -124,7 +124,7 @@ function playTerminalSound(kind='face'){try{const C=window.AudioContext||window.
 // Speak attendance confirmations and errors using the device/browser voice.
 // Continuous face-scan failures are throttled so they do not repeat each frame.
 const terminalSpeechHistory=new Map();
-let lastTerminalSpokenAt=0;
+let lastTerminalErrorAt=0;
 function speakTerminal(text,kind='success',reason=''){
  try{
   if(state.page!=='scanner'||!window.speechSynthesis||typeof window.SpeechSynthesisUtterance!=='function')return false;
@@ -132,9 +132,9 @@ function speakTerminal(text,kind='success',reason=''){
   if(!message)return false;
   const now=Date.now(),key=(kind==='error'?'error:':'success:')+String(reason||message).slice(0,110);
   const lastSame=terminalSpeechHistory.get(key)||0;
-  if(kind==='error'&&(now-lastSame<25000||now-lastTerminalSpokenAt<9000))return false;
+  if(kind==='error'&&(now-lastSame<25000||now-lastTerminalErrorAt<9000))return false;
   if(kind!=='error'&&now-lastSame<5000)return false;
-  terminalSpeechHistory.set(key,now);lastTerminalSpokenAt=now;
+  terminalSpeechHistory.set(key,now);if(kind==='error')lastTerminalErrorAt=now;
   if(terminalSpeechHistory.size>40){
    for(const [k,t] of terminalSpeechHistory)if(now-t>60000)terminalSpeechHistory.delete(k);
   }
