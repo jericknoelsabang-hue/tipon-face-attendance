@@ -84,3 +84,7 @@ body:not([data-terminal-access="allowed"]) [data-terminal-only]{display:none!imp
 #memberDialog #memberSiteSummary:after{margin-left:auto;padding-left:8px}
 
 .modal-form .field-caption{display:block}.modal-form .field-caption .required-star{display:inline!important;color:#d34f62!important;font-style:normal;font-weight:800;margin-left:3px}
+
+/* Only the required marker is red, never the field caption. */
+.modal-form label > .field-caption{color:#314963!important}
+.modal-form label > .field-caption > .required-star{color:#d34f62!important}
