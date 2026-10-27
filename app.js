@@ -26,7 +26,7 @@ let db;
 const state={ user:null, page:'dashboard', members:[], sites:[], users:[], punches:[], facePromise:null, modelReady:false,
   scanStream:null, scanTimer:null, scanMode:'in', scanning:false, scanBusy:false, scanCandidate:null,
   scanCandidateCount:0, scanArmed:true, scanAbsentCount:0, lastRecognized:null, lastGPS:null,
-  enrollStream:null, enrollTimer:null, enrollActive:false, pendingDescriptors:[], editMember:null, editSite:null,
+  enrollStream:null, enrollTimer:null, enrollActive:false, gpsWatchId:null, pendingDescriptors:[], editMember:null, editSite:null,
   installPrompt:null, offlineReady:false, confirmResolver:null, deviceId:null, offices:[] };
 
 function uuid(){return crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`;}
@@ -99,7 +99,7 @@ async function showPage(page){
   document.querySelectorAll('.page').forEach(section=>section.hidden=section.id!==`page-${page}`);
   document.querySelectorAll('[data-page]').forEach(button=>button.classList.toggle('active',button.dataset.page===page));
   setText('crumbTitle',pageNames[page]);window.scrollTo({top:0,behavior:'instant'});
-  if(page==='dashboard')renderDashboard();if(page==='scanner'){renderTerminal();if(!state.scanning&&state.members.some(m=>m.active!==false&&!m.deleted&&m.descriptors?.length>=3))startScanner();}if(page==='members')renderMembers();if(page==='sites'){renderSites();renderOfficeDirectory();}if(page==='records')renderRecords();if(page==='settings')await checkOfflineReady();
+  if(page==='dashboard')renderDashboard();if(page==='scanner'){renderTerminal();if(!state.scanning&&(state.user?.role==='kiosk'||state.members.some(m=>m.active!==false&&!m.deleted&&m.descriptors?.length>=3)))startScanner();}if(page==='members')renderMembers();if(page==='sites'){renderSites();renderOfficeDirectory();}if(page==='records')renderRecords();if(page==='settings')await checkOfflineReady();
 }
 function renderDashboard(){const today=todayPH();const todayPunches=state.punches.filter(e=>e.day===today&&!e.reviewStatus);const present=new Set(todayPunches.filter(e=>e.type==='IN').map(e=>e.memberId));
  setText('metricMembers',state.members.length);setText('metricPresent',present.size);setText('metricPunches',todayPunches.length);setText('metricSites',state.sites.length);
@@ -113,7 +113,12 @@ function renderTerminal(){const d=state.lastGPS;
   setText('scannerModelState',state.modelReady?'AI: Loaded':'AI: Not loaded');
   $('terminalRecent').innerHTML=state.punches.length?state.punches.slice(0,4).map(e=>`<div class="mini-feed-item"><div class="initial-avatar">${esc(initial(e.memberName))}</div><div class="desc"><b>${esc(e.memberName)} <span class="badge ${e.type==='IN'?'green':'amber'}">${e.type}</span></b><small>${esc(displayStamp(e.timestamp))} · ${esc(e.siteName)}</small></div></div>`).join(''):`<div class="empty-state">No check-ins yet</div>`;
 }
-function updateScanResult(title,detail,kind='neutral'){const el=$('scanResult');el.className=`scan-message ${kind}`;el.innerHTML=`${pageIcon(kind==='success'?'check':kind==='error'?'alert':'scan')}<div><b>${esc(title)}</b><p>${esc(detail)}</p></div>`;}
+function updateScanResult(title,detail,kind='neutral'){const el=$('scanResult');if(!el)return;el.className=`scan-message ${kind}`;el.innerHTML=`${pageIcon(kind==='success'?'check':kind==='error'?'alert':'scan')}<div><b>${esc(title)}</b><p>${esc(detail)}</p></div>`;}
+
+let terminalAudio=null;
+function unlockTerminalAudio(){try{const C=window.AudioContext||window.webkitAudioContext;if(!C)return;terminalAudio||=new C();if(terminalAudio.state==='suspended')terminalAudio.resume().catch(()=>{});}catch{}}
+document.addEventListener('pointerdown',unlockTerminalAudio,{once:true});document.addEventListener('keydown',unlockTerminalAudio,{once:true});
+function playTerminalSound(kind='face'){try{const C=window.AudioContext||window.webkitAudioContext;if(!C)return;terminalAudio||=new C();if(terminalAudio.state==='suspended')terminalAudio.resume().catch(()=>{});const tones=kind==='success'?[880,1174.66]:kind==='error'?[440,329.63]:[659.25];tones.forEach((hz,i)=>{const t=terminalAudio.currentTime+i*.12,o=terminalAudio.createOscillator(),g=terminalAudio.createGain();o.type='sine';o.frequency.value=hz;g.gain.setValueAtTime(.0001,t);g.gain.exponentialRampToValueAtTime(.14,t+.015);g.gain.exponentialRampToValueAtTime(.0001,t+.12);o.connect(g);g.connect(terminalAudio.destination);o.start(t);o.stop(t+.13);});}catch{}}
 
 // Member registry and assigned GPS work locations.
 function siteForMember(member){return state.sites.find(s=>s.id===member.siteId);}
@@ -195,6 +200,9 @@ function readGPS(){return new Promise((resolve,reject)=>{
  const reason={1:'GPS permission denied. Allow location access in browser settings.',2:'Current location unavailable. Try outdoors.',3:'GPS timed out; move to an open area and try again.'}[error.code]||error.message||'GPS failed';reject(Error(reason));
  },{enableHighAccuracy:true,timeout:18000,maximumAge:0});
  });}
+function startGPSWatch(){if(!navigator.geolocation){setText('gpsStatusBadge','GPS unavailable');return;}if(state.gpsWatchId!==null)return;state.gpsWatchId=navigator.geolocation.watchPosition(pos=>{state.lastGPS={latitude:pos.coords.latitude,longitude:pos.coords.longitude,accuracy:pos.coords.accuracy,timestamp:pos.timestamp};if(state.page==='scanner')renderTerminal();},err=>{const reason={1:'Allow location access for automatic kiosk verification.',2:'Current location unavailable; move to an open area.',3:'GPS timed out; retry or use Refresh GPS reading.'}[err.code]||'GPS reading unavailable.';setText('gpsStatusBadge','GPS waiting');setText('cameraBottomTag',reason);},{enableHighAccuracy:true,timeout:18000,maximumAge:5000});readGPS().catch(err=>setText('cameraBottomTag',err.message));}
+function stopGPSWatch(){if(state.gpsWatchId!==null&&navigator.geolocation){navigator.geolocation.clearWatch(state.gpsWatchId);state.gpsWatchId=null;}}
+
 async function useGpsForSite(){try{setText('mapCoordLabel','Locating your device…');const gps=await readGPS();$('siteLat').value=gps.latitude.toFixed(7);$('siteLng').value=gps.longitude.toFixed(7);updateSiteMap();showToast(`GPS acquired, accuracy ±${Math.round(gps.accuracy)} m.`,'success');}catch(err){toastError(err,'GPS not available');}}
 
 async function findAddressCoordinates(){
@@ -263,8 +271,7 @@ async function detectFaces(video){return await faceapi.detectAllFaces(video,opti
 function euclidean(a,b){let sum=0;for(let i=0;i<a.length;i++)sum+=(a[i]-b[i])**2;return Math.sqrt(sum);}
 function nearestMember(descriptor){const matches=state.members.filter(m=>m.active!==false&&!m.deleted&&m.descriptors?.length>=3).map(m=>({member:m,distance:Math.min(...m.descriptors.map(arr=>euclidean(arr,descriptor)))})).sort((a,b)=>a.distance-b.distance);return {best:matches[0],second:matches[1]};}
 async function startScanner(){if(!hasTerminalSession()){showToast('Face Terminal is available to approved user accounts and authorized kiosks, not the administrator screen.','error');return;}if(state.scanning||state.scanBusy)return;const run=(state.scanRun||0)+1;state.scanRun=run;const enrolled=state.members.filter(m=>m.active!==false&&!m.deleted&&m.descriptors?.length>=3).length;
- if(!enrolled){updateScanResult('No enrolled faces','Enroll at least one member with a facial template first.','error');return;}
- state.scanBusy=true;$('startCamera').disabled=true;updateScanResult('Preparing camera…','Loading on-device recognition models.','neutral');
+ startGPSWatch();state.scanBusy=true;$('startCamera').disabled=true;updateScanResult('Preparing camera…','Loading available cameras and automatic GPS verification.','neutral');
  try{
    await loadFaceModels();if(!hasTerminalSession()||state.scanRun!==run||state.page!=='scanner'||document.hidden)return;const stream=await getCameraStream();if(!hasTerminalSession()||state.scanRun!==run||state.page!=='scanner'||document.hidden){stream.getTracks().forEach(t=>t.stop());return;}state.scanStream=stream;
    const v=$('scanVideo');v.srcObject=stream;await v.play();
@@ -274,13 +281,13 @@ async function startScanner(){if(!hasTerminalSession()){showToast('Face Terminal
    $('cameraIdle').hidden=true;$('startCamera').hidden=true;$('stopCamera').hidden=false;
    state.scanning=true;state.scanArmed=true;state.scanCandidate=null;state.scanCandidateCount=0;state.scanAbsentCount=0;
    setText('cameraTopTag',TIPONCamera.label('scan').toUpperCase()+' SCANNING');setText('cameraBottomTag','Scanning automatically — no capture button');
-   updateScanResult('Scanning for member','Position one face in the frame. Location will be checked automatically.');
+   updateScanResult(enrolled?'Scanning for member':'No enrolled faces',enrolled?'Position one face in the frame. Eligible members are checked against their assigned GPS worksite.':'Camera is live. Enroll member face templates to enable attendance.','neutral');
    scanTick();
  }catch(err){toastError(err,'Scanner unavailable');updateScanResult('Scanner unavailable',err.message,'error');await stopScanner();}
  finally{state.scanBusy=false;$('startCamera').disabled=false;}
 }
-async function stopScanner(){state.scanRun=(state.scanRun||0)+1;state.scanning=false;if(state.scanTimer){clearTimeout(state.scanTimer);state.scanTimer=null;}const v=$('scanVideo');v.pause();v.srcObject=null;if(state.scanStream){state.scanStream.getTracks().forEach(t=>t.stop());state.scanStream=null;}
- $('cameraIdle').hidden=false;$('startCamera').hidden=false;$('stopCamera').hidden=true;setText('cameraTopTag','AWAITING CAMERA');setText('cameraBottomTag','Start camera for automatic face identification');
+async function stopScanner(){state.scanRun=(state.scanRun||0)+1;state.scanning=false;stopGPSWatch();if(state.scanTimer){clearTimeout(state.scanTimer);state.scanTimer=null;}const v=$('scanVideo');v.pause();v.srcObject=null;if(state.scanStream){state.scanStream.getTracks().forEach(t=>t.stop());state.scanStream=null;}
+ $('cameraIdle').hidden=false;$('startCamera').hidden=state.user?.role==='kiosk';$('stopCamera').hidden=true;setText('cameraTopTag','AWAITING CAMERA');setText('cameraBottomTag','Camera will start automatically when the kiosk opens');
 }
 async function scanTick(){if(!state.scanning)return;if(!hasTerminalSession()){await stopScanner();updateScanResult('Sign in required','Face Terminal is only for a current approved user or kiosk session.','error');return;}const run=state.scanRun;
  try{
@@ -300,7 +307,7 @@ async function scanTick(){if(!state.scanning)return;if(!hasTerminalSession()){aw
       else {
         if(state.scanCandidate===member.id)state.scanCandidateCount++;else {state.scanCandidate=member.id;state.scanCandidateCount=1;}
         setText('cameraBottomTag',`Identifying: ${member.name}…`);
-        if(state.scanCandidateCount>=2){state.scanArmed=false;state.lastRecognized=member.id;state.scanCandidate=null;state.scanCandidateCount=0;await recordRecognizedFace(member,found.best.distance);}
+        if(state.scanCandidateCount>=2){state.scanArmed=false;state.lastRecognized=member.id;state.scanCandidate=null;state.scanCandidateCount=0;playTerminalSound('face');await recordRecognizedFace(member,found.best.distance);}
       }
     }
    }
@@ -309,7 +316,7 @@ async function scanTick(){if(!state.scanning)return;if(!hasTerminalSession()){aw
  finally{if(state.scanning&&state.scanRun===run)state.scanTimer=setTimeout(scanTick,SCAN_DELAY_MS);}
 }
 async function recordRecognizedFace(member,faceDistance){
- if(member.active===false||member.deleted){showToast('This member is inactive.','error');return;}
+ if(member.active===false||member.deleted){playTerminalSound('error');showToast('This member is inactive.','error');return;}
  if(!hasTerminalSession()){showToast('Sign in or authorize this kiosk again.','error');return;}
  if(state.scanBusy)return;state.scanBusy=true;const mode=state.scanMode,run=state.scanRun,actorId=state.user.id;
  document.querySelectorAll('.mode-option').forEach(b=>b.disabled=true);
@@ -334,10 +341,10 @@ async function recordRecognizedFace(member,faceDistance){
     accuracy:gps.accuracy,distance,faceDistance,performedBy:state.user.username||state.user.name};
   await commitPunch(punch,mode);await loadCollections();renderTerminal();renderDashboard();
   updateScanResult(`TIME ${punch.type} saved`,`${member.name} | ${member.id} | ${site.satelliteOffice} | ${displayTime(stamp)}. Saved on this phone.`,'success');
-  showToast(`${member.name}: TIME ${punch.type} recorded.`,'success');
+  playTerminalSound('success');showToast(`${member.name}: TIME ${punch.type} recorded.`,'success');
   if(navigator.vibrate){try{navigator.vibrate(80);}catch{}}
   if(window.TIPONSync)TIPONSync.kick();
- }catch(err){updateScanResult('Attendance NOT recorded',err.message,'error');showToast(err.message,'error',6500);}
+ }catch(err){playTerminalSound('error');updateScanResult('Attendance NOT recorded',err.message,'error');showToast(err.message,'error',6500);}
  finally{state.scanBusy=false;document.querySelectorAll('.mode-option').forEach(b=>b.disabled=false);}
 }
 function commitPunch(punch,mode){return new Promise((resolve,reject)=>{

@@ -8,6 +8,7 @@ window.TIPONCamera=(()=>{
   async function init(){
     const stored=await getOne('meta','tp51-camera-preferences');
     for(const context of ['scan','enroll'])if(supported(stored?.[context]))preferences[context]=stored[context];
+    try{devices=(await navigator.mediaDevices?.enumerateDevices?.()||[]).filter(d=>d.kind==='videoinput'&&d.deviceId);}catch{}
     render();
   }
   function label(context){return actual[context]?.label||friendly(preferences[context]);}
@@ -31,6 +32,7 @@ window.TIPONCamera=(()=>{
     if(context==='enroll'&&!canEdit())throw Error('An authorized enrollment account is required.');
     if(context==='scan'&&!hasTerminalSession())throw Error('Use an approved user account for the Face Terminal. Administrator enrollment remains available.');
     if(!navigator.mediaDevices?.getUserMedia)throw Error('Camera access requires HTTPS or localhost.');
+    try{devices=(await navigator.mediaDevices.enumerateDevices()).filter(d=>d.kind==='videoinput'&&d.deviceId);render();}catch{}
     const choice=preferences[context]||'environment';
     const base={width:{ideal:640},height:{ideal:480},frameRate:{ideal:15,max:30}};
     const exact=choice.startsWith('device:')?{deviceId:{exact:choice.slice(7)}}:{facingMode:{exact:choice}};
@@ -71,6 +73,7 @@ window.TIPONCamera=(()=>{
     }catch(e){toastError(e,'Camera selection');}finally{switching=false;render();}
   }
   function bind(){
+    document.addEventListener('fullscreenchange',()=>document.body.classList.toggle('terminal-fullscreen',!!document.fullscreenElement));
     attach('scanCameraChoice','change',e=>change('scan',e.target.value));
     attach('enrollCameraChoice','change',e=>change('enroll',e.target.value));
     attach('kioskExit','click',()=>TIPONAuth.signOut());

@@ -21,3 +21,16 @@ body:not([data-terminal-access="allowed"]) [data-terminal-only]{display:none!imp
 
 /* Kiosk account: attendance terminal only. No workspace/system navigation. */
 .kiosk-mode .sidebar,.kiosk-mode .mobile-nav,.kiosk-mode .breadcrumb,.kiosk-mode #topStartScan{display:none!important}.kiosk-mode .app-shell{display:block!important}.kiosk-mode #pageHost{margin-left:0!important}.kiosk-mode .topbar{padding-left:24px;padding-right:24px}.kiosk-mode .topbar .topbar-actions>*:not(#networkPill){display:none!important}.kiosk-mode #page-scanner{display:block}.kiosk-mode #page-scanner[hidden]{display:none!important}
+
+/* Physical kiosk: auto camera and fullscreen terminal-only view. */
+.kiosk-mode #startCamera{display:none!important}
+.kiosk-mode.terminal-fullscreen .topbar,.kiosk-mode.terminal-fullscreen .page-head,.kiosk-mode.terminal-fullscreen .camera-choice-row,.kiosk-mode.terminal-fullscreen .terminal-actions,.kiosk-mode.terminal-fullscreen .gps-panel,.kiosk-mode.terminal-fullscreen .footnote-card{display:none!important}
+.kiosk-mode.terminal-fullscreen #pageHost{padding:12px!important}
+.kiosk-mode.terminal-fullscreen .scanner-grid{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(280px,.8fr);max-width:none;height:calc(100vh - 24px);gap:12px}
+.kiosk-mode.terminal-fullscreen .camera-panel{display:flex;flex-direction:column;min-height:0;padding:14px}
+.kiosk-mode.terminal-fullscreen .terminal-top{margin-bottom:10px}
+.kiosk-mode.terminal-fullscreen .camera-viewport{height:auto;min-height:0;flex:1}
+.kiosk-mode.terminal-fullscreen .scan-message{flex:none;margin-top:10px}
+.kiosk-mode.terminal-fullscreen .scanner-side{min-height:0}
+.kiosk-mode.terminal-fullscreen .scanner-side>.panel{flex:1;overflow:auto}
+@media(max-width:740px){.kiosk-mode.terminal-fullscreen .scanner-grid{grid-template-columns:1fr;grid-template-rows:minmax(250px,1fr) auto;height:calc(100vh - 24px)}.kiosk-mode.terminal-fullscreen .scanner-side>.panel{max-height:28vh}.kiosk-mode.terminal-fullscreen .terminal-top{align-items:flex-start;flex-wrap:wrap}}

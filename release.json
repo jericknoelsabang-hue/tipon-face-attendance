@@ -1,5 +1,5 @@
 {
   "app": "TIPON Face Attendance",
-  "version": "5.3.0",
-  "label": "GitHub Pages only + latest kiosk terminal-only roles"
+  "version": "5.3.2",
+  "label": "GitHub Pages only + automatic kiosk camera, GPS, sounds and fullscreen terminal"
 }
