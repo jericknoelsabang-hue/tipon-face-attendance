@@ -24,13 +24,41 @@ body:not([data-terminal-access="allowed"]) [data-terminal-only]{display:none!imp
 
 /* Physical kiosk: auto camera and fullscreen terminal-only view. */
 .kiosk-mode #startCamera{display:none!important}
-.kiosk-mode.terminal-fullscreen .topbar,.kiosk-mode.terminal-fullscreen .page-head,.kiosk-mode.terminal-fullscreen .camera-choice-row,.kiosk-mode.terminal-fullscreen .terminal-actions,.kiosk-mode.terminal-fullscreen .gps-panel,.kiosk-mode.terminal-fullscreen .footnote-card{display:none!important}
-.kiosk-mode.terminal-fullscreen #pageHost{padding:12px!important}
-.kiosk-mode.terminal-fullscreen .scanner-grid{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(280px,.8fr);max-width:none;height:calc(100vh - 24px);gap:12px}
-.kiosk-mode.terminal-fullscreen .camera-panel{display:flex;flex-direction:column;min-height:0;padding:14px}
-.kiosk-mode.terminal-fullscreen .terminal-top{margin-bottom:10px}
-.kiosk-mode.terminal-fullscreen .camera-viewport{height:auto;min-height:0;flex:1}
-.kiosk-mode.terminal-fullscreen .scan-message{flex:none;margin-top:10px}
-.kiosk-mode.terminal-fullscreen .scanner-side{min-height:0}
-.kiosk-mode.terminal-fullscreen .scanner-side>.panel{flex:1;overflow:auto}
-@media(max-width:740px){.kiosk-mode.terminal-fullscreen .scanner-grid{grid-template-columns:1fr;grid-template-rows:minmax(250px,1fr) auto;height:calc(100vh - 24px)}.kiosk-mode.terminal-fullscreen .scanner-side>.panel{max-height:28vh}.kiosk-mode.terminal-fullscreen .terminal-top{align-items:flex-start;flex-wrap:wrap}}
+.terminal-fullscreen .topbar,.terminal-fullscreen .page-head,.terminal-fullscreen .camera-choice-row,.terminal-fullscreen .terminal-actions,.terminal-fullscreen .gps-panel,.terminal-fullscreen .footnote-card{display:none!important}
+.terminal-fullscreen #pageHost{padding:12px!important}
+.terminal-fullscreen .scanner-grid{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(280px,.8fr);max-width:none;height:calc(100vh - 24px);gap:12px}
+.terminal-fullscreen .camera-panel{display:flex;flex-direction:column;min-height:0;padding:14px}
+.terminal-fullscreen .terminal-top{margin-bottom:10px}
+.terminal-fullscreen .camera-viewport{height:auto;min-height:0;flex:1}
+.terminal-fullscreen .scan-message{flex:none;margin-top:10px}
+.terminal-fullscreen .scanner-side{min-height:0}
+.terminal-fullscreen .scanner-side>.panel{flex:1;overflow:auto}
+@media(max-width:740px){.terminal-fullscreen .scanner-grid{grid-template-columns:1fr;grid-template-rows:minmax(250px,1fr) auto;height:calc(100vh - 24px)}.terminal-fullscreen .scanner-side>.panel{max-height:28vh}.terminal-fullscreen .terminal-top{align-items:flex-start;flex-wrap:wrap}}
+
+
+/* Shared terminal fullscreen for approved user and kiosk accounts. */
+.terminal-fullscreen .sidebar,.terminal-fullscreen .mobile-nav,.terminal-fullscreen .breadcrumb,.terminal-fullscreen .topbar,.terminal-fullscreen .page-head,.terminal-fullscreen .camera-choice-row,.terminal-fullscreen .terminal-actions,.terminal-fullscreen .gps-panel,.terminal-fullscreen .footnote-card,.terminal-fullscreen #terminalLogPanel{display:none!important}
+.terminal-fullscreen .app-shell{display:block!important;min-height:100vh!important}
+.terminal-fullscreen #pageHost{margin:0!important;padding:12px!important}
+.terminal-fullscreen #page-scanner{display:block!important}
+.terminal-fullscreen #page-scanner[hidden]{display:none!important}
+.terminal-fullscreen .scanner-grid{height:calc(100vh - 24px)!important;max-width:none!important}
+.form-row.three{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px}
+.table-toolbar #memberFilterCoop,.table-toolbar #memberFilterPlatform,.table-toolbar #memberFilterOffice{min-width:170px}
+.terminal-log-panel{margin-top:18px}
+@media(max-width:900px){.form-row.three{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:600px){.form-row.three{grid-template-columns:1fr}.table-toolbar #memberFilterCoop,.table-toolbar #memberFilterPlatform,.table-toolbar #memberFilterOffice{min-width:100%}.terminal-fullscreen .scanner-grid{height:auto!important;min-height:calc(100vh - 24px)!important;grid-template-columns:1fr!important}.terminal-fullscreen .camera-viewport{min-height:45vh!important}}
+
+.multi-select{position:relative;border:1px solid var(--line);border-radius:9px;background:#fff}
+.multi-select summary{padding:11px 13px;cursor:pointer;list-style:none;font-weight:650;color:var(--ink)}
+.multi-select summary::-webkit-details-marker{display:none}
+.multi-select summary:after{content:"▾";float:right;color:var(--muted)}
+.multi-select[open] summary{border-bottom:1px solid var(--line)}
+.multi-select-options{position:absolute;z-index:30;top:calc(100% + 3px);left:0;right:0;max-height:220px;overflow:auto;background:#fff;border:1px solid var(--line);border-radius:9px;box-shadow:0 12px 30px #102b4322;padding:6px}
+.multi-select-option{display:flex!important;flex-direction:row!important;align-items:center;gap:9px;padding:8px;border-radius:6px;cursor:pointer}
+.multi-select-option:hover{background:#f3f7fb}
+.multi-select-option input{width:16px;height:16px;flex:none}
+.multi-select-option small{display:block;color:var(--muted);font-size:10px}
+@media(max-width:600px){.multi-select-options{position:relative;top:auto;box-shadow:none}}
+
+.member-site-field{display:flex;flex-direction:column;gap:7px}.member-site-field .field-label{font-size:12px;font-weight:700;color:var(--ink)}
