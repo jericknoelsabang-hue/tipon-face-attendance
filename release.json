@@ -1,5 +1,5 @@
 {
   "app": "TIPON Face Attendance",
-  "version": "5.4.1",
-  "label": "Face terminal logs workspace and member enrollment fixes"
+  "version": "5.4.2",
+  "label": "Workspace attendance logs, faster face enrollment, required fields and correction safeguards"
 }
