@@ -251,7 +251,7 @@ async function handleMemberTableClick(e){
   showToast('Member deleted from TIPON Members. Other open devices refresh during sync.','success');
  }catch(err){
   if(err.code==='ACTION'||/Unknown action/i.test(err.message||'')){
-   showToast('Member deletion requires Apps Script backend v5.5.6. No local deletion was made.','error',9000);
+   showToast('Member deletion requires the matching Apps Script backend v5.5.8. No local deletion was made.','error',9000);
   }else{
    toastError(err,'Central member deletion failed — member retained');
   }
