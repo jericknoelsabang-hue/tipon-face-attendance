@@ -98,7 +98,7 @@ applyRoles=function(){
     }
   }
   $('logoutMobile').hidden=false;
-  ['kioskFullscreen','kioskExit'].forEach(id=>{if($(id))$(id).hidden=u?.role!=='kiosk';});
+  if($('kioskFullscreen'))$('kioskFullscreen').hidden=!TIPONOrgCore.canUseTerminal(u);if($('kioskExit'))$('kioskExit').hidden=u?.role!=='kiosk';
   if(window.TIPONPlatforms)TIPONPlatforms.render();
   ['importBackup','exportBackup'].forEach(id=>{if($(id))$(id).hidden=!isAdmin();});
 };
@@ -111,7 +111,7 @@ showPage=async function(page){
   if(page==='accounts')await OrgUI.renderAccounts();if(page==='reports')OrgUI.renderReports();if(page==='settings')OrgUI.renderSettings();if(page==='scanner')TIPONCamera.render();
 };
 const originalOpenMember=openMemberForm,originalOpenSite=openSiteForm;
-openMemberForm=function(member){if(!canEdit())return;originalOpenMember(member);if(state.user.role==='registrar'){$('memberCoop').value=state.user.coop;$('memberCoop').disabled=true;fillMemberSites(member?.siteId);}else $('memberCoop').disabled=false;};
+openMemberForm=function(member){if(!canEdit())return;originalOpenMember(member);if(state.user.role==='registrar'){$('memberCoop').value=state.user.coop;$('memberCoop').disabled=true;fillMemberSites(member?.siteIds||member?.siteId);}else $('memberCoop').disabled=false;};
 openSiteForm=function(site){if(!canEdit())return;originalOpenSite(site);TIPONPlatforms.fill('sitePlatform',site?.platform||(state.user.role==='registrar'?state.user.platform:''));
   $('siteCoop').disabled=state.user.role==='registrar';$('sitePlatform').disabled=state.user.role==='registrar';if(state.user.role==='registrar'){$('siteCoop').value=state.user.coop;fillSiteOffices(site?.officeId);}
   fillSiteOffices(site?.officeId);const plan=site?.schedule||{};$('siteScheduleEnabled').checked=!!plan.enabled;$('siteShiftStart').value=plan.start||'06:00';$('siteShiftEnd').value=plan.end||'15:00';$('siteGrace').value=plan.grace||0;
@@ -294,8 +294,8 @@ importOfficeCSV=async function(event){
 const originalFillSiteOffices=fillSiteOffices;
 fillSiteOffices=function(preferred){
  const coop=$('siteCoop').value,platform=$('sitePlatform')?.value.trim();
- const rows=state.offices.filter(o=>o.coop===coop&&o.orgId===state.orgId&&(!platform||TIPONOrgCore.platformKey(o.platform)===TIPONOrgCore.platformKey(platform))&&Number.isFinite(o.lat)&&Number.isFinite(o.lng));
- $('siteOffice').innerHTML='<option value="">Select configured office</option>'+rows.map(o=>`<option value="${esc(o.id)}">${esc(o.name)} / ${esc(o.platform)}</option>`).join('');
+ const rows=state.offices.filter(o=>o.coop===coop&&(!o.orgId||o.orgId===state.orgId)&&(!platform||!o.platform||TIPONOrgCore.platformKey(o.platform)===TIPONOrgCore.platformKey(platform)));
+ $('siteOffice').innerHTML='<option value="">Select approved satellite office</option>'+rows.map(o=>`<option value="${esc(o.id)}">${esc(o.name)} / ${esc(o.platform)}</option>`).join('');
  if(rows.some(o=>o.id===preferred))$('siteOffice').value=preferred;
- setText('siteOfficeHint','Only configured organization offices with approved GPS are selectable. Confirm a reference office or add a new office first.');
+ setText('siteOfficeHint','Select an office from the approved reference list. Add missing offices using the approved masterlist import.');
 };
