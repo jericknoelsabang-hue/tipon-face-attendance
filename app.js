@@ -129,6 +129,10 @@ function fillMemberFilter(id,values,placeholder){
  el.innerHTML='<option value="">'+esc(placeholder)+'</option>'+unique.map(v=>'<option value="'+esc(v)+'">'+esc(v)+'</option>').join('');
  if(unique.includes(old))el.value=old;
 }
+function memberEnrollerLabel(member){
+ const account=[state.user,...(state.users||[])].find(u=>u&&u.id===(member.createdBy||member.enrolledBy));
+ return member.enrolledByUsername||account?.username||account?.name||'Not recorded';
+}
 function renderMembers(){
  fillMemberFilter('memberFilterCoop',TIPONOrgCore.COOPS,'All cooperatives');
  fillMemberFilter('memberFilterPlatform',[...TIPONPlatforms.names(),...state.sites.map(s=>s.platform),...state.members.map(m=>m.platform)],'All business platforms');
@@ -139,7 +143,7 @@ function renderMembers(){
   return (!q||`${m.id} ${name} ${m.coop}`.toLowerCase().includes(q))&&(!coop||m.coop===coop)&&(!platform||TIPONOrgCore.platformKey(memberPlatform)===TIPONOrgCore.platformKey(platform))&&(!office||memberOffices.includes(office));
  }).sort((x,y)=>(x.name||'').localeCompare(y.name||''));
  setText('memberCountLabel',`${data.length} member${data.length===1?'':'s'}`);
- $('memberRows').innerHTML=data.length?data.map(m=>{const sites=sitesForMember(m),site=sites[0],names=sites.map(x=>x.name).join(', ');return `<tr><td><div class="row-inline"><div class="initial-avatar">${esc(initial(m.name))}</div><div><b>${esc(m.name)}</b><small>ID: ${esc(m.id)}</small></div></div></td><td>${esc(m.coop)}</td><td><b>${esc(names||'Not assigned')}</b><small>${esc(sites.map(x=>x.satelliteOffice||'Office not yet assigned').filter((v,i,x)=>x.indexOf(v)===i).join(', '))}</small><small>${site?'150 m GPS check':'Site missing'}</small></td><td><span class="badge ${m.descriptors?.length>=3?'green':'red'}">${m.descriptors?.length>=3?'ENROLLED':'NOT ENROLLED'}</span></td><td><button class="tiny-button" data-member-edit="${esc(m.id)}">Edit</button> <button class="tiny-button delete" data-member-delete="${esc(m.id)}">Delete</button></td></tr>`}).join(''):`<tr><td colspan="5"><div class="empty-state">${pageIcon('users')}No members found. Enroll members to begin recognizing faces.</div></td></tr>`;
+ $('memberRows').innerHTML=data.length?data.map(m=>{const sites=sitesForMember(m),site=sites[0],names=sites.map(x=>x.name).join(', ');return `<tr><td><div class="row-inline"><div class="initial-avatar">${esc(initial(m.name))}</div><div><b>${esc(m.name)}</b><small>ID: ${esc(m.id)}</small></div></div></td><td>${esc(m.coop)}</td><td>${esc(m.platform||site?.platform||'—')}</td><td><b>${esc(names||'Not assigned')}</b><small>${esc(sites.map(x=>x.satelliteOffice||'Office not yet assigned').filter((v,i,x)=>x.indexOf(v)===i).join(', '))}</small><small>${site?'150 m GPS check':'Site missing'}</small></td><td>${esc(memberEnrollerLabel(m))}</td><td><span class="badge ${m.descriptors?.length>=3?'green':'red'}">${m.descriptors?.length>=3?'ENROLLED':'NOT ENROLLED'}</span></td><td><button class="tiny-button" data-member-edit="${esc(m.id)}">Edit</button> <button class="tiny-button delete" data-member-delete="${esc(m.id)}">Delete</button></td></tr>`}).join(''):`<tr><td colspan="7"><div class="empty-state">${pageIcon('users')}No members found. Enroll members to begin recognizing faces.</div></td></tr>`;
 }
 function fillMemberSites(preferred,keepOffice=false){
  const coop=$('memberCoop').value,preferredIds=(Array.isArray(preferred)?preferred:[preferred]).filter(Boolean),firstSite=state.sites.find(s=>preferredIds.includes(s.id)),previous=keepOffice?$('memberOffice').value:'';
@@ -172,7 +176,7 @@ async function saveMemberForm(e){e.preventDefault();if(!canEdit())return;
  if(!state.consentAcknowledgedAt&&!state.editMember?.consentAt){showToast('Click Enroll face after the member reviews the biometric notice.','error');return;}
  const last=state.punches.find(p=>p.memberId===id);
  if(last?.type==='IN'&&(state.editMember?.siteIds||[state.editMember?.siteId]).some(x=>!siteIds.includes(x))){showToast('Complete Time Out before removing an assigned work location.','error');return;}
- const record={id,name,coop,siteId:siteIds[0],siteIds,satelliteOffice:site.satelliteOffice||'',descriptors:state.pendingDescriptors,consentAt:state.editMember?.consentAt||new Date(state.consentAcknowledgedAt||Date.now()).toISOString(),enrolledBy:state.editMember?.enrolledBy||state.deviceId,createdAt:state.editMember?.createdAt||new Date().toISOString(),updatedAt:new Date().toISOString()};
+ const record={id,name,coop,siteId:siteIds[0],siteIds,satelliteOffice:site.satelliteOffice||'',descriptors:state.pendingDescriptors,consentAt:state.editMember?.consentAt||new Date(state.consentAcknowledgedAt||Date.now()).toISOString(),enrolledBy:state.editMember?.enrolledBy||state.deviceId,enrolledByUsername:state.editMember?state.editMember.enrolledByUsername||'':state.user.username||'',createdAt:state.editMember?.createdAt||new Date().toISOString(),updatedAt:new Date().toISOString()};
  try{await saveOne('members',record);await loadCollections();$('memberDialog').close();renderMembers();renderDashboard();showToast(`${name} enrolled successfully.`,'success');}catch(err){toastError(err,'Unable to save member');}
 }
 async function handleMemberTableClick(e){const edit=e.target.closest('[data-member-edit]');const del=e.target.closest('[data-member-delete]');if(edit){const m=state.members.find(x=>x.id===edit.dataset.memberEdit);if(m)openMemberForm(m);}
