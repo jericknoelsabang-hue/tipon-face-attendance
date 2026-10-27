@@ -84,7 +84,8 @@ async function deriveBytes(password,salt,iterations=190000,bits=256){
 
 
 async function enterApp(){
-  throw Error('Organization authentication module is required. Reload the complete v5 deployment.');
+  if(typeof TIPONWorkspaceEnter!=='function')throw Error('Workspace module is unavailable. Reload the app files.');
+  return TIPONWorkspaceEnter();
 }
 function applyRoles(){document.querySelectorAll('[data-roles]').forEach(el=>el.hidden=true);}
 function refreshClock(){const now=new Date();setText('liveDateTime',now.toLocaleString('en-PH',{timeZone:PH_TIMEZONE,weekday:'short',month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}));setText('bigDate',now.toLocaleDateString('en-PH',{timeZone:PH_TIMEZONE,weekday:'long',month:'short',day:'numeric',year:'numeric'}));const connected=navigator.onLine;setText('connectionText',connected?'Online / local storage':'Offline / local storage');setText('headerOnlineText',connected?'Network online':state.offlineReady?'Offline ready':'Offline / setup needed');$('onlineDot').className=`status-dot ${connected?'success':'offline'}`;$('headerOnlineDot').className=`status-dot ${connected?'success':'offline'}`;}
@@ -582,3 +583,5 @@ async function initializeLocal(){
  for(const p of normalized){const old=punches.find(x=>x.id===p.id);if(!old.deviceId||!old.sessionId)await OrgDB.rawSave('punches',p);}
 }
 window.addEventListener('DOMContentLoaded',boot);
+
+window.TIPONWorkspaceEnter=()=>enterApp();
