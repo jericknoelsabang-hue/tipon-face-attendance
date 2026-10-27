@@ -5,14 +5,14 @@
   else root.TIPONCore = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this, function () {
   'use strict';
-  const HEADERS = Object.freeze(['Member ID', 'Satellite Office', 'Location', 'Time In', 'Time Out']);
+  const HEADERS = Object.freeze(['Member ID', 'Business platform', 'Work location', 'Time In', 'Time Out']);
   const epoch = value => { const t = Date.parse(value); if (!Number.isFinite(t)) throw Error('Invalid attendance timestamp.'); return t; };
   function phStamp(value) { return value ? new Date(epoch(value) + 28800000).toISOString().slice(0, 19).replace('T', ' ') : ''; }
   function serial(value) { return value ? (epoch(value) + 28800000) / 86400000 + 25569 : ''; }
   function normalize(punches, deviceId) {
     const open = new Map();
     return [...punches].sort((a,b) => epoch(a.timestamp) - epoch(b.timestamp) || String(a.id).localeCompare(String(b.id))).map(p => {
-      const item = {...p, deviceId:p.deviceId || deviceId, memberId:String(p.memberId), satelliteOffice:p.satelliteOffice || ''};
+      const item = {...p, deviceId:p.deviceId || deviceId, memberId:String(p.memberId)};
       const key = JSON.stringify([item.deviceId, item.memberId, item.siteId || item.siteName || item.location]);
       if (item.type === 'IN') {
         item.sessionId = item.sessionId || item.id;
@@ -26,7 +26,7 @@
   }
   function publicEvent(p) {
     return {id:p.id, deviceId:p.deviceId, sessionId:p.sessionId, memberId:String(p.memberId),
-      satelliteOffice:p.satelliteOffice || '', location:p.location ?? p.siteName ?? '', type:p.type, timestamp:p.timestamp};
+      platform:p.platform || '', location:p.location ?? p.siteName ?? '', type:p.type, timestamp:p.timestamp};
   }
   function rows(punches, deviceId) {
     const groups = new Map(), ids = new Set();
@@ -35,10 +35,10 @@
       ids.add(p.id);
       const key = JSON.stringify([p.sessionId]);
       const loc = p.location ?? p.siteName ?? '';
-      const row = groups.get(key) || {key, deviceId:p.deviceId, memberId:p.memberId, satelliteOffice:p.satelliteOffice,
+      const row = groups.get(key) || {key, deviceId:p.deviceId, memberId:p.memberId, platform:p.platform || '',
         location:loc, siteId:p.siteId || '', timeIn:'', timeOut:'', eventIds:[]};
-      if (row.memberId !== p.memberId || row.location !== loc || row.satelliteOffice !== p.satelliteOffice)
-        throw Error('A session has conflicting member, office, or location data. Review local records.');
+      if (row.memberId !== p.memberId || row.location !== loc)
+        throw Error('A session has conflicting member or work location data. Review local records.');
       const col = p.type === 'IN' ? 'timeIn' : 'timeOut';
       if (row[col]) throw Error('Duplicate time ' + p.type.toLowerCase() + ' in a session. Review records.');
       row[col] = p.timestamp; row.eventIds.push(p.id); groups.set(key, row);
@@ -49,7 +49,7 @@
   }
   function table(data, numericDates = false) {
     const date = numericDates ? serial : phStamp;
-    return [HEADERS.slice(), ...data.map(r => [r.memberId, r.satelliteOffice, r.location, date(r.timeIn), date(r.timeOut)])];
+    return [HEADERS.slice(), ...data.map(r => [r.memberId, r.platform || '', r.location, date(r.timeIn), date(r.timeOut)])];
   }
   function filterRows(data, from, to, site) {
     if (from && to && from > to) throw Error('From date must not be after To date.');
