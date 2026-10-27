@@ -95,7 +95,7 @@ window.TIPONSync=(()=>{
     try{
       await TIPONAuth.ensureOnline();await loadCollections();await flush();await pull();await loadCollections();await loadOfficeDirectory();
       lastSync=TIPONCore.phStamp(new Date().toISOString());const waiting=(await getAll('outbox')).filter(o=>o.orgId===state.orgId&&o.error).length+state.punches.filter(p=>p.reviewStatus).length;message=waiting?'Central data updated; '+waiting+' record(s) still need review. See Settings / Accounts.':'Central data updated; records are acknowledged, not assumed sent.';attempt=0;
-      if(state.page==='dashboard')renderDashboard();if(state.page==='records')renderRecords();if(state.page==='members')renderMembers();if(state.page==='sites')renderSites();TIPONPlatforms.render();
+      if(state.page==='dashboard')renderDashboard();if(state.page==='records')renderRecords();if(state.page==='members')renderMembers();if(state.page==='sites')renderSites();if(state.page==='scanner'){renderTerminal();renderTerminalLogs();const ready=state.members.filter(m=>m.active!==false&&!m.deleted&&m.descriptors?.length>=3).length;if(ready)updateScanResult('Member directory ready',ready+' enrolled face template(s) loaded on this terminal. Face matches are checked against assigned office GPS.','success');}TIPONPlatforms.render();
     }catch(e){message=e.message;attempt=Math.min(attempt+1,4);if(['AUTH','ACCOUNT','DEVICE_DISABLED'].includes(e.code))message+=' Sign out and sign in online.';}
     finally{busy=false;render();schedule();}
   }
