@@ -137,30 +137,33 @@ function renderMembers(){
  fillMemberFilter('memberFilterCoop',TIPONOrgCore.COOPS,'All cooperatives');
  fillMemberFilter('memberFilterPlatform',[...TIPONPlatforms.names(),...state.sites.map(s=>s.platform),...state.members.map(m=>m.platform)],'All business platforms');
  fillMemberFilter('memberFilterOffice',state.sites.map(s=>s.name),'All assigned locations');
- const q=$('memberSearch').value.trim().toLowerCase(),coop=$('memberFilterCoop')?.value||'',platform=$('memberFilterPlatform')?.value||'',office=$('memberFilterOffice')?.value||'',face=$('memberFilterFace')?.value||'';
+ const q=$('memberSearch').value.trim().toLowerCase(),coop=$('memberFilterCoop')?.value||'',platform=$('memberFilterPlatform')?.value||'',loc=$('memberFilterOffice')?.value||'',face=$('memberFilterFace')?.value||'';
  const data=state.members.filter(m=>{
-  const sites=sitesForMember(m),name=m.name||'',memberPlatform=m.platform||sites[0]?.platform||'',memberOffices=sites.map(s=>s.satelliteOffice||state.offices.find(o=>o.id===s.officeId)?.name||'');
-  return (!q||`${m.id} ${name} ${m.coop}`.toLowerCase().includes(q))&&(!coop||m.coop===coop)&&(!platform||TIPONOrgCore.platformKey(memberPlatform)===TIPONOrgCore.platformKey(platform))&&(!office||sites.some(s=>s.name===office))&&(!face||(face==='enrolled')===(m.descriptors?.length>=3));
+  const sites=sitesForMember(m),bp=m.platform||sites[0]?.platform||'',enrolled=m.active!==false&&!!(m.template||m.descriptors?.length>=3);
+  return (!q||[m.id,m.name,m.coop].join(' ').toLowerCase().includes(q))&&(!coop||m.coop===coop)&&(!platform||TIPONOrgCore.platformKey(bp)===TIPONOrgCore.platformKey(platform))&&(!loc||sites.some(s=>s.name===loc))&&(!face||(face==='enrolled')===enrolled);
  }).sort((x,y)=>(x.name||'').localeCompare(y.name||''));
- setText('memberCountLabel',`${data.length} member${data.length===1?'':'s'}`);
- $('memberRows').innerHTML=data.length?data.map(m=>{const sites=sitesForMember(m),site=sites[0],names=sites.map(x=>x.name).join(', ');return `<tr><td><div class="row-inline"><div class="initial-avatar">${esc(initial(m.name))}</div><div><b>${esc(m.name)}</b><small>ID: ${esc(m.id)}</small></div></div></td><td>${esc(m.coop)}</td><td>${esc(m.platform||site?.platform||'—')}</td><td><b>${esc(names||'Not assigned')}</b><small>${esc(sites.map(x=>x.satelliteOffice||'Office not yet assigned').filter((v,i,x)=>x.indexOf(v)===i).join(', '))}</small><small>${site?'150 m GPS check':'Site missing'}</small></td><td>${esc(memberEnrollerLabel(m))}</td><td><span class="badge ${m.descriptors?.length>=3?'green':'red'}">${m.descriptors?.length>=3?'ENROLLED':'NOT ENROLLED'}</span></td><td><button class="tiny-button" data-member-edit="${esc(m.id)}">Edit</button> <button class="tiny-button delete" data-member-delete="${esc(m.id)}">Delete</button></td></tr>`}).join(''):`<tr><td colspan="7"><div class="empty-state">${pageIcon('users')}No members found. Enroll members to begin recognizing faces.</div></td></tr>`;
+ setText('memberCountLabel',data.length+' member'+(data.length===1?'':'s'));
+ $('memberRows').innerHTML=data.length?data.map(m=>{
+  const sites=sitesForMember(m),enrolled=m.active!==false&&!!(m.template||m.descriptors?.length>=3),names=sites.map(s=>s.name).join(', ');
+  return '<tr><td><div class="row-inline"><div class="initial-avatar">'+esc(initial(m.name))+'</div><div><b>'+esc(m.name)+'</b><small>ID: '+esc(m.id)+'</small></div></div></td>'+
+   '<td>'+esc(m.coop)+'</td><td>'+esc(m.platform||sites[0]?.platform||'—')+'</td>'+
+   '<td><b>'+esc(names||'Pending User assignment')+'</b><small>'+(sites.length?'GPS verification at assigned work location':'User selects location during face enrollment')+'</small></td>'+
+   '<td>'+esc(memberEnrollerLabel(m))+'</td><td><span class="badge '+(enrolled?'green':'red')+'">'+(enrolled?'ENROLLED':'NOT ENROLLED')+'</span></td>'+
+   '<td><button class="tiny-button" data-member-edit="'+esc(m.id)+'">Edit</button> <button class="tiny-button delete" data-member-delete="'+esc(m.id)+'">Delete</button></td></tr>';
+ }).join(''):'<tr><td colspan="7"><div class="empty-state">'+pageIcon('users')+'No matching members found.</div></td></tr>';
 }
-function fillMemberSites(preferred,keepOffice=false){
- const coop=$('memberCoop').value,preferredIds=(Array.isArray(preferred)?preferred:[preferred]).filter(Boolean),firstSite=state.sites.find(s=>preferredIds.includes(s.id)),previous=keepOffice?$('memberOffice').value:'';
- const offices=state.offices.filter(o=>o.coop===coop);
- $('memberOffice').innerHTML='<option value="">Select satellite office</option>'+offices.map(o=>`<option value="${esc(o.id)}">${esc(o.name)}</option>`).join('');
- const selected=firstSite?.officeId||previous;if(offices.some(o=>o.id===selected))$('memberOffice').value=selected;
- const officeId=$('memberOffice').value,options=state.sites.filter(s=>s.coop===coop&&(!officeId||s.officeId===officeId));
- $('memberSite').innerHTML=options.map(s=>`<option value="${esc(s.id)}">${esc(s.name)} (${s.radius} m)</option>`).join('');
- for(const option of $('memberSite').options)option.selected=preferredIds.includes(option.value);
- $('memberSiteChoices').innerHTML=options.map(s=>`<label class="multi-select-option"><input type="checkbox" data-member-site-option="${esc(s.id)}" ${preferredIds.includes(s.id)?'checked':''}/><span>${esc(s.name)} <small>150 m GPS</small></span></label>`).join('')||'<span class="mini-info">No work locations for this office yet.</span>';
+function fillMemberSites(preferred){
+ const coop=$('memberCoop').value,ids=(Array.isArray(preferred)?preferred:[preferred]).filter(Boolean),platform=state.editMember?.platform||state.user?.platform||'';
+ const sites=state.sites.filter(s=>!s.deleted&&s.coop===coop&&(!platform||TIPONOrgCore.platformKey(s.platform)===TIPONOrgCore.platformKey(platform)));
+ $('memberSite').innerHTML=sites.map(s=>'<option value="'+esc(s.id)+'">'+esc(s.name)+' ('+esc(s.radius)+' m)</option>').join('');
+ for(const option of $('memberSite').options)option.selected=ids.includes(option.value);
+ $('memberSiteChoices').innerHTML=sites.map(s=>'<label class="multi-select-option"><input type="checkbox" data-member-site-option="'+esc(s.id)+'" '+(ids.includes(s.id)?'checked':'')+'/><span>'+esc(s.name)+' <small>'+esc(s.radius||150)+' m GPS</small></span></label>').join('')||'<span class="mini-info">No work locations configured for this cooperative and business platform. Create a work location first.</span>';
  updateMemberSite();
 }
 function updateMemberSite(){
- const ids=[...$('memberSite').selectedOptions].map(o=>o.value),sites=ids.map(id=>state.sites.find(s=>s.id===id)).filter(Boolean);
- if(sites[0])$('memberOffice').value=sites[0].officeId||'';
- setText('memberSiteSummary',sites.length?sites.length+' work location(s) selected':'Select one or more work locations');
- setText('assignedSiteDetails',sites.length?sites.map(site=>`${site.name} - ${site.lat.toFixed(6)}, ${site.lng.toFixed(6)} (150 m)`).join(' · '):'Select one or more assigned work locations.');
+ const sites=[...$('memberSite').selectedOptions].map(o=>state.sites.find(s=>s.id===o.value)).filter(Boolean);
+ setText('memberSiteSummary',sites.length?sites.length+' work location(s) selected':'Select work location(s)');
+ setText('assignedSiteDetails',sites.length?sites.map(s=>s.name+' · '+Number(s.lat).toFixed(6)+', '+Number(s.lng).toFixed(6)+' ('+(s.radius||150)+' m GPS)').join(' | '):'Authorized User selects the assigned GPS location during enrollment.');
 }
 function openMemberForm(member){if(!canEdit())return;if(!state.sites.length){showToast('Create a work location before enrolling a member.','error');showPage('sites');return;}
  state.editMember=member||null;state.pendingDescriptors=member?.descriptors?.map(a=>[...a])||[];state.consentAcknowledgedAt=member?.consentAt||null;
@@ -170,13 +173,13 @@ function openMemberForm(member){if(!canEdit())return;if(!state.sites.length){sho
 }
 async function saveMemberForm(e){e.preventDefault();if(!canEdit())return;
  const id=$('memberId').value.trim(),name=$('memberName').value.trim(),coop=$('memberCoop').value,siteIds=[...$('memberSite').selectedOptions].map(o=>o.value),sites=siteIds.map(id=>state.sites.find(x=>x.id===id)).filter(Boolean),site=sites[0];
- if(!id||!name||!siteIds.length||sites.length!==siteIds.length||sites.some(s=>s.coop!==coop||!s.officeId||s.officeId!==$('memberOffice').value)){showToast('Select the cooperative, satellite office and one or more matching work locations.','error');return;}
+ if(!id||!name||!siteIds.length||sites.length!==siteIds.length||sites.some(s=>s.coop!==coop||TIPONOrgCore.platformKey(s.platform)!==TIPONOrgCore.platformKey(state.editMember?.platform||state.user?.platform))){showToast('Choose one or more matching approved work locations.','error');return;}
  if(!state.editMember&&state.members.some(m=>m.id.toLowerCase()===id.toLowerCase())){showToast('Member ID is already registered.','error');return;}
  if(!state.pendingDescriptors.length||state.pendingDescriptors.length<3){showToast('Complete face enrollment before saving.','error');return;}
  if(!state.consentAcknowledgedAt&&!state.editMember?.consentAt){showToast('Click Enroll face after the member reviews the biometric notice.','error');return;}
  const last=state.punches.find(p=>p.memberId===id);
  if(last?.type==='IN'&&(state.editMember?.siteIds||[state.editMember?.siteId]).some(x=>!siteIds.includes(x))){showToast('Complete Time Out before removing an assigned work location.','error');return;}
- const record={id,name,coop,siteId:siteIds[0],siteIds,satelliteOffice:site.satelliteOffice||'',descriptors:state.pendingDescriptors,consentAt:state.editMember?.consentAt||new Date(state.consentAcknowledgedAt||Date.now()).toISOString(),enrolledBy:state.editMember?.enrolledBy||state.deviceId,enrolledByUsername:state.editMember?.enrolledByUsername||state.user.username||'',createdAt:state.editMember?.createdAt||new Date().toISOString(),updatedAt:new Date().toISOString()};
+ const record={id,name,coop,siteId:siteIds[0],siteIds,descriptors:state.pendingDescriptors,consentAt:state.editMember?.consentAt||new Date(state.consentAcknowledgedAt||Date.now()).toISOString(),enrolledBy:state.editMember?.enrolledBy||state.deviceId,enrolledByUsername:state.editMember?.enrolledByUsername||state.user.username||'',createdAt:state.editMember?.createdAt||new Date().toISOString(),updatedAt:new Date().toISOString()};
  try{await saveOne('members',record);await loadCollections();$('memberDialog').close();renderMembers();renderDashboard();showToast(`${name} enrolled successfully.`,'success');}catch(err){toastError(err,'Unable to save member');}
 }
 async function handleMemberTableClick(e){const edit=e.target.closest('[data-member-edit]');const del=e.target.closest('[data-member-delete]');if(edit){const m=state.members.find(x=>x.id===edit.dataset.memberEdit);if(m)openMemberForm(m);}
@@ -187,7 +190,7 @@ function renderSites(){
 function openSiteForm(site){
  state.editSite=site||null;$('siteForm').reset();setText('siteFormTitle',site?'Edit work location':'Add work location');$('siteRadius').value='150';
  if(site){$('siteName').value=site.name;$('siteCoop').value=site.coop;$('siteAddress').value=site.address||'';$('siteLat').value=site.lat;$('siteLng').value=site.lng;$('siteRadius').value=150;}
- fillSiteOffices(site?.officeId);updateSiteMap();$('siteDialog').showModal();
+ updateSiteMap();$('siteDialog').showModal();
 }
 function updateSiteMap(){const lat=Number($('siteLat').value),lng=Number($('siteLng').value);const hasLat=$('siteLat').value.trim()!==''&&Number.isFinite(lat)&&Math.abs(lat)<=90,hasLng=$('siteLng').value.trim()!==''&&Number.isFinite(lng)&&Math.abs(lng)<=180;const valid=hasLat&&hasLng;
  if(!valid){$('siteMapFrame').hidden=true;$('mapOffline').hidden=false;$('siteOpenMap').hidden=true;setText('mapCoordLabel','Enter coordinates or use current GPS.');return;}
@@ -200,10 +203,8 @@ function updateSiteMap(){const lat=Number($('siteLat').value),lng=Number($('site
 async function saveSiteForm(e){
  e.preventDefault();const lat=Number($('siteLat').value),lng=Number($('siteLng').value),radius=Number($('siteRadius').value);
  if(!$('siteLat').value.trim()||!$('siteLng').value.trim()||!Number.isFinite(lat)||!Number.isFinite(lng)||!Number.isFinite(radius)||Math.abs(lat)>90||Math.abs(lng)>180||radius<GPS_MIN_RADIUS||radius>2000){showToast('Invalid GPS coordinates or radius.','error');return;}
- const office=state.offices.find(o=>o.id===$('siteOffice').value&&o.coop===$('siteCoop').value);
- if(!office){showToast('Select a satellite office for this cooperative. Add missing offices from an approved masterlist.','error');return;}
  if(state.editSite && state.members.filter(m=>m.siteId===state.editSite.id).some(m=>state.punches.find(p=>p.memberId===m.id)?.type==='IN')){showToast('Complete open Time Out records before changing this worksite.','error');return;}
- const site={id:state.editSite?.id||uuid(),name:$('siteName').value.trim(),coop:$('siteCoop').value,officeId:office.id,satelliteOffice:office.name,address:$('siteAddress').value.trim(),lat,lng,radius,createdAt:state.editSite?.createdAt||new Date().toISOString()};
+ const site={id:state.editSite?.id||uuid(),name:$('siteName').value.trim(),coop:$('siteCoop').value,platform:$('sitePlatform').value.trim(),address:$('siteAddress').value.trim(),lat,lng,radius,createdAt:state.editSite?.createdAt||new Date().toISOString()};
  if(!site.name){showToast('Location name is required.','error');return;}
  try{await saveOne('sites',site);await loadCollections();$('siteDialog').close();renderSites();renderDashboard();showToast('Work location saved.','success');}catch(err){toastError(err,'Cannot save location');}
 }
@@ -388,23 +389,23 @@ async function recordRecognizedFace(member,faceDistance){
    if(!assignedSites.some(s=>s.id===tx.last.siteId))throw Error('Time Out must be recorded at the same assigned work location as Time In.');
    assignedSites=assignedSites.filter(s=>s.id===tx.last.siteId);
   }
-  assignedSites=assignedSites.filter(site=>site.satelliteOffice&&(state.user.role==='kiosk'||TIPONOrgCore.inScope(state.user,site)));
-  if(!assignedSites.length)throw Error('No assigned office is available to this attendance account.');
-  updateScanResult('Face recognized',`${member.name} · ${member.id}. Checking current GPS against assigned office(s)…`);
+  assignedSites=assignedSites.filter(site=>TIPONOrgCore.inScope(state.user,site));
+  if(!assignedSites.length)throw Error('No assigned work location is available to this attendance account.');
+  updateScanResult('Face recognized',`${member.name} · ${member.id}. Checking current GPS against assigned work location(s)…`);
   const gps=await readGPS();
   if(!state.scanning||state.scanRun!==run||state.user?.id!==actorId||!hasTerminalSession()||document.hidden)throw Error('Scanner or session changed before GPS verification completed. Retry with the current camera.');
   if(!Number.isFinite(gps.accuracy)||gps.accuracy<0||Math.abs(Date.now()-gps.timestamp)>30000)throw Error('GPS fix is missing, stale, or invalid. Retry outdoors.');
   if(gps.accuracy>GPS_MAX_ACCURACY)throw Error(`GPS accuracy ${Math.round(gps.accuracy)} m is too poor. Required: ${GPS_MAX_ACCURACY} m or better.`);
   const candidates=assignedSites.map(site=>({site,distance:distanceM(site.lat,site.lng,gps.latitude,gps.longitude)})).sort((x,y)=>x.distance-y.distance);
   const match=candidates.find(x=>x.distance<=150);
-  if(!match){const closest=candidates[0];throw Error(`Face recognized: ${member.name}. Nearest assigned office is ${Math.round(closest.distance)} m away; maximum allowed is 150 m.`);}
+  if(!match){const closest=candidates[0];throw Error(`Face recognized: ${member.name}. Nearest assigned work location is ${Math.round(closest.distance)} m away; maximum allowed is 150 m.`);}
   const {site,distance}=match,stamp=new Date();
   const punch={id:uuid(),orgId:state.orgId,siteRev:site.rev||0,deviceId:state.deviceId,timestamp:stamp.toISOString(),day:todayPH(stamp),type:tx.type,
-    memberId:member.id,memberName:member.name,coop:member.coop,platform:site.platform,recordedById:state.user.id,siteId:site.id,siteName:site.name,satelliteOffice:site.satelliteOffice,
-    officeId:site.officeId,siteLat:site.lat,siteLng:site.lng,radius:150,lat:gps.latitude,lng:gps.longitude,
+    memberId:member.id,memberName:member.name,coop:member.coop,platform:site.platform,recordedById:state.user.id,siteId:site.id,siteName:site.name,
+    siteLat:site.lat,siteLng:site.lng,radius:150,lat:gps.latitude,lng:gps.longitude,
     accuracy:gps.accuracy,distance,faceDistance,performedBy:state.user.username||state.user.name};
   await commitPunch(punch,mode);await loadCollections();renderTerminal();renderTerminalLogs();renderDashboard();
-  updateScanResult(`TIME ${punch.type} saved`,`${member.name} | ${member.id} | ${site.satelliteOffice} | ${displayTime(stamp)}. Saved on this phone.`,'success');
+  updateScanResult(`TIME ${punch.type} saved`,`${member.name} | ${member.id} | ${site.name} | ${displayTime(stamp)}. Saved on this phone.`,'success');
   playTerminalSound('success');showToast(`${member.name}: TIME ${punch.type} recorded.`,'success');
   if(navigator.vibrate){try{navigator.vibrate(80);}catch{}}
   if(window.TIPONSync)TIPONSync.kick();
@@ -418,7 +419,7 @@ function commitPunch(punch,mode){return new Promise((resolve,reject)=>{
    const attendanceDay=action.type==='OUT'?todayPH(new Date(action.last.timestamp)):todayPH(new Date(punch.timestamp));
    if(previous.some(p=>String(p.memberId)===String(punch.memberId)&&p.siteId===punch.siteId&&p.type===action.type&&todayPH(new Date(p.timestamp))===attendanceDay))throw Error('Time '+action.type+' already recorded for this member at this location today.');
    punch.sessionId=action.type==='IN'?punch.id:action.last.sessionId;
-   if(action.type==='OUT'){punch.siteName=action.last.siteName;punch.satelliteOffice=action.last.satelliteOffice||'';}
+   if(action.type==='OUT'){punch.siteName=action.last.siteName;}
    store.add(punch);
  }catch(err){problem=err;tx.abort();}};
  tx.oncomplete=resolve;tx.onabort=()=>reject(problem||tx.error||Error('Attendance transaction aborted.'));tx.onerror=()=>reject(tx.error);
@@ -559,7 +560,7 @@ function bindEvents(){
  document.addEventListener('fullscreenchange',()=>document.body.classList.toggle('terminal-fullscreen',!!document.fullscreenElement&&state.page==='scanner'));
  attach('addMember','click',()=>openMemberForm(null));attach('memberRows','click',handleMemberTableClick);
  attach('memberForm','submit',saveMemberForm);
- attach('memberCoop','change',()=>fillMemberSites());attach('memberOffice','change',()=>fillMemberSites(undefined,true));attach('memberSiteChoices','change',e=>{const cb=e.target.closest('[data-member-site-option]');if(!cb)return;const option=[...$('memberSite').options].find(o=>o.value===cb.dataset.memberSiteOption);if(option)option.selected=cb.checked;updateMemberSite();});
+ attach('memberCoop','change',()=>fillMemberSites());attach('memberSiteChoices','change',e=>{const cb=e.target.closest('[data-member-site-option]');if(!cb)return;const option=[...$('memberSite').options].find(o=>o.value===cb.dataset.memberSiteOption);if(option)option.selected=cb.checked;updateMemberSite();});
  attach('enrollFaceButton','click',beginEnrollment);
   attach('retryEnrollment','click',async()=>{await stopEnrollment(true);if($('enrollDialog').open)$('enrollDialog').close();if(!$('memberDialog').open)$('memberDialog').showModal();await beginEnrollment();});
  attach('enrollDialog','cancel',(e)=>{e.preventDefault();finishEnrollment(true);});
@@ -584,7 +585,7 @@ function bindEvents(){
 }
 
 async function boot(){
- bindEvents();bindOfficeEvents();OrgUI.bind();TIPONCamera.bind();TIPONPlatforms.bind();attach('refreshAppFiles','click',openAppUpdater);registerWorker().catch(console.warn);setInterval(refreshClock,30000);refreshClock();
+ bindEvents();OrgUI.bind();TIPONCamera.bind();TIPONPlatforms.bind();attach('refreshAppFiles','click',openAppUpdater);registerWorker().catch(console.warn);setInterval(refreshClock,30000);refreshClock();
  if(!window.isSecureContext||!('indexedDB' in window)||!window.crypto?.subtle){$('bootAlert').hidden=false;setText('bootAlert','Open the app using HTTPS (or localhost). Camera, GPS and offline account access need a secure browser.');return;}
  try{db=await openDB();await initializeLocal();await TIPONCamera.init();await TIPONSync.init();await TIPONAuth.init();}
  catch(err){$('bootAlert').hidden=false;setText('bootAlert',`Startup failed: ${err.message}`);console.error(err);}
