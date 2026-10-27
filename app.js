@@ -134,12 +134,12 @@ function memberEnrollerLabel(member){if(member.importedWithoutFace&&!(member.des
  return member.enrolledByUsername||account?.username||account?.name||'Not recorded';
 }
 function renderMembers(){
- fillMemberFilter('memberFilterCoop',TIPONOrgCore.COOPS,'All cooperatives');
- fillMemberFilter('memberFilterPlatform',[...TIPONPlatforms.names(),...state.sites.map(s=>s.platform),...state.members.map(m=>m.platform)],'All business platforms');
- const q=$('memberSearch').value.trim().toLowerCase(),coop=$('memberFilterCoop')?.value||'',platform=$('memberFilterPlatform')?.value||'',face=$('memberFilterFace')?.value||'';
+ // Defensive recheck: the User registry is limited to their own MPC and BP.
+ const q=$('memberSearch').value.trim().toLowerCase(),face=$('memberFilterFace')?.value||'';
  const data=state.members.filter(m=>{
-  const sites=sitesForMember(m),bp=m.platform||sites[0]?.platform||'',enrolled=m.active!==false&&!!(m.template||m.descriptors?.length>=3);
-  return (!q||[m.id,m.name,m.coop].join(' ').toLowerCase().includes(q))&&(!coop||m.coop===coop)&&(!platform||TIPONOrgCore.platformKey(bp)===TIPONOrgCore.platformKey(platform))&&(!face||(face==='enrolled')===enrolled);
+  if(m.deleted||(!isAdmin()&&!TIPONOrgCore.inScope(state.user,m)))return false;
+  const enrolled=m.active!==false&&!!(m.template||m.descriptors?.length>=3);
+  return (!q||[m.id,m.name,m.coop].join(' ').toLowerCase().includes(q))&&(!face||(face==='enrolled')===enrolled);
  }).sort((x,y)=>(x.name||'').localeCompare(y.name||''));
  setText('memberCountLabel',data.length+' member'+(data.length===1?'':'s'));
  $('memberRows').innerHTML=data.length?data.map(m=>{
@@ -613,10 +613,10 @@ function bindEvents(){
  document.querySelectorAll('[data-jump]').forEach(el=>el.addEventListener('click',()=>showPage(el.dataset.jump)));
  attach('topStartScan','click',()=>showPage('scanner'));
  attach('memberSearch','input',renderMembers);
- ['memberFilterCoop','memberFilterPlatform','memberFilterFace'].forEach(id=>attach(id,'change',renderMembers));
+ attach('memberFilterFace','change',renderMembers);
  attach('memberResetFilters','click',()=>{
   $('memberSearch').value='';
-  ['memberFilterCoop','memberFilterPlatform','memberFilterFace'].forEach(id=>{$(id).value='';});
+  $('memberFilterFace').value='';
   renderMembers();
  });
  ['terminalLogFrom','terminalLogTo','terminalLogCoop','terminalLogPlatform','terminalLogSite'].forEach(id=>attach(id,'change',renderTerminalLogs));attach('terminalLogReset','click',()=>{['terminalLogFrom','terminalLogTo','terminalLogCoop','terminalLogPlatform','terminalLogSite'].forEach(id=>$(id).value='');renderTerminalLogs();});
