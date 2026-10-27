@@ -39,7 +39,7 @@ window.TIPONSync=(()=>{
   async function flush(){
     const actor=state.user;
     const outbox=(await getAll('outbox')).filter(o=>o.orgId===state.orgId&&o.ownerId===actor.id&&(!o.errorCode||['DEPENDENCY','BUSY','SERVER','NETWORK'].includes(o.errorCode))).sort((a,b)=>a.createdAt.localeCompare(b.createdAt));
-    const weights={offices:0,sites:1,members:2,schedules:3};outbox.sort((a,b)=>weights[a.type]-weights[b.type]||a.createdAt.localeCompare(b.createdAt));
+    const weights={sites:0,members:1,schedules:2};outbox.sort((a,b)=>weights[a.type]-weights[b.type]||a.createdAt.localeCompare(b.createdAt));
     const operations=actor.role==='kiosk'?[]:outbox.slice(0,5);
     const events=state.punches.filter(p=>p.orgId===state.orgId&&!p.cloudAck&&!p.reviewStatus&&p.deviceId===state.deviceId).sort((a,b)=>Date.parse(a.timestamp)-Date.parse(b.timestamp)).slice(0,20);
     if(!operations.length&&!events.length)return;
@@ -64,7 +64,7 @@ window.TIPONSync=(()=>{
       const response=await TIPONAPI.call({action:'catalog',cursor});if(startVersion===null)startVersion=response.catalogVersion;
       if(response.catalogVersion!==startVersion)throw Error('Directory changed during download. Retrying a consistent snapshot.');
       if(response.businessPlatforms?.length)await TIPONPlatforms.accept(response.businessPlatforms);
-      for(const type of ['offices','sites','members','schedules'])for(const entity of response[type]||[]){
+      for(const type of ['sites','members','schedules'])for(const entity of response[type]||[]){
         const old=await getOne(type,entity.id);if(old?._pendingOp)continue;
         const value={...entity,orgId:state.orgId};
         if(type==='members'&&entity.template){await TIPONAuth.unseal(entity.template,TIPONAuth.current().faceKey,'member:'+entity.id);delete value.descriptors;}
@@ -93,7 +93,7 @@ window.TIPONSync=(()=>{
     if(!navigator.onLine){message='Offline: saved locally. Automatic sync resumes when internet is available and this app is open.';render();schedule();return;}
     busy=true;message='Connecting to organization database...';render();
     try{
-      await TIPONAuth.ensureOnline();await loadCollections();await flush();await pull();await loadCollections();await loadOfficeDirectory();
+      await TIPONAuth.ensureOnline();await loadCollections();await flush();await pull();await loadCollections();
       lastSync=TIPONCore.phStamp(new Date().toISOString());const waiting=(await getAll('outbox')).filter(o=>o.orgId===state.orgId&&o.error).length+state.punches.filter(p=>p.reviewStatus).length;message=waiting?'Central data updated; '+waiting+' record(s) still need review. See Settings / Accounts.':'Central data updated; records are acknowledged, not assumed sent.';attempt=0;
       if(state.page==='dashboard')renderDashboard();if(state.page==='records')renderRecords();if(state.page==='members')renderMembers();if(state.page==='sites')renderSites();if(state.page==='scanner'){renderTerminal();renderTerminalLogs();const ready=state.members.filter(m=>m.active!==false&&!m.deleted&&m.descriptors?.length>=3).length;if(ready)updateScanResult('Member directory ready',ready+' enrolled face template(s) loaded on this terminal. Face matches are checked against assigned office GPS.','success');}TIPONPlatforms.render();
     }catch(e){message=e.message;attempt=Math.min(attempt+1,4);if(['AUTH','ACCOUNT','DEVICE_DISABLED'].includes(e.code))message+=' Sign out and sign in online.';}
