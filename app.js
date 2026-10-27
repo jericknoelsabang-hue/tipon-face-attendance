@@ -191,7 +191,13 @@ function updateMemberSite(){
 }
 function openMemberForm(member){if(!canEdit())return;if(!state.sites.length){showToast('Create a work location before enrolling a member.','error');showPage('sites');return;}
  state.editMember=member||null;state.pendingDescriptors=member?.descriptors?.map(a=>[...a])||[];state.consentAcknowledgedAt=member?.consentAt||null;
- $('memberForm').reset();setText('memberFormTitle',member?'Edit member':'Enroll new member');$('memberId').disabled=!!member;
+ $('memberForm').reset();
+ const identityLocked=!!member&&(member.workLocationReassignmentRequired===true||
+  ((member.importPending===true||member.importedWithoutFace===true)&&!member.template));
+ $('memberName').readOnly=identityLocked;
+ $('memberCoop').disabled=identityLocked;
+ setText('memberFormTitle',identityLocked?'Assign GPS work location / enroll face':member?'Edit member':'Enroll new member');
+ $('memberId').disabled=!!member;
  if(member){$('memberId').value=member.id;$('memberName').value=member.name;$('memberCoop').value=member.coop;}
  fillMemberSites(member?.siteIds||member?.siteId);setText('enrollFaceLabel',state.pendingDescriptors.length>=3?'ENROLLED · select Enroll face to replace':'Not enrolled · select Enroll face');$('memberDialog').showModal();
 }
