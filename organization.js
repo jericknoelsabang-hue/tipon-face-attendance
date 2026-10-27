@@ -195,13 +195,109 @@ window.OrgUI=(()=>{
     const schedules=state.schedules||[];$('scheduleRows').innerHTML=schedules.slice().sort((a,b)=>b.date.localeCompare(a.date)).map(r=>`<tr><td>${esc(r.date)}</td><td>${esc(r.memberId)}</td><td>${esc(r.status)}</td><td>${esc(r.start||'')}</td><td>${esc(r.end||'')}</td><td>${esc(r.note||'')}</td></tr>`).join('')||'<tr><td colspan="6">Use a site schedule or add a member/date override for leave, rest or a specific shift.</td></tr>';
     $('scheduleMember').innerHTML=state.members.map(m=>`<option value="${esc(m.id)}">${esc(m.id)} - ${esc(m.name)}</option>`).join('');
   }
+  // Pending registrations are separate from previously approved accounts.
+  const APPROVED_PAGE_SIZE=10;
+  let approvedAccountPage=1;
+  function accountScope(u){
+    return '<b>'+esc(u.coop||'Not assigned')+'</b><small>'+esc(u.platform||'No business platform')+'</small>';
+  }
+  function accountIdentity(u){
+    return '<b>'+esc(u.name||u.username||'Unnamed account')+'</b><small>'+esc(u.username||'')+'</small>';
+  }
+  function accountStatusBadge(u){
+    const status=String(u.status||'unknown').toLowerCase();
+    return '<span class="badge '+(status==='active'?'green':'amber')+'">'+esc(status)+'</span>';
+  }
+  function pendingAccounts(){
+    return (state.accounts||[]).filter(u=>u&&!u.deleted&&u.role!=='admin'&&
+      ['pending','pending_approval','awaiting_approval','requested'].includes(String(u.status||'').toLowerCase()));
+  }
+  function approvedAccounts(){
+    return (state.accounts||[]).filter(u=>u&&!u.deleted&&u.role!=='admin'&&
+      ['active','disabled'].includes(String(u.status||'').toLowerCase()));
+  }
+  function renderApprovedAccountTable(){
+    if(!isAdmin())return;
+    const query=String($('registeredDeviceSearch')?.value||'').trim().toLowerCase();
+    const all=approvedAccounts().sort((a,b)=>String(a.name||a.username||'').localeCompare(String(b.name||b.username||'')));
+    const matched=all.filter(u=>!query||[u.name,u.username,u.position,u.coop,u.platform,roleName(u.role),u.status]
+      .some(value=>String(value||'').toLowerCase().includes(query)));
+    const pages=Math.max(1,Math.ceil(matched.length/APPROVED_PAGE_SIZE));
+    approvedAccountPage=Math.max(1,Math.min(approvedAccountPage,pages));
+    const first=(approvedAccountPage-1)*APPROVED_PAGE_SIZE;
+    const pageRows=matched.slice(first,first+APPROVED_PAGE_SIZE);
+    $('deviceRows').innerHTML=pageRows.map(u=>{
+      const enabled=u.status==='active',nextStatus=enabled?'disabled':'active';
+      return '<tr><td>'+accountIdentity(u)+'</td><td>'+
+        esc(u.position||(u.role==='kiosk'?'Physical Kiosk':'Not specified'))+'</td><td>'+
+        accountScope(u)+'</td><td>'+esc(roleName(u.role))+'</td><td>'+accountStatusBadge(u)+'</td>'+
+        '<td><div class="account-row-actions">'+
+        '<button class="tiny-button" data-approved-account-id="'+esc(u.id)+'" data-approved-status="'+nextStatus+'">'+
+        (enabled?'Disable':'Enable')+'</button>'+
+        '<button class="tiny-button delete" data-approved-delete="'+esc(u.id)+'">Delete</button>'+
+        '</div></td></tr>';
+    }).join('')||'<tr><td colspan="6"><div class="empty-state">No approved accounts match your search.</div></td></tr>';
+    setText('registeredDeviceCount',matched.length?
+      'Showing '+(first+1)+'–'+(first+pageRows.length)+' of '+matched.length+' approved accounts':
+      '0 approved accounts');
+    setText('registeredDevicePage','Page '+approvedAccountPage+' of '+pages);
+    $('registeredDevicePrev').disabled=approvedAccountPage<=1;
+    $('registeredDeviceNext').disabled=approvedAccountPage>=pages;
+  }
   async function renderAccounts(){
     if(!isAdmin())return;
-    try{const r=await TIPONAPI.call({action:'accounts'});state.accounts=r.accounts;state.devices=r.devices;state.reviews=r.reviews;await OrgDB.rawSave('meta',{id:'tp5-accountSnapshot',orgId:state.orgId,accounts:r.accounts,devices:r.devices,reviews:r.reviews});}
-    catch(e){const saved=await getOne('meta','tp5-accountSnapshot');if(saved?.orgId===state.orgId){state.accounts=saved.accounts;state.devices=saved.devices;state.reviews=saved.reviews;}showToast('Account changes need internet. '+e.message,'info');}
-    $('accountRows').innerHTML=(state.accounts||[]).filter(u=>!u.deleted).map(u=>`<tr><td><b>${esc(u.name)}</b><small>${esc(u.username)}</small><small>${esc(u.email)}</small></td><td>${esc(u.position)}<small>${esc(u.office)}</small><small>${u.officeLat!=null&&u.officeLng!=null?esc(Number(u.officeLat).toFixed(6)+', '+Number(u.officeLng).toFixed(6)):''}</small></td><td>${esc(u.coop)}<small>${esc(u.platform)}</small></td><td>${esc(roleName(u.role))}</td><td><span class="badge ${u.status==='active'?'green':'amber'}">${esc(u.status)}</span></td><td>${u.role==='admin'?'Sole administrator':`<button class="tiny-button" data-account-status="active" data-account-id="${esc(u.id)}">Approve / enable</button> <button class="tiny-button" data-account-status="disabled" data-account-id="${esc(u.id)}">Disable</button> <button class="tiny-button delete" data-account-delete="${esc(u.id)}">Delete</button>`}</td></tr>`).join('');
-    $('deviceRows').innerHTML=(state.devices||[]).map(d=>`<tr><td>${esc(d.id.slice(0,12))}</td><td>${esc(d.userName)}<small>${esc(d.role)}</small></td><td>${esc(displayStamp(d.lastSeen))}</td><td>${d.disabled?'Disabled':Date.now()-Date.parse(d.lastSeen)>300000?'Stale / possibly offline':'Recently connected'}</td><td><button class="tiny-button" data-device-id="${esc(d.id)}" data-device-disabled="${!d.disabled}">${d.disabled?'Enable':'Disable'}</button></td></tr>`).join('');
-    $('reviewRows').innerHTML=(state.reviews||[]).map(r=>`<tr><td>${esc(r.event?.memberId)}</td><td>${esc(r.event?.type)}</td><td>${esc(r.event?.timestamp)}</td><td>${esc(r.code)}</td><td>${esc(r.error)}</td><td>${esc(r.resolution||'Needs administrator review')}</td></tr>`).join('')||'<tr><td colspan="6">No server-side review records.</td></tr>';
+    try{
+      const r=await TIPONAPI.call({action:'accounts'});
+      state.accounts=Array.isArray(r.accounts)?r.accounts:[];
+      state.devices=Array.isArray(r.devices)?r.devices:[];
+      state.reviews=Array.isArray(r.reviews)?r.reviews:[];
+      await OrgDB.rawSave('meta',{id:'tp5-accountSnapshot',orgId:state.orgId,
+        accounts:state.accounts,devices:state.devices,reviews:state.reviews});
+    }catch(e){
+      const saved=await getOne('meta','tp5-accountSnapshot');
+      if(saved?.orgId===state.orgId){
+        state.accounts=Array.isArray(saved.accounts)?saved.accounts:[];
+        state.devices=Array.isArray(saved.devices)?saved.devices:[];
+        state.reviews=Array.isArray(saved.reviews)?saved.reviews:[];
+      }
+      showToast('Account changes need internet. '+e.message,'info');
+    }
+    $('accountRows').innerHTML=pendingAccounts().map(u=>'<tr><td>'+accountIdentity(u)+'</td>'+
+      '<td>'+esc(u.position||(u.role==='kiosk'?'Physical Kiosk':'Not specified'))+'</td>'+
+      '<td>'+accountScope(u)+'</td><td>'+esc(roleName(u.role))+'</td>'+
+      '<td>'+accountStatusBadge(u)+'</td><td><div class="account-row-actions">'+
+      '<button class="tiny-button" data-account-status="active" data-account-id="'+esc(u.id)+'">Approve</button>'+
+      '<button class="tiny-button delete" data-account-delete="'+esc(u.id)+'">Delete</button>'+
+      '</div></td></tr>').join('')||
+      '<tr><td colspan="6"><div class="empty-state">No registrations awaiting administrator approval.</div></td></tr>';
+    renderApprovedAccountTable();
+  }
+  let accountActionBusy=false;
+  async function performAccountAction(userId,desiredStatus,deleteAccount=false){
+    if(!isAdmin()||accountActionBusy)return;
+    const user=(state.accounts||[]).find(u=>String(u.id)===String(userId));
+    if(!user||user.role==='admin'||user.deleted)return;
+    const status=String(user.status||'').toLowerCase();
+    if(!deleteAccount){
+      if(desiredStatus==='active'&&!['pending','pending_approval','awaiting_approval','requested','disabled'].includes(status))return;
+      if(desiredStatus==='disabled'&&status!=='active')return;
+    }
+    const name=user.name||user.username||'Account';
+    const title=deleteAccount?'Delete account?':desiredStatus==='disabled'?'Disable account?':
+      status==='disabled'?'Enable account?':'Approve account?';
+    const detail=deleteAccount?
+      name+' will no longer be able to sign in. Audit history is retained.':
+      name+': change status from '+status+' to '+desiredStatus+'. Type: '+roleName(user.role)+'.';
+    if(!await confirmAction(title,detail))return;
+    accountActionBusy=true;
+    try{
+      if(deleteAccount)await TIPONAPI.call({action:'accountDelete',userId:user.id});
+      else await TIPONAPI.call({action:'accountUpdate',userId:user.id,status:desiredStatus});
+      await renderAccounts();
+      showToast(deleteAccount?'Account deleted.':desiredStatus==='disabled'?'Account disabled.':
+        status==='disabled'?'Account enabled.':'Account approved.','success');
+    }catch(err){toastError(err,deleteAccount?'Delete account':'Account update');}
+    finally{accountActionBusy=false;}
   }
   function renderSettings(){
     if(!state.user)return;
@@ -237,18 +333,19 @@ window.OrgUI=(()=>{
     attach('refreshAccounts','click',renderAccounts);
     attach('accountRows','click',async e=>{
       const del=e.target.closest('[data-account-delete]');
-      if(del){
-        const u=state.accounts.find(x=>x.id===del.dataset.accountDelete);
-        if(!u||!await confirmAction('Delete account?',`${u.name} will no longer be able to sign in. The audit history remains.`))return;
-        try{await TIPONAPI.call({action:'accountDelete',userId:u.id});await renderAccounts();}catch(err){toastError(err,'Delete account');}
-        return;
-      }
-      const b=e.target.closest('[data-account-id]');if(!b)return;
-      const u=state.accounts.find(x=>x.id===b.dataset.accountId);
-      if(!u||!await confirmAction('Update account approval?',`${u.name}: ${b.dataset.accountStatus}. Type: ${roleName(u.role)}.`))return;
-      try{await TIPONAPI.call({action:'accountUpdate',userId:u.id,status:b.dataset.accountStatus});await renderAccounts();}catch(err){toastError(err,'Account update');}
+      if(del){await performAccountAction(del.dataset.accountDelete,null,true);return;}
+      const approve=e.target.closest('[data-account-id]');
+      if(approve)await performAccountAction(approve.dataset.accountId,'active');
     });
-    attach('deviceRows','click',async e=>{const b=e.target.closest('[data-device-id]');if(!b)return;if(!await confirmAction('Update device?', 'Online API access changes immediately. An already offline terminal cannot receive revocation until it reconnects.'))return;try{await TIPONAPI.call({action:'deviceUpdate',targetDeviceId:b.dataset.deviceId,disabled:b.dataset.deviceDisabled==='true'});await renderAccounts();}catch(err){toastError(err,'Device update');}});
+    attach('deviceRows','click',async e=>{
+      const del=e.target.closest('[data-approved-delete]');
+      if(del){await performAccountAction(del.dataset.approvedDelete,null,true);return;}
+      const change=e.target.closest('[data-approved-account-id]');
+      if(change)await performAccountAction(change.dataset.approvedAccountId,change.dataset.approvedStatus);
+    });
+    attach('registeredDeviceSearch','input',()=>{approvedAccountPage=1;renderApprovedAccountTable();});
+    attach('registeredDevicePrev','click',()=>{if(approvedAccountPage>1){approvedAccountPage--;renderApprovedAccountTable();}});
+    attach('registeredDeviceNext','click',()=>{approvedAccountPage++;renderApprovedAccountTable();});
     attach('addSchedule','click',()=>{if(!isAdmin())return;renderReports();$('scheduleForm').reset();$('scheduleDate').value=todayPH();$('scheduleDialog').showModal();});
     attach('scheduleForm','submit',async e=>{e.preventDefault();try{const r={id:'schedule-'+$('scheduleMember').value+'-'+$('scheduleDate').value,memberId:$('scheduleMember').value,date:$('scheduleDate').value,status:$('scheduleStatus').value,start:$('scheduleStart').value,end:$('scheduleEnd').value,grace:Number($('scheduleGrace').value)||0,note:$('scheduleNote').value.trim(),enabled:true};await saveOne('schedules',r);await loadCollections();$('scheduleDialog').close();renderReports();}catch(err){toastError(err,'Schedule');}});
     attach('exportPeriodSummary','click',()=>{if(!isAdmin())return;const rows=TIPONCore.filterRows(TIPONOrgCore.project(state.punches.filter(p=>!p.reviewStatus)),$('reportFrom').value,$('reportTo').value,'').filter(r=>!$('reportCoop').value||r.coop===$('reportCoop').value);csv('TIPON_Period_Summary.csv',['MemberId','Name','Cooperative','Sessions','Completed','Hours','Open sessions'],TIPONOrgCore.periodSummary(rows).map(r=>[r.memberId,r.name,r.coop,r.sessions,r.complete,r.hours.toFixed(2),r.open]));});
