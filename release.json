@@ -1,5 +1,5 @@
 {
   "app": "TIPON Face Attendance",
-  "version": "5.4.6",
-  "label": "Restore workspace pages hidden by unclosed scanner section"
+  "version": "5.4.7",
+  "label": "Attendance spacing, supervisor local corrections and daily duplicate guard"
 }
