@@ -181,8 +181,57 @@ async function saveMemberForm(e){e.preventDefault();if(!canEdit())return;
  const record={id,name,coop,siteId:siteIds[0],siteIds,descriptors:state.pendingDescriptors,consentAt:state.editMember?.consentAt||new Date(state.consentAcknowledgedAt||Date.now()).toISOString(),enrolledBy:state.editMember?.enrolledBy||state.deviceId,enrolledByUsername:state.editMember?.enrolledByUsername||state.user.username||'',createdAt:state.editMember?.createdAt||new Date().toISOString(),updatedAt:new Date().toISOString()};
  try{await saveOne('members',record);await loadCollections();$('memberDialog').close();renderMembers();renderDashboard();showToast(`${name} enrolled successfully.`,'success');}catch(err){toastError(err,'Unable to save member');}
 }
-async function handleMemberTableClick(e){const edit=e.target.closest('[data-member-edit]');const del=e.target.closest('[data-member-delete]');if(edit){const m=state.members.find(x=>x.id===edit.dataset.memberEdit);if(m)openMemberForm(m);}
- if(del){const m=state.members.find(x=>x.id===del.dataset.memberDelete);if(!m)return;const ok=await confirmAction('Delete member',`Remove ${m.name}'s face template and registry entry on this device? Previous attendance logs are retained.`);if(ok){await deleteOne('members',m.id);await loadCollections();renderMembers();showToast('Member deleted.','success');}}}
+async function handleMemberTableClick(e){
+ const edit=e.target.closest('[data-member-edit]'),del=e.target.closest('[data-member-delete]');
+ if(edit){
+  const m=state.members.find(x=>x.id===edit.dataset.memberEdit);
+  if(m)openMemberForm(m);
+  return;
+ }
+ if(!del)return;
+ const member=state.members.find(x=>x.id===del.dataset.memberDelete);
+ if(!member)return;
+ if(!isAdmin()){
+  showToast('Only the TIPON Administrator can remove a member from the central directory.','error');
+  return;
+ }
+ if(!navigator.onLine){
+  showToast('Connect to the internet before deleting. Member data has not been changed.','error');
+  return;
+ }
+ const stored=await getOne('members',member.id);
+ if(stored?._pendingOp){
+  showToast('This member has an unsynced change. Sync first, then retry deletion.','error');
+  return;
+ }
+ const confirmed=await confirmAction('Delete member',
+  'Remove '+member.name+' from the central TIPON Members directory and other synced devices? Attendance history will be preserved.');
+ if(!confirmed)return;
+ del.disabled=true;
+ try{
+  // No optimistic local deletion: the server must write and refresh TIPON Members.
+  const response=await TIPONAPI.call({action:'adminMemberDelete',
+    memberId:member.id,baseRev:Number(member.rev)||0});
+  if(!response.member||!response.member.deleted||response.member.id!==member.id){
+   throw Error('The server has not confirmed member deletion.');
+  }
+  const latest=await getOne('members',member.id);
+  if(latest?._pendingOp)throw Error('A local member change appeared during deletion. Sync and retry.');
+  const tombstone={...latest,...member,...response.member,orgId:state.orgId,deleted:true,
+    active:false,template:null,faceEnrollmentStatus:'deleted'};
+  delete tombstone.descriptors;delete tombstone._pendingOp;
+  await OrgDB.rawSave('members',tombstone);
+  await loadCollections();renderMembers();renderDashboard();
+  TIPONSync.kick();
+  showToast('Member deleted from TIPON Members. Other open devices refresh during sync.','success');
+ }catch(err){
+  if(err.code==='ACTION'||/Unknown action/i.test(err.message||'')){
+   showToast('Member deletion requires Apps Script backend v5.5.6. No local deletion was made.','error',9000);
+  }else{
+   toastError(err,'Central member deletion failed — member retained');
+  }
+ }finally{del.disabled=false;}
+}
 function renderSites(){
  $('siteCards').innerHTML=state.sites.length?state.sites.map(s=>`<tr><td><b>${esc(s.name)}</b></td><td>${esc(s.coop)}</td><td>${esc(s.platform||'—')}</td><td><div class="site-actions"><button class="tiny-button" data-site-edit="${esc(s.id)}">Edit</button><button class="tiny-button delete" data-site-delete="${esc(s.id)}">Delete</button></div></td></tr>`).join(''):`<tr><td colspan="4"><div class="empty-state">${pageIcon('pin')}No work locations yet. Select “Add work location” to create your first geofence.</div></td></tr>`;
 }
