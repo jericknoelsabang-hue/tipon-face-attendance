@@ -139,10 +139,10 @@ window.OrgUI=(()=>{
   let editingSchedule=null;
   function readSiteSchedule(){return {enabled:$('siteScheduleEnabled').checked,days:[...document.querySelectorAll('[name="siteWorkDay"]:checked')].map(x=>Number(x.value)),start:$('siteShiftStart').value,end:$('siteShiftEnd').value,grace:Number($('siteGrace').value)||0};}
   function csv(name,headers,rows){const safe=v=>{let s=String(v??'');if(/^[=+\-@\t\r]/.test(s))s="'"+s;return '"'+s.replace(/"/g,'""')+'"';};downloadBlob(name,new Blob(['\ufeff'+[headers,...rows].map(r=>r.map(safe).join(',')).join('\r\n')],{type:'text/csv;charset=utf-8'}));}
-  function dashboardFilter(){return {coop:$('dashboardCoop').value,platform:$('dashboardPlatform').value};}
+  function dashboardFilter(){return {coop:$('dashboardCoop').value,platform:''};}
   function filteredMembers(){const f=dashboardFilter(),sites=new Map(state.sites.map(x=>[x.id,x]));return state.members.filter(m=>(!f.coop||m.coop===f.coop)&&(!f.platform||TIPONOrgCore.platformKey(m.platform||sites.get(m.siteId)?.platform)===TIPONOrgCore.platformKey(f.platform)));}
   function renderDashboardPlatformFilter(){
-    const el=$('dashboardPlatform'),value=el.value;
+    const el=$('dashboardPlatform');if(!el)return;const value=el.value;
     const names=TIPONOrgCore.platformNames([...(TIPONPlatforms?.names()||[]),...state.members.map(m=>m.platform),...state.punches.map(e=>e.platform),value]);
     const html='<option value="">All business platforms</option>'+names.map(p=>`<option value="${esc(p)}">${esc(p)}</option>`).join('');
     if(el.innerHTML!==html)el.innerHTML=html;el.value=value;
@@ -167,9 +167,9 @@ window.OrgUI=(()=>{
       return {members:items.length,timedIn,timedOut,complete,missing};
     };
     const total=tally(members);
-    $('dashboardSummary').innerHTML=[['Registered / enrolled',total.members],['With Time In',total.timedIn],['With Time Out',total.timedOut],['Complete In & Out',total.complete],['No Time In / Out',total.missing]].map(([label,n])=>'<article class="kpi-card"><span>'+label+'</span><strong>'+n+'</strong><small>'+esc(day)+'</small></article>').join('');
+    $('dashboardSummary').innerHTML=[['Registered / enrolled',total.members],['With In and Out',total.complete],['No Time In / Out',total.missing]].map(([label,n])=>'<article class="kpi-card"><span>'+label+'</span><strong>'+n+'</strong><small>'+esc(day)+'</small></article>').join('');
     const ranked=coops.filter(c=>!f.coop||c===f.coop).map(coop=>({coop,...tally(members.filter(m=>m.coop===coop))})).sort((a,b)=>a.missing-b.missing||a.coop.localeCompare(b.coop));
-    $('dashboardRanking').innerHTML=ranked.map((r,i)=>{const rate=r.members?100*r.missing/r.members:0;return '<tr><td>'+(i+1)+'</td><td><b>'+esc(r.coop)+'</b></td><td>'+r.members+'</td><td>'+r.timedIn+'</td><td>'+r.timedOut+'</td><td>'+r.complete+'</td><td>'+r.missing+'</td><td><div class="attendance-rate"><span style="width:'+rate+'%"></span></div><small>'+(r.members?rate.toFixed(1)+'%':'No members')+'</small></td></tr>';}).join('');
+    $('dashboardRanking').innerHTML=ranked.map((r,i)=>{const rate=r.members?100*r.missing/r.members:0;return '<tr><td>'+(i+1)+'</td><td><b>'+esc(r.coop)+'</b></td><td>'+r.members+'</td><td>'+r.complete+'</td><td>'+r.missing+'</td><td><div class="attendance-rate"><span style="width:'+rate+'%"></span></div><small>'+(r.members?rate.toFixed(1)+'%':'No members')+'</small></td></tr>';}).join('');
     const legacy=state.members.some(m=>!m.orgId)||state.sites.some(s=>!s.orgId)||state.punches.some(p=>!p.orgId);
     $('legacyNotice').hidden=!legacy;
   }
@@ -233,7 +233,7 @@ window.OrgUI=(()=>{
   }
   function bind(){
     ['registerCoop','dashboardCoop','reportCoop'].forEach(id=>fillCoopSelect(id,['dashboardCoop','reportCoop'].includes(id)));
-    ['dashboardDay','dashboardCoop','dashboardPlatform','presenceFilter'].forEach(id=>attach(id,'change',renderMpc));attach('dashboardRefresh','click',()=>TIPONSync.kick());attach('dashboardResetFilters','click',()=>{$('dashboardCoop').value='';$('dashboardPlatform').value='';$('presenceFilter').value='';renderMpc();});
+    ['dashboardDay','dashboardCoop','presenceFilter'].forEach(id=>attach(id,'change',renderMpc));attach('dashboardRefresh','click',()=>TIPONSync.kick());attach('dashboardResetFilters','click',()=>{$('dashboardCoop').value='';$('presenceFilter').value='';renderMpc();});
     ['reportFrom','reportTo','reportCoop'].forEach(id=>attach(id,'change',renderReports));
     attach('sitePlatform','change',()=>fillSiteOffices());
     attach('importOffices','click',()=>$('officeCsvFile').click());attach('officeCsvFile','change',importOfficeCSV);
