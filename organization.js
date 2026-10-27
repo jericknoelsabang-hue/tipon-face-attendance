@@ -293,7 +293,24 @@ async function importMemberCSV(event){
  try{
   if(!navigator.onLine)throw Error('Connect to the internet to import members to the shared database.');
   if(file.size>1000000)throw Error('CSV limit is 1 MB.');
+  // Preflight the live Apps Script receiver before sending any member data.
+  // GitHub Pages can be newer than the deployed Apps Script Web App.
+  setText('memberUploadStatus','Checking live Apps Script backend compatibility...');
+  const health=await TIPONAPI.raw({action:'health'});
+  const backendVersion=String(health.version||'unknown');
+  if(!/^5\.5\./.test(backendVersion)){
+   throw Error('Apps Script backend '+backendVersion+' is outdated. Four-column uploads require the matching v5.5 Code.gs AND OrgCore.gs deployment. No members were uploaded.');
+  }
   const members=prepareMemberImport(parseMemberCSV((await file.text()).replace(/^\uFEFF/,'')),await getAll('members'));
+  const response=await TIPONAPI.raw({action:'platforms'});
+  const listed=(Array.isArray(response.businessPlatforms)?response.businessPlatforms:[]).map(p=>String(p).trim()).filter(Boolean);
+  const known=new Set(listed.map(p=>TIPONOrgCore.platformKey(p)));
+  for(let i=0;i<members.length;i++){
+   const platform=members[i].platform;
+   if(!known.has(TIPONOrgCore.platformKey(platform))){
+    throw Error('CSV row '+(i+2)+': Business Platform "'+platform+'" is not registered in the live backend. Choose a listed platform in the CSV or have the Admin add it first. No members were uploaded.');
+   }
+  }
   if(!await confirmAction('Upload '+members.length+' members?', 'Members are registered without a work location or face template. An authorized User assigns the location during enrollment.'))return;
   for(let n=0;n<members.length;n+=20){
    const result=await TIPONAPI.call({action:'adminMemberImport',rows:members.slice(n,n+20)});
@@ -306,7 +323,7 @@ async function importMemberCSV(event){
  }catch(error){
   const message=/Unknown action|office required|work location not found/i.test(error.message||'')
    ?'Deploy the matching updated Apps Script Code.gs and OrgCore.gs to enable four-column imports.':error.message;
-  setText('memberUploadStatus',total+' previously accepted. '+message);showToast(message,'error',9000);
+  setText('memberUploadStatus',(total?total+' previously accepted. ':'No members uploaded. ')+message);showToast(message,'error',9000);
  }finally{button.disabled=false;}
 }
 function bindRegistryUploads(){
