@@ -37,7 +37,7 @@ window.OrgDB=(()=>{
     TIPONSync.kick();return value;
   }
   saveOne=async function(type,value){return entities.includes(type)?saveEntity(type,value):rawSave(type,value);};
-  deleteOne=async function(type,id){if(entities.includes(type)){const old=await getOne(type,id),ownerMayDelete=type==='members'&&state.user?.role==='registrar'&&old?.createdBy===state.user.id;if(!isAdmin()&&!ownerMayDelete)throw Error('Only the administrator or the member record creator can delete this record.');if(old)return saveEntity(type,{...old,deleted:true,active:false});return;}return rawDelete(type,id);};
+  deleteOne=async function(type,id){if(entities.includes(type)){const old=await getOne(type,id),ownerMayDelete=type==='members'&&state.user?.role==='registrar'&&old?.createdBy===state.user.id;if(!isAdmin()&&!ownerMayDelete)throw Error('Only the administrator or the member record creator can delete this record.');if(old){const value=type==='members'?state.members.find(m=>m.id===id)||old:old;return saveEntity(type,{...value,deleted:true,active:false});}return;}return rawDelete(type,id);};
   return {rawSave,rawDelete,saveEntity};
 })();
 canEdit=()=>state.user?.role==='registrar'&&TIPONAuth.current()?.offlineUntil>Date.now();
