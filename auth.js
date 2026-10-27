@@ -4,7 +4,7 @@
  */
 'use strict';
 window.TIPONAuth=(()=>{
-  let session=null,signing=false;
+  let session=null,signing=false,registrationGpsAccuracy=null;
   const enc=new TextEncoder(),dec=new TextDecoder();
   const hex=a=>Array.from(a,b=>b.toString(16).padStart(2,'0')).join('');
   const unhex=s=>new Uint8Array(s.match(/.{2}/g).map(v=>parseInt(v,16)));
@@ -86,7 +86,7 @@ window.TIPONAuth=(()=>{
     try{
       const password=$('registerPassword').value,accountType=$('registerAccountType').value;
       if(password.length<8||password.length>128)throw Error('Use 8 to 128 password characters. No special-character or uppercase rule.');
-      const profile=TIPONOrgCore.profile({username:$('registerUsername').value,name:$('registerName').value,position:$('registerPosition').value,email:$('registerEmail').value,coop:$('registerCoop').value,platform:$('registerPlatform').value,office:$('registerOffice').value,accountType,officeLat:$('registerOfficeLat').value,officeLng:$('registerOfficeLng').value});
+      const profile=TIPONOrgCore.profile({username:$('registerUsername').value,name:$('registerName').value,position:$('registerPosition').value,email:$('registerEmail').value,coop:$('registerCoop').value,platform:$('registerPlatform').value,office:$('registerOffice').value,accountType,officeLat:$('registerOfficeLat').value,officeLng:$('registerOfficeLng').value,gpsAccuracy:registrationGpsAccuracy});
       const salt=randomSalt(),derived=await proof(password,salt);
       const reply=await TIPONAPI.raw({action:'register',profile,salt,proof:derived});
       $('registerPassword').value='';$('registrationDialog').close();status(reply.message);showToast(reply.message,'success',8000);
@@ -103,7 +103,7 @@ window.TIPONAuth=(()=>{
   async function signOut(){
     const old=session;TIPONSync.stop();await stopScanner();await stopEnrollment();
     session=null;await clearPersistedSession();state.user=null;document.body.dataset.terminalAccess='denied';state.platforms=[];state.members=[];state.sites=[];state.punches=[];state.accounts=[];state.devices=[];state.reviews=[];state.schedules=[];
-    ['recordRows','mpcOverviewCards','mpcRows','presenceRows','summaryRows','accountRows','deviceRows','reviewRows','memberRows','siteCards','officeRows'].forEach(id=>{if($(id))$(id).innerHTML='';});
+    ['recordRows','mpcOverviewCards','mpcRows','presenceRows','summaryRows','accountRows','deviceRows','reviewRows','memberRows','siteCards'].forEach(id=>{if($(id))$(id).innerHTML='';});
     document.querySelectorAll('dialog[open]').forEach(d=>d.close());
     $('appShell').hidden=true;$('mobileNav').hidden=true;$('loginPage').hidden=false;document.body.classList.remove('kiosk-mode');
     $('loginPassword').value='';status('Signed out. Local records and pending uploads were retained.');
@@ -122,12 +122,13 @@ window.TIPONAuth=(()=>{
   function updateRegistrationFields(){
     const kiosk=$('registerAccountType').value==='kiosk';
     document.querySelectorAll('[data-registration-user-only]').forEach(label=>{const input=label.querySelector('input');label.hidden=kiosk;if(input)input.required=!kiosk;});
-    setText('registrationStatus',kiosk?'Physical Kiosk requires username, password, cooperative, business platform, office and office GPS.':'');
+    document.querySelectorAll('[data-registration-kiosk-only]').forEach(el=>{el.hidden=!kiosk;el.querySelectorAll('input').forEach(input=>input.required=kiosk);});
+    setText('registrationStatus',kiosk?'Physical Kiosk needs accurate GPS at a configured work location.':'User registration does not require a satellite office.');
   }
   async function init(){
     $('appShell').hidden=true;$('mobileNav').hidden=true;$('loginPage').hidden=true;
-    attach('loginForm','submit',login);attach('openRegistration','click',()=>{$('registrationForm').reset();TIPONPlatforms.render();setText('registrationStatus','');$('registrationDialog').showModal();TIPONPlatforms.refresh().catch(()=>{});});
-    attach('registrationForm','submit',register);attach('registerAccountType','change',updateRegistrationFields);updateRegistrationFields();attach('registerUseGps','click',()=>{if(!navigator.geolocation){setText('registrationStatus','GPS is not available on this device.');return;}setText('registrationStatus','Getting current office GPS...');navigator.geolocation.getCurrentPosition(p=>{$('registerOfficeLat').value=p.coords.latitude.toFixed(7);$('registerOfficeLng').value=p.coords.longitude.toFixed(7);setText('registrationStatus','Office GPS captured. Accuracy '+Math.round(p.coords.accuracy)+' m.');},e=>setText('registrationStatus',e.message),{enableHighAccuracy:true,timeout:15000,maximumAge:0});});attach('logoutButton','click',signOut);attach('logoutMobile','click',signOut);attach('changePasswordForm','submit',changePassword);
+    attach('loginForm','submit',login);attach('openRegistration','click',()=>{$('registrationForm').reset();registrationGpsAccuracy=null;updateRegistrationFields();TIPONPlatforms.render();setText('registrationStatus','');$('registrationDialog').showModal();TIPONPlatforms.refresh().catch(()=>{});});
+    attach('registrationForm','submit',register);attach('registerAccountType','change',updateRegistrationFields);updateRegistrationFields();attach('registerUseGps','click',()=>{if(!navigator.geolocation){setText('registrationStatus','GPS is not available on this device.');return;}setText('registrationStatus','Getting current kiosk GPS...');navigator.geolocation.getCurrentPosition(p=>{$('registerOfficeLat').value=p.coords.latitude.toFixed(7);$('registerOfficeLng').value=p.coords.longitude.toFixed(7);registrationGpsAccuracy=p.coords.accuracy;setText('registrationStatus','Kiosk GPS captured. Accuracy '+Math.round(p.coords.accuracy)+' m.');},e=>setText('registrationStatus',e.message),{enableHighAccuracy:true,timeout:15000,maximumAge:0});});attach('logoutButton','click',signOut);attach('logoutMobile','click',signOut);attach('changePasswordForm','submit',changePassword);
     attach('showPassword','click',()=>{$('loginPassword').type=$('loginPassword').type==='password'?'text':'password';});
     attach('authDiagnostics','click',async()=>{status('Checking organization connection...');try{const r=await TIPONAPI.raw({action:'health'});status('Connected to TIPON '+r.version+'. Sign in or register an account.');}catch(e){status(e.message,true);}});
     const restored=await restoreSession();if(restored){try{await signedIn(restored);status('');return;}catch(error){console.warn('Could not resume the saved session.',error);}}
