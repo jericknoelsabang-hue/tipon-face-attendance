@@ -136,11 +136,10 @@ function memberEnrollerLabel(member){if(member.importedWithoutFace&&!(member.des
 function renderMembers(){
  fillMemberFilter('memberFilterCoop',TIPONOrgCore.COOPS,'All cooperatives');
  fillMemberFilter('memberFilterPlatform',[...TIPONPlatforms.names(),...state.sites.map(s=>s.platform),...state.members.map(m=>m.platform)],'All business platforms');
- fillMemberFilter('memberFilterOffice',state.sites.map(s=>s.name),'All assigned locations');
- const q=$('memberSearch').value.trim().toLowerCase(),coop=$('memberFilterCoop')?.value||'',platform=$('memberFilterPlatform')?.value||'',loc=$('memberFilterOffice')?.value||'',face=$('memberFilterFace')?.value||'';
+ const q=$('memberSearch').value.trim().toLowerCase(),coop=$('memberFilterCoop')?.value||'',platform=$('memberFilterPlatform')?.value||'',face=$('memberFilterFace')?.value||'';
  const data=state.members.filter(m=>{
   const sites=sitesForMember(m),bp=m.platform||sites[0]?.platform||'',enrolled=m.active!==false&&!!(m.template||m.descriptors?.length>=3);
-  return (!q||[m.id,m.name,m.coop].join(' ').toLowerCase().includes(q))&&(!coop||m.coop===coop)&&(!platform||TIPONOrgCore.platformKey(bp)===TIPONOrgCore.platformKey(platform))&&(!loc||sites.some(s=>s.name===loc))&&(!face||(face==='enrolled')===enrolled);
+  return (!q||[m.id,m.name,m.coop].join(' ').toLowerCase().includes(q))&&(!coop||m.coop===coop)&&(!platform||TIPONOrgCore.platformKey(bp)===TIPONOrgCore.platformKey(platform))&&(!face||(face==='enrolled')===enrolled);
  }).sort((x,y)=>(x.name||'').localeCompare(y.name||''));
  setText('memberCountLabel',data.length+' member'+(data.length===1?'':'s'));
  $('memberRows').innerHTML=data.length?data.map(m=>{
@@ -565,10 +564,10 @@ function bindEvents(){
  document.querySelectorAll('[data-jump]').forEach(el=>el.addEventListener('click',()=>showPage(el.dataset.jump)));
  attach('topStartScan','click',()=>showPage('scanner'));
  attach('memberSearch','input',renderMembers);
- ['memberFilterCoop','memberFilterPlatform','memberFilterOffice','memberFilterFace'].forEach(id=>attach(id,'change',renderMembers));
+ ['memberFilterCoop','memberFilterPlatform','memberFilterFace'].forEach(id=>attach(id,'change',renderMembers));
  attach('memberResetFilters','click',()=>{
   $('memberSearch').value='';
-  ['memberFilterCoop','memberFilterPlatform','memberFilterOffice','memberFilterFace'].forEach(id=>{$(id).value='';});
+  ['memberFilterCoop','memberFilterPlatform','memberFilterFace'].forEach(id=>{$(id).value='';});
   renderMembers();
  });
  ['terminalLogFrom','terminalLogTo','terminalLogCoop','terminalLogPlatform','terminalLogSite'].forEach(id=>attach(id,'change',renderTerminalLogs));attach('terminalLogReset','click',()=>{['terminalLogFrom','terminalLogTo','terminalLogCoop','terminalLogPlatform','terminalLogSite'].forEach(id=>$(id).value='');renderTerminalLogs();});
