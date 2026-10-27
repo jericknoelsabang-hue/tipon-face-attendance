@@ -234,6 +234,11 @@ function filteredAttendanceRows(){
  return TIPONCore.filterRows(data,$('recordFrom').value,$('recordTo').value,$('recordSite').value);
 }
 function renderRecords(){
+ if(isAdmin()){
+  const page=$('page-records');
+  [...page.children].forEach(el=>{if(el.id!=='terminalLogPanel')el.hidden=true;});
+  page.appendChild($('terminalLogPanel'));renderTerminalLogs();return;
+ }
  const old=$('recordSite').value;
  const sites=new Map(state.sites.map(s=>[s.id,s.name]));for(const p of state.punches)if(p.siteId&&!sites.has(p.siteId))sites.set(p.siteId,p.siteName);
  $('recordSite').innerHTML='<option value="">All locations</option>'+[...sites].map(([id,name])=>`<option value="${esc(id)}">${esc(name)}</option>`).join('');
@@ -261,6 +266,8 @@ function canCorrectAttendance(){const u=state.user,a=window.TIPONAuth?.current()
 function attendanceAccountLabel(row){const ids=row.eventIds||[],uuidPattern=/^[0-9a-f]{8}-[0-9a-f-]{27,}$/i;const names=state.punches.filter(p=>ids.includes(p.id)).map(p=>{const id=p.recordedById;const known=[state.user,...(state.users||[])].find(u=>u&&u.id===id);const value=p.recordedByUsername||known?.username||p.performedBy;return value&&!uuidPattern.test(String(value))?String(value):'Username unavailable';});return [...new Set(names)].join(' / ')||'—';}
 function renderTerminalLogs(){
  if(!$('terminalLogRows'))return;
+ if(state.page==='terminalLogs')$('page-terminalLogs').appendChild($('terminalLogPanel'));
+ const adminActions=isAdmin();$('terminalLogActionHeader').hidden=!adminActions;
  const sites=[...state.sites],events=state.punches;
  fillLogFilter('terminalLogCoop',[...state.members.map(m=>m.coop),...events.map(p=>p.coop)],'All cooperatives');
  fillLogFilter('terminalLogPlatform',[...state.members.map(m=>m.platform),...sites.map(s=>s.platform),...events.map(p=>p.platform)],'All business platforms');
@@ -272,7 +279,7 @@ function renderTerminalLogs(){
  try{
   const rows=filteredTerminalLogRows(),table=TIPONExport.table(rows);
   setText('terminalLogCount',rows.length+' attendance session(s)');
-  $('terminalLogRows').innerHTML=rows.length?rows.map(row=>'<tr><td>'+esc(row.memberId)+'</td><td>'+esc(TIPONCore.phStamp(row.timeIn||row.timeOut).slice(0,10))+'</td><td>'+esc(TIPONCore.phStamp(row.timeIn).slice(-8))+'</td><td>'+esc(TIPONCore.phStamp(row.timeOut).slice(-8))+'</td><td>'+esc(TIPONCore.phStamp(row.timeOut).slice(0,10))+'</td><td>'+esc(attendanceAccountLabel(row))+'</td></tr>').join(''):'<tr><td colspan="6">No attendance records match these filters.</td></tr>';
+  $('terminalLogRows').innerHTML=rows.length?rows.map(row=>'<tr><td>'+esc(row.memberId)+'</td><td>'+esc(TIPONCore.phStamp(row.timeIn||row.timeOut).slice(0,10))+'</td><td>'+esc(TIPONCore.phStamp(row.timeIn).slice(-8))+'</td><td>'+esc(TIPONCore.phStamp(row.timeOut).slice(-8))+'</td><td>'+esc(TIPONCore.phStamp(row.timeOut).slice(0,10))+'</td><td>'+esc(attendanceAccountLabel(row))+'</td>'+(adminActions?'<td><button class="tiny-button" data-attendance-edit="'+esc(row.key)+'" data-in="'+esc(TIPONCore.phStamp(row.timeIn).slice(0,16).replace(' ','T'))+'" data-out="'+esc(TIPONCore.phStamp(row.timeOut).slice(0,16).replace(' ','T'))+'"'+(canCorrectAttendance()?'':' disabled')+'>Edit</button></td>':'')+'</tr>').join(''):'<tr><td colspan="'+(adminActions?7:6)+'">No attendance records match these filters.</td></tr>';
  }catch(err){setText('terminalLogCount',err.message);$('terminalLogRows').innerHTML='<tr><td colspan="8">'+esc(err.message)+'</td></tr>';}
 }
 async function exportTerminalLogs(){
