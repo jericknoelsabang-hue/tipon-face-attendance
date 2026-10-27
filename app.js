@@ -15,8 +15,8 @@ const OFFLINE_ASSETS = [FACE_SCRIPT, ...MODEL_FILES.map((f)=>`${MODEL_ROOT}/${f}
 const REMOTE_CACHE = 'tipon-face-remote-v1';
 const DB_NAME='tipon-face-local-v1';
 const DB_STORE=['users','members','sites','punches','meta','outbox','offices','schedules'];
-const MATCH_LIMIT=.47;
-const AMBIGUITY_GAP=.065;
+const MATCH_LIMIT=.60;
+const AMBIGUITY_GAP=.035;
 const SCAN_DELAY_MS=1100;
 const COOLDOWN_MS=90000;
 const GPS_MIN_RADIUS=20;
@@ -266,7 +266,7 @@ async function loadFaceModels(){
  try{await state.facePromise;}catch(e){state.facePromise=null;setText('scannerModelState','AI: Setup required');throw e;}
 }
 async function getCameraStream(context='scan'){return TIPONCamera.open(context);}
-function optionsFace(){return new faceapi.TinyFaceDetectorOptions({inputSize:224,scoreThreshold:.50});}
+function optionsFace(){return new faceapi.TinyFaceDetectorOptions({inputSize:320,scoreThreshold:.45});}
 async function detectFaces(video){return await faceapi.detectAllFaces(video,optionsFace()).withFaceLandmarks(true).withFaceDescriptors();}
 function euclidean(a,b){let sum=0;for(let i=0;i<a.length;i++)sum+=(a[i]-b[i])**2;return Math.sqrt(sum);}
 function nearestMember(descriptor){const matches=state.members.filter(m=>m.active!==false&&!m.deleted&&m.descriptors?.length>=3).map(m=>({member:m,distance:Math.min(...m.descriptors.map(arr=>euclidean(arr,descriptor)))})).sort((a,b)=>a.distance-b.distance);return {best:matches[0],second:matches[1]};}
@@ -299,7 +299,11 @@ async function scanTick(){if(!state.scanning)return;if(!hasTerminalSession()){aw
    else{
     state.scanAbsentCount=0;const found=nearestMember(faces[0].descriptor);
     if(!found.best||found.best.distance>MATCH_LIMIT||(found.second&&found.second.distance-found.best.distance<AMBIGUITY_GAP)){
-      state.scanCandidate=null;state.scanCandidateCount=0;updateScanResult('Face not recognized','No confident match. Check registration and lighting.','error');setText('cameraBottomTag','Unknown or uncertain face');
+      state.scanCandidate=null;state.scanCandidateCount=0;
+      const closest=found.best?('Closest registered face: '+found.best.member.name+' (distance '+found.best.distance.toFixed(2)+'; limit '+MATCH_LIMIT.toFixed(2)+').'):'No active enrolled face templates are available on this kiosk.';
+      const reason=!found.best?'No enrolled faces':found.best.distance>MATCH_LIMIT?'Face detected, but match confidence is low.':'Face detected, but the closest registered matches are too similar.';
+      updateScanResult(reason,closest+' Office GPS is checked after a registered face is identified.','error');
+      setText('cameraBottomTag',found.best?('Face detected · closest match '+found.best.member.name+' · '+found.best.distance.toFixed(2)):'Face detected · no enrolled members');
     }else{
       const member=found.best.member;
       if(!state.scanArmed&&state.lastRecognized!==member.id){state.scanArmed=true;}
@@ -332,6 +336,7 @@ async function recordRecognizedFace(member,faceDistance){
   if(!Number.isFinite(gps.accuracy)||gps.accuracy<0||Math.abs(Date.now()-gps.timestamp)>30000)throw Error('GPS fix is missing, stale, or invalid. Retry outdoors.');
   const limit=Math.min(GPS_MAX_ACCURACY,Math.max(30,site.radius));
   if(gps.accuracy>limit)throw Error(`GPS accuracy ${Math.round(gps.accuracy)} m is too poor. Required: ${limit} m or better.`);
+  // Face identity is already resolved. Independently verify that this member is physically at the assigned office before saving attendance.
   const distance=distanceM(site.lat,site.lng,gps.latitude,gps.longitude);
   if(distance>site.radius)throw Error(`Outside assigned worksite: ${Math.round(distance)} m away; permitted radius ${site.radius} m.`);
   const stamp=new Date();
