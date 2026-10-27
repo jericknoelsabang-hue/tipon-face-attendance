@@ -122,3 +122,19 @@ body:not([data-terminal-access="allowed"]) [data-terminal-only]{display:none!imp
 
 /* White outline follows the transparent cooperative logo artwork. */
 #coopDashboardCards .coop-summary[data-coop] .coop-monogram{filter:drop-shadow(1px 0 0 #fff) drop-shadow(-1px 0 0 #fff) drop-shadow(0 1px 0 #fff) drop-shadow(0 -1px 0 #fff)}
+
+/* Administrator Member List editor: inline site checkboxes, not a floating dropdown. */
+#adminMemberDialog #adminMemberSites.multi-select-options{
+  position:static;
+  z-index:auto;
+  inset:auto;
+  max-height:180px;
+  overflow-y:auto;
+  box-shadow:none;
+  border:1px solid var(--line);
+  border-radius:10px;
+  margin-top:8px;
+  padding:8px;
+}
+#adminMemberDialog #adminMemberSites .multi-select-option{width:100%}
+#adminMemberDialog #adminMemberSites .multi-select-option input{flex:0 0 auto}
