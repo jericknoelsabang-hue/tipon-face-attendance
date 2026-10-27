@@ -108,11 +108,13 @@ window.TIPONSync=(()=>{
        known.memberCount===scoped.length&&
        faceCount>=Number(known.enrolledCount||0))return;
     let cursor=0,startVersion=null,pages=0,memberCount=0,enrolledCount=0;
+    const seen={members:new Set(),sites:new Set()};
     do{
       const response=await TIPONAPI.call({action:'catalog',cursor});if(startVersion===null)startVersion=response.catalogVersion;
       if(response.catalogVersion!==startVersion)throw Error('Directory changed during download. Retrying a consistent snapshot.');
       if(response.businessPlatforms?.length)await TIPONPlatforms.accept(response.businessPlatforms);
       for(const type of ['sites','members','schedules'])for(const entity of response[type]||[]){
+        if(type==='members'||type==='sites')seen[type].add(entity.id);
         if(type==='members'){
           memberCount++;
           if(!entity.deleted&&entity.active!==false&&entity.template)enrolledCount++;
@@ -126,6 +128,16 @@ window.TIPONSync=(()=>{
       if(stopped||document.hidden)throw Error('Directory download paused. Keep the app open to finish.');
     }while(cursor!==null&&pages<500);
     if(cursor!==null)throw Error('Directory is too large for one download; contact the system owner.');
+    // A full successful server snapshot is authoritative. Purge locally cached
+    // records that were deleted or moved outside this account's new MPC/BP/GPS
+    // scope, except unsynced local operations. Never modify attendance punches.
+    for(const type of ['members','sites']){
+      const local=await getAll(type);
+      for(const item of local){
+        if(item.orgId===state.orgId&&!item._pendingOp&&!seen[type].has(item.id))
+          await OrgDB.rawDelete(type,item.id);
+      }
+    }
     await OrgDB.rawSave('meta',{id:cfgId,version:startVersion,memberCount,enrolledCount,complete:true});
   }
   function cursorId(){return 'tp5-events:'+state.orgId+':'+state.user.id+':'+state.user.role+':v5.2-scope:'+String(state.user.version||1)+':'+(state.user.siteIds||[]).join(',');}
