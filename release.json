@@ -1,5 +1,5 @@
 {
   "app": "TIPON Face Attendance",
-  "version": "5.4.21",
-  "label": "Admin attendance dashboard and ranked MPC breakdown"
+  "version": "5.4.22",
+  "label": "Fix dashboard startup error and add supplied cooperative logos"
 }
