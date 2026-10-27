@@ -82,13 +82,13 @@
 <div class="page-head"><div><div class="eyebrow">ADMINISTRATOR</div><h1>Accounts &amp; devices</h1><p class="subtle">Review new account requests and manage approved User and Physical Kiosk access.</p></div><button class="btn quiet" id="refreshAccounts" type="button">Refresh</button></div>
 <section class="panel">
   <div class="account-section-head"><div><h3>Account registrations</h3><p class="mini-info">Only accounts waiting for administrator approval are listed here. Approve known users or delete unwanted requests.</p></div></div>
-  <div class="table-scroll"><table><thead><tr><th>Name / username</th><th>Position</th><th>Scope</th><th>Role</th><th>Status</th><th>Action</th></tr></thead><tbody id="accountRows"></tbody></table></div>
+  <div class="table-scroll"><table><thead><tr><th>Name</th><th>Username</th><th>Position</th><th>Scope</th><th>Role</th><th>Status</th><th>Action</th></tr></thead><tbody id="accountRows"></tbody></table></div>
 </section>
 <section class="panel">
   <div class="account-section-head"><div><h3>Registered devices</h3><p class="mini-info">Approved User and Physical Kiosk accounts are listed here (not individual hardware records). Disable an account to block new online access; offline leases may remain valid until reconnection.</p></div>
     <label class="account-search">Search accounts<input type="search" id="registeredDeviceSearch" placeholder="Name, username, position, scope or role" autocomplete="off" aria-label="Search approved accounts"/></label>
   </div>
-  <div class="table-scroll"><table><thead><tr><th>Name / username</th><th>Position</th><th>Scope</th><th>Role</th><th>Status</th><th>Action</th></tr></thead><tbody id="deviceRows"></tbody></table></div>
+  <div class="table-scroll"><table><thead><tr><th>Name</th><th>Username</th><th>Position</th><th>Scope</th><th>Role</th><th>Status</th><th>Action</th></tr></thead><tbody id="deviceRows"></tbody></table></div>
   <div class="account-pager"><span class="text-count" id="registeredDeviceCount">0 approved accounts</span><div class="account-pager-actions"><button class="btn quiet compact" type="button" id="registeredDevicePrev" disabled>Previous</button><span id="registeredDevicePage" class="text-count" aria-live="polite">Page 1 of 1</span><button class="btn quiet compact" type="button" id="registeredDeviceNext" disabled>Next</button></div></div>
 </section>
 <!-- Compatibility only: previous app shells reference this hidden table. Exceptions remain in the backend. -->
