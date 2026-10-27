@@ -1,5 +1,5 @@
 {
   "app": "TIPON Face Attendance",
-  "version": "5.4.25",
-  "label": "Shared attendance log layout with admin Edit action"
+  "version": "5.4.26",
+  "label": "Member and satellite office CSV uploads, member list filters, attendance reset"
 }
