@@ -10,7 +10,7 @@ window.OrgDB=(()=>{
     if(!u||!(canEdit()||isAdmin())||!auth||auth.offlineUntil<Date.now())throw Error('A current approved enrollment/admin account is required.');
     if(type==='schedules'&&!isAdmin())throw Error('Only the administrator can change attendance schedules.');
     const old=await getOne(type,input.id);if(old?.orgId&&old.orgId!==state.orgId)throw Error('Record belongs to a different organization.');
-    if(old&&u.role==='registrar'&&old.createdBy!==u.id&&!((type==='sites'||type==='members'&&old.importedWithoutFace===true)&&TIPONOrgCore.inScope(u,old)))throw Error('Only the creator or administrator can edit this record.');
+    if(old&&u.role==='registrar'&&old.createdBy!==u.id&&!((type==='sites'||type==='members'&&(old.importedWithoutFace===true||old.importPending===true&&!old.template))&&TIPONOrgCore.inScope(u,old)))throw Error('Only the creator or administrator can edit this record.');
     let opId=uuid();let existingOp;
     if(old?._pendingOp){existingOp=await getOne('outbox',old._pendingOp);if(existingOp?.everSent)throw Error('This record is waiting for server acknowledgement. Sync before editing it again.');opId=old._pendingOp;}
     const value={...old,...input,orgId:state.orgId,createdBy:old?.createdBy||u.id,updatedAt:new Date().toISOString(),rev:Number(old?.rev)||0};
@@ -30,8 +30,24 @@ window.OrgDB=(()=>{
     if(type==='members'){
       const hasFace=Array.isArray(value.descriptors)&&value.descriptors.length>=3;
       if(!hasFace&&!(isAdmin()&&value.importedWithoutFace===true&&!old?.template))throw Error('Three facial samples are required.');
-      if(hasFace){wire.template=await TIPONAuth.seal(value.descriptors,auth.faceKey,'member:'+value.id);value.template=wire.template;wire.faceEnrollmentStatus=value.faceEnrollmentStatus='enrolled';}
-      else {delete wire.template;delete value.template;wire.faceEnrollmentStatus=value.faceEnrollmentStatus='pending';}
+      if(hasFace){
+        wire.template=await TIPONAuth.seal(value.descriptors,auth.faceKey,'member:'+value.id);
+        value.template=wire.template;
+        wire.active=value.active=true;
+        wire.importPending=value.importPending=false;
+        wire.importedWithoutFace=value.importedWithoutFace=false;
+        wire.faceEnrollmentStatus=value.faceEnrollmentStatus='enrolled';
+        if(old&&!old.template&&(old.importPending===true||old.importedWithoutFace===true)){
+          wire.createdBy=value.createdBy=u.id;
+        }
+      }else{
+        // Uploaded members remain inactive until the authorized User completes face enrollment.
+        wire.active=value.active=false;
+        wire.importPending=value.importPending=true;
+        wire.importedWithoutFace=value.importedWithoutFace=true;
+        wire.faceEnrollmentStatus=value.faceEnrollmentStatus='pending';
+        delete wire.template;delete value.template;
+      }
       delete wire.descriptors;
     }
     const operation={id:opId,type,value:wire,baseRev:Number(old?.rev)||0,orgId:state.orgId,ownerId:u.id,createdAt:existingOp?.createdAt||new Date().toISOString(),everSent:false};
@@ -128,7 +144,7 @@ openSiteForm=function(site){if(!canEdit())return;originalOpenSite(site);TIPONPla
   document.querySelectorAll('[name="siteWorkDay"]').forEach(x=>x.checked=(plan.days||[1,2,3,4,5,6]).includes(Number(x.value)));
 };
 const oldRenderMembers=renderMembers,oldRenderSites=renderSites;
-renderMembers=function(){oldRenderMembers();document.querySelectorAll('[data-member-delete]').forEach(x=>{const m=state.members.find(v=>v.id===x.dataset.memberDelete);x.hidden=!isAdmin()&&!(state.user?.role==='registrar'&&m?.createdBy===state.user?.id);});document.querySelectorAll('[data-member-edit]').forEach(x=>{const m=state.members.find(v=>v.id===x.dataset.memberEdit);x.disabled=!canEdit()||!(m?.createdBy===state.user?.id||m?.importedWithoutFace===true&&TIPONOrgCore.inScope(state.user,m));});};
+renderMembers=function(){oldRenderMembers();document.querySelectorAll('[data-member-delete]').forEach(x=>{const m=state.members.find(v=>v.id===x.dataset.memberDelete);x.hidden=!isAdmin()&&!(state.user?.role==='registrar'&&m?.createdBy===state.user?.id);});document.querySelectorAll('[data-member-edit]').forEach(x=>{const m=state.members.find(v=>v.id===x.dataset.memberEdit);x.disabled=!canEdit()||!(m?.createdBy===state.user?.id||(m?.importedWithoutFace===true||m?.importPending===true&&!m?.template)&&TIPONOrgCore.inScope(state.user,m));});};
 renderSites=function(){oldRenderSites();document.querySelectorAll('[data-site-delete],[data-site-edit]').forEach(x=>{const site=state.sites.find(v=>v.id===(x.dataset.siteDelete||x.dataset.siteEdit));x.hidden=false;x.disabled=!(site&&canEdit()&&TIPONOrgCore.inScope(state.user,site));});};
 filteredAttendanceRows=function(){
   if(!isAdmin())throw Error('Only the administrator can export attendance.');
@@ -320,7 +336,7 @@ function prepareMemberImport(rows,existing,sites,offices){
    if(found.length!==1)throw Error('Row '+line+': location "'+n+'" must match exactly one work location under that office.');
    return found[0];
   });
-  return {id,name,coop,platform,siteId:selected[0].id,siteIds:selected.map(s=>s.id),satelliteOffice:officeName,active:true,importedWithoutFace:true,faceEnrollmentStatus:'pending',createdAt:new Date().toISOString()};
+  return {id,name,coop,platform,siteId:selected[0].id,siteIds:selected.map(s=>s.id),satelliteOffice:officeName,active:false,importPending:true,importedWithoutFace:true,faceEnrollmentStatus:'pending',createdAt:new Date().toISOString()};
  });
 }
 async function importMemberCSV(event){
