@@ -10,7 +10,7 @@ window.OrgDB=(()=>{
     if(!u||!canEdit()||!auth||auth.offlineUntil<Date.now())throw Error('A current approved enrollment/admin account is required.');
     if(type==='schedules'&&!isAdmin())throw Error('Only the administrator can change attendance schedules.');
     const old=await getOne(type,input.id);if(old?.orgId&&old.orgId!==state.orgId)throw Error('Record belongs to a different organization.');
-    if(old&&u.role==='registrar'&&old.createdBy!==u.id)throw Error('Only the creator or administrator can edit this record.');
+    if(old&&u.role==='registrar'&&old.createdBy!==u.id&&!(type==='sites'&&TIPONOrgCore.inScope(u,old)))throw Error('Only the creator or administrator can edit this record.');
     let opId=uuid();let existingOp;
     if(old?._pendingOp){existingOp=await getOne('outbox',old._pendingOp);if(existingOp?.everSent)throw Error('This record is waiting for server acknowledgement. Sync before editing it again.');opId=old._pendingOp;}
     const value={...old,...input,orgId:state.orgId,createdBy:old?.createdBy||u.id,updatedAt:new Date().toISOString(),rev:Number(old?.rev)||0};
@@ -25,7 +25,7 @@ window.OrgDB=(()=>{
       if(!value.platform)throw Error('Business platform is required.');
       if(!TIPONOrgCore.inScope(u,value))throw Error('Use your approved cooperative and business platform.');
     }
-    if(value.deleted&&!(isAdmin()||['members','sites'].includes(type)&&u.role==='registrar'&&old?.createdBy===u.id))throw Error('Only the administrator or record creator can delete this record.');
+    if(value.deleted&&!(isAdmin()||u.role==='registrar'&&(type==='members'&&old?.createdBy===u.id||type==='sites'&&old&&TIPONOrgCore.inScope(u,old))))throw Error('Only the administrator or record creator can delete this record.');
     const wire={...value};delete wire._pendingOp;delete wire._row;
     if(type==='members'){
       if(!Array.isArray(value.descriptors)||value.descriptors.length<3)throw Error('Three facial samples are required.');
@@ -37,7 +37,7 @@ window.OrgDB=(()=>{
     TIPONSync.kick();return value;
   }
   saveOne=async function(type,value){return entities.includes(type)?saveEntity(type,value):rawSave(type,value);};
-  deleteOne=async function(type,id){if(entities.includes(type)){const old=await getOne(type,id),ownerMayDelete=['members','sites'].includes(type)&&state.user?.role==='registrar'&&old?.createdBy===state.user.id;if(!isAdmin()&&!ownerMayDelete)throw Error('Only the administrator or record creator can delete this record.');if(old){const value=type==='members'?state.members.find(m=>m.id===id)||old:old;return saveEntity(type,{...value,deleted:true,active:false});}return;}return rawDelete(type,id);};
+  deleteOne=async function(type,id){if(entities.includes(type)){const old=await getOne(type,id),ownerMayDelete=state.user?.role==='registrar'&&(type==='members'&&old?.createdBy===state.user.id||type==='sites'&&old&&TIPONOrgCore.inScope(state.user,old));if(!isAdmin()&&!ownerMayDelete)throw Error('Only the administrator or record creator can delete this record.');if(old){const value=type==='members'?state.members.find(m=>m.id===id)||old:old;return saveEntity(type,{...value,deleted:true,active:false});}return;}return rawDelete(type,id);};
   return {rawSave,rawDelete,saveEntity};
 })();
 canEdit=()=>state.user?.role==='registrar'&&TIPONAuth.current()?.offlineUntil>Date.now();
@@ -126,7 +126,7 @@ openSiteForm=function(site){if(!canEdit())return;originalOpenSite(site);TIPONPla
 };
 const oldRenderMembers=renderMembers,oldRenderSites=renderSites;
 renderMembers=function(){oldRenderMembers();document.querySelectorAll('[data-member-delete]').forEach(x=>{const m=state.members.find(v=>v.id===x.dataset.memberDelete);x.hidden=!isAdmin()&&!(state.user?.role==='registrar'&&m?.createdBy===state.user?.id);});document.querySelectorAll('[data-member-edit]').forEach(x=>{const m=state.members.find(v=>v.id===x.dataset.memberEdit);x.disabled=!isAdmin()&&m?.createdBy!==state.user?.id;});};
-renderSites=function(){oldRenderSites();document.querySelectorAll('[data-site-delete]').forEach(x=>{const s=state.sites.find(v=>v.id===x.dataset.siteDelete);x.hidden=!isAdmin()&&!(state.user?.role==='registrar'&&s?.createdBy===state.user.id);});document.querySelectorAll('[data-site-edit]').forEach(x=>{const s=state.sites.find(v=>v.id===x.dataset.siteEdit);x.disabled=!isAdmin()&&s?.createdBy!==state.user?.id;});};
+renderSites=function(){oldRenderSites();document.querySelectorAll('[data-site-delete],[data-site-edit]').forEach(x=>{const site=state.sites.find(v=>v.id===(x.dataset.siteDelete||x.dataset.siteEdit));x.hidden=false;x.disabled=!(site&&canEdit()&&TIPONOrgCore.inScope(state.user,site));});};
 filteredAttendanceRows=function(){
   if(!isAdmin())throw Error('Only the administrator can export attendance.');
   return TIPONCore.filterRows(TIPONOrgCore.project(state.punches.filter(p=>!p.reviewStatus)),$('recordFrom').value,$('recordTo').value,$('recordSite').value);
