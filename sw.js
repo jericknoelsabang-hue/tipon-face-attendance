@@ -1,7 +1,7 @@
 /* TIPON 5.4.4 GitHub Pages. Application/AI caches only; server bridge posts are never intercepted. */
 'use strict';
-const VERSION='5.4.26';
-const SHELL='tipon-face-shell-v5.4.26-github-only',AI='tipon-face-remote-v1';
+const VERSION='5.4.27';
+const SHELL='tipon-face-shell-v5.4.27-github-only',AI='tipon-face-remote-v1';
 const FILES=['./','./index.html','./style.css','./organization.css','./gas-bridge.js','./core.js','./org-core.js','./exporter.js','./app.js','./offices-data.js','./offices.js','./auth.js','./sync.js','./organization.js','./camera.js','./platforms.js','./logo.png','./icon-192.png','./icon-512.png','./apple-touch-icon.png','./manifest.webmanifest'];
 self.addEventListener('install',event=>event.waitUntil((async()=>{
   const cache=await caches.open(SHELL);
