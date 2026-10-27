@@ -1,5 +1,5 @@
 {
   "app": "TIPON Face Attendance",
-  "version": "5.5.1",
-  "label": "Admin login crash fix: backward-compatible dashboard and refreshed offline app cache"
+  "version": "5.5.2",
+  "label": "Member upload: detect old Apps Script and invalid Business Platforms before sending CSV"
 }
