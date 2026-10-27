@@ -267,7 +267,7 @@ function parseOfficeCSV(text){
  if(quoted)throw Error('CSV contains an unclosed quote.');row.push(cell);if(row.some(v=>v.trim()))rows.push(row);return rows;
 }
 /* Approved office CSV import writes the same durable, scoped queue as the form. */
-importOfficeCSV=async function(event){
+async function importOfficeCSV(event){
  const file=event.target.files?.[0];event.target.value='';if(!file||!isAdmin())return;
  const headers=window.TIPON_OFFICE_CSV_HEADERS;
  try{if(file.size>1000000)throw Error('Office CSV limit is 1 MB.');const rows=parseOfficeCSV((await file.text()).replace(/^\uFEFF/,''));if(JSON.stringify(rows[0])!==JSON.stringify(headers))throw Error('Use the v5 office template with eight columns.');if(rows.length<2||rows.length>501)throw Error('Import 1 to 500 offices at a time.');
