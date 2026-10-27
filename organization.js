@@ -228,7 +228,7 @@ window.OrgUI=(()=>{
       await loadCollections();showToast('Backup merged without overwriting existing IDs. Review before syncing.','success');
     }catch(e){toastError(e,'Restore');}
   }
-  async function migrateLegacy(){if(isAdmin())showToast('Legacy records remain saved; coordinate a reviewed migration of work locations without satellite-office records.','info',9000);}
+  async function migrateLegacy(){if(isAdmin())showToast('Legacy records remain saved; coordinate a reviewed migration of GPS work locations.','info',9000);}
   function bind(){
     bindRegistryUploads();
     ['registerCoop','dashboardCoop','reportCoop'].forEach(id=>fillCoopSelect(id,['dashboardCoop','reportCoop'].includes(id)));
