@@ -70,3 +70,6 @@ body:not([data-terminal-access="allowed"]) [data-terminal-only]{display:none!imp
 #page-terminalLogs .terminal-log-panel{margin-top:0}
 @media(max-width:900px){#memberDialog .form-row.three{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:600px){#memberDialog .form-row.three{grid-template-columns:1fr}}
+
+/* Attendance workspace spacing */
+#terminalLogPanel>.page-head{padding:24px 24px 0;margin-bottom:24px}#terminalLogPanel>.filter-bar{padding:0 24px 24px;gap:16px;display:flex;flex-wrap:wrap}#terminalLogPanel>.filter-bar label{flex:1 1 170px;min-width:0}#terminalLogCount{padding:8px 0;align-self:end}#terminalLogPanel{overflow:hidden}#terminalLogPanel .table-wrap{overflow-x:auto}
