@@ -1,5 +1,5 @@
 {
   "app": "TIPON Face Attendance",
-  "version": "5.4.4",
-  "label": "Restore attendance workspace bootstrap and refresh directory views"
+  "version": "5.4.5",
+  "label": "Fix workspace directory views and load pushed releases immediately"
 }
