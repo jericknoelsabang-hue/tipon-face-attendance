@@ -1,5 +1,5 @@
 {
   "app": "TIPON Face Attendance",
-  "version": "5.5.4",
-  "label": "Green Confirm for account approval and non-destructive actions; red retained for deletion"
+  "version": "5.5.5",
+  "label": "Streamlined dashboard and Member List; pending-only approvals and searchable approved accounts (10 per page)"
 }
