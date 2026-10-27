@@ -270,7 +270,7 @@ function renderTerminalLogs(){
  try{
   const rows=filteredTerminalLogRows(),table=TIPONExport.table(rows);
   setText('terminalLogCount',rows.length+' attendance session(s)');
-  $('terminalLogRows').innerHTML=rows.length?rows.map(row=>{const format=v=>v?new Date(Date.parse(v)+28800000).toISOString().slice(0,16):'';return '<tr><td>'+esc(row.memberId)+'</td><td>'+esc(TIPONCore.phStamp(row.timeIn||row.timeOut).slice(0,10))+'</td><td>'+esc(TIPONCore.phStamp(row.timeIn).slice(-8))+'</td><td>'+esc(TIPONCore.phStamp(row.timeOut).slice(-8))+'</td><td>'+esc(TIPONCore.phStamp(row.timeOut).slice(0,10))+'</td><td>'+esc(attendanceAccountLabel(row))+'</td><td>'+(canCorrectAttendance()?'<button class="tiny-button" data-attendance-edit="'+esc(row.key)+'" data-in="'+esc(format(row.timeIn))+'" data-out="'+esc(format(row.timeOut))+'" type="button">Edit times</button>':'View only')+'</td></tr>';}).join(''):'<tr><td colspan="7">No attendance records match these filters.</td></tr>';
+  $('terminalLogRows').innerHTML=rows.length?rows.map(row=>'<tr><td>'+esc(row.memberId)+'</td><td>'+esc(TIPONCore.phStamp(row.timeIn||row.timeOut).slice(0,10))+'</td><td>'+esc(TIPONCore.phStamp(row.timeIn).slice(-8))+'</td><td>'+esc(TIPONCore.phStamp(row.timeOut).slice(-8))+'</td><td>'+esc(TIPONCore.phStamp(row.timeOut).slice(0,10))+'</td><td>'+esc(attendanceAccountLabel(row))+'</td></tr>').join(''):'<tr><td colspan="6">No attendance records match these filters.</td></tr>';
  }catch(err){setText('terminalLogCount',err.message);$('terminalLogRows').innerHTML='<tr><td colspan="8">'+esc(err.message)+'</td></tr>';}
 }
 async function exportTerminalLogs(){
