@@ -129,18 +129,18 @@ function fillMemberFilter(id,values,placeholder){
  el.innerHTML='<option value="">'+esc(placeholder)+'</option>'+unique.map(v=>'<option value="'+esc(v)+'">'+esc(v)+'</option>').join('');
  if(unique.includes(old))el.value=old;
 }
-function memberEnrollerLabel(member){
+function memberEnrollerLabel(member){if(member.importedWithoutFace&&!(member.descriptors?.length>=3))return 'Not enrolled';
  const account=[state.user,...(state.users||[])].find(u=>u&&u.id===(member.createdBy||member.enrolledBy));
  return member.enrolledByUsername||account?.username||account?.name||'Not recorded';
 }
 function renderMembers(){
  fillMemberFilter('memberFilterCoop',TIPONOrgCore.COOPS,'All cooperatives');
  fillMemberFilter('memberFilterPlatform',[...TIPONPlatforms.names(),...state.sites.map(s=>s.platform),...state.members.map(m=>m.platform)],'All business platforms');
- fillMemberFilter('memberFilterOffice',[...state.offices.map(o=>o.name),...state.sites.map(s=>s.satelliteOffice)],'All offices');
- const q=$('memberSearch').value.trim().toLowerCase(),coop=$('memberFilterCoop')?.value||'',platform=$('memberFilterPlatform')?.value||'',office=$('memberFilterOffice')?.value||'';
+ fillMemberFilter('memberFilterOffice',state.sites.map(s=>s.name),'All assigned locations');
+ const q=$('memberSearch').value.trim().toLowerCase(),coop=$('memberFilterCoop')?.value||'',platform=$('memberFilterPlatform')?.value||'',office=$('memberFilterOffice')?.value||'',face=$('memberFilterFace')?.value||'';
  const data=state.members.filter(m=>{
   const sites=sitesForMember(m),name=m.name||'',memberPlatform=m.platform||sites[0]?.platform||'',memberOffices=sites.map(s=>s.satelliteOffice||state.offices.find(o=>o.id===s.officeId)?.name||'');
-  return (!q||`${m.id} ${name} ${m.coop}`.toLowerCase().includes(q))&&(!coop||m.coop===coop)&&(!platform||TIPONOrgCore.platformKey(memberPlatform)===TIPONOrgCore.platformKey(platform))&&(!office||memberOffices.includes(office));
+  return (!q||`${m.id} ${name} ${m.coop}`.toLowerCase().includes(q))&&(!coop||m.coop===coop)&&(!platform||TIPONOrgCore.platformKey(memberPlatform)===TIPONOrgCore.platformKey(platform))&&(!office||sites.some(s=>s.name===office))&&(!face||(face==='enrolled')===(m.descriptors?.length>=3));
  }).sort((x,y)=>(x.name||'').localeCompare(y.name||''));
  setText('memberCountLabel',`${data.length} member${data.length===1?'':'s'}`);
  $('memberRows').innerHTML=data.length?data.map(m=>{const sites=sitesForMember(m),site=sites[0],names=sites.map(x=>x.name).join(', ');return `<tr><td><div class="row-inline"><div class="initial-avatar">${esc(initial(m.name))}</div><div><b>${esc(m.name)}</b><small>ID: ${esc(m.id)}</small></div></div></td><td>${esc(m.coop)}</td><td>${esc(m.platform||site?.platform||'—')}</td><td><b>${esc(names||'Not assigned')}</b><small>${esc(sites.map(x=>x.satelliteOffice||'Office not yet assigned').filter((v,i,x)=>x.indexOf(v)===i).join(', '))}</small><small>${site?'150 m GPS check':'Site missing'}</small></td><td>${esc(memberEnrollerLabel(m))}</td><td><span class="badge ${m.descriptors?.length>=3?'green':'red'}">${m.descriptors?.length>=3?'ENROLLED':'NOT ENROLLED'}</span></td><td><button class="tiny-button" data-member-edit="${esc(m.id)}">Edit</button> <button class="tiny-button delete" data-member-delete="${esc(m.id)}">Delete</button></td></tr>`}).join(''):`<tr><td colspan="7"><div class="empty-state">${pageIcon('users')}No members found. Enroll members to begin recognizing faces.</div></td></tr>`;
@@ -176,7 +176,7 @@ async function saveMemberForm(e){e.preventDefault();if(!canEdit())return;
  if(!state.consentAcknowledgedAt&&!state.editMember?.consentAt){showToast('Click Enroll face after the member reviews the biometric notice.','error');return;}
  const last=state.punches.find(p=>p.memberId===id);
  if(last?.type==='IN'&&(state.editMember?.siteIds||[state.editMember?.siteId]).some(x=>!siteIds.includes(x))){showToast('Complete Time Out before removing an assigned work location.','error');return;}
- const record={id,name,coop,siteId:siteIds[0],siteIds,satelliteOffice:site.satelliteOffice||'',descriptors:state.pendingDescriptors,consentAt:state.editMember?.consentAt||new Date(state.consentAcknowledgedAt||Date.now()).toISOString(),enrolledBy:state.editMember?.enrolledBy||state.deviceId,enrolledByUsername:state.editMember?state.editMember.enrolledByUsername||'':state.user.username||'',createdAt:state.editMember?.createdAt||new Date().toISOString(),updatedAt:new Date().toISOString()};
+ const record={id,name,coop,siteId:siteIds[0],siteIds,satelliteOffice:site.satelliteOffice||'',descriptors:state.pendingDescriptors,consentAt:state.editMember?.consentAt||new Date(state.consentAcknowledgedAt||Date.now()).toISOString(),enrolledBy:state.editMember?.enrolledBy||state.deviceId,enrolledByUsername:state.editMember?.enrolledByUsername||state.user.username||'',createdAt:state.editMember?.createdAt||new Date().toISOString(),updatedAt:new Date().toISOString()};
  try{await saveOne('members',record);await loadCollections();$('memberDialog').close();renderMembers();renderDashboard();showToast(`${name} enrolled successfully.`,'success');}catch(err){toastError(err,'Unable to save member');}
 }
 async function handleMemberTableClick(e){const edit=e.target.closest('[data-member-edit]');const del=e.target.closest('[data-member-delete]');if(edit){const m=state.members.find(x=>x.id===edit.dataset.memberEdit);if(m)openMemberForm(m);}
@@ -267,7 +267,7 @@ function attendanceAccountLabel(row){const ids=row.eventIds||[],uuidPattern=/^[0
 function renderTerminalLogs(){
  if(!$('terminalLogRows'))return;
  if(state.page==='terminalLogs')$('page-terminalLogs').appendChild($('terminalLogPanel'));
- const adminActions=isAdmin();$('terminalLogActionHeader').hidden=!adminActions;
+ const adminActions=false;
  const sites=[...state.sites],events=state.punches;
  fillLogFilter('terminalLogCoop',[...state.members.map(m=>m.coop),...events.map(p=>p.coop)],'All cooperatives');
  fillLogFilter('terminalLogPlatform',[...state.members.map(m=>m.platform),...sites.map(s=>s.platform),...events.map(p=>p.platform)],'All business platforms');
@@ -278,7 +278,7 @@ function renderTerminalLogs(){
  if(siteMap.has(old))siteSelect.value=old;
  try{
   const rows=filteredTerminalLogRows(),table=TIPONExport.table(rows);
-  setText('terminalLogCount',rows.length+' attendance session(s)');
+
   $('terminalLogRows').innerHTML=rows.length?rows.map(row=>'<tr><td>'+esc(row.memberId)+'</td><td>'+esc(TIPONCore.phStamp(row.timeIn||row.timeOut).slice(0,10))+'</td><td>'+esc(TIPONCore.phStamp(row.timeIn).slice(-8))+'</td><td>'+esc(TIPONCore.phStamp(row.timeOut).slice(-8))+'</td><td>'+esc(TIPONCore.phStamp(row.timeOut).slice(0,10))+'</td><td>'+esc(attendanceAccountLabel(row))+'</td>'+(adminActions?'<td><button class="tiny-button" data-attendance-edit="'+esc(row.key)+'" data-in="'+esc(TIPONCore.phStamp(row.timeIn).slice(0,16).replace(' ','T'))+'" data-out="'+esc(TIPONCore.phStamp(row.timeOut).slice(0,16).replace(' ','T'))+'"'+(canCorrectAttendance()?'':' disabled')+'>Edit</button></td>':'')+'</tr>').join(''):'<tr><td colspan="'+(adminActions?7:6)+'">No attendance records match these filters.</td></tr>';
  }catch(err){setText('terminalLogCount',err.message);$('terminalLogRows').innerHTML='<tr><td colspan="8">'+esc(err.message)+'</td></tr>';}
 }
@@ -552,8 +552,8 @@ function bindEvents(){
  document.querySelectorAll('[data-jump]').forEach(el=>el.addEventListener('click',()=>showPage(el.dataset.jump)));
  attach('topStartScan','click',()=>showPage('scanner'));
  attach('memberSearch','input',renderMembers);
- ['memberFilterCoop','memberFilterPlatform','memberFilterOffice'].forEach(id=>attach(id,'change',renderMembers));
- ['terminalLogFrom','terminalLogTo','terminalLogCoop','terminalLogPlatform','terminalLogSite'].forEach(id=>attach(id,'change',renderTerminalLogs));attach('terminalLogRows','click',editAttendanceFromLog);
+ ['memberFilterCoop','memberFilterPlatform','memberFilterOffice','memberFilterFace'].forEach(id=>attach(id,'change',renderMembers));
+ ['terminalLogFrom','terminalLogTo','terminalLogCoop','terminalLogPlatform','terminalLogSite'].forEach(id=>attach(id,'change',renderTerminalLogs));attach('terminalLogReset','click',()=>{['terminalLogFrom','terminalLogTo','terminalLogCoop','terminalLogPlatform','terminalLogSite'].forEach(id=>$(id).value='');renderTerminalLogs();});
  attach('terminalLogExport','click',exportTerminalLogs);attach('terminalLogSync','click',()=>TIPONSync.kick());
  attach('kioskFullscreen','click',async()=>{try{if(document.fullscreenElement){await document.exitFullscreen();return;}if(!document.documentElement.requestFullscreen)throw Error('Full screen is unavailable in this browser.');await document.documentElement.requestFullscreen();}catch(e){showToast(e.message,'error');}});
  document.addEventListener('fullscreenchange',()=>document.body.classList.toggle('terminal-fullscreen',!!document.fullscreenElement&&state.page==='scanner'));
