@@ -1,5 +1,5 @@
 {
   "app": "TIPON Face Attendance",
-  "version": "5.3.3",
-  "label": "GitHub Pages only + kiosk face matching tuned; office GPS remains an independent attendance check"
+  "version": "5.3.4",
+  "label": "Persistent sign-in and restore the last permitted screen after refresh"
 }
