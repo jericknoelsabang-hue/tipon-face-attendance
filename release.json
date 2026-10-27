@@ -1,5 +1,5 @@
 {
   "app": "TIPON Face Attendance",
-  "version": "5.3.6",
-  "label": "Member enrollment, live blink check, terminal attendance logs, and view-only office directory"
+  "version": "5.3.7",
+  "label": "Member enrollment, liveness check, attendance logs, and read-only office directory"
 }
