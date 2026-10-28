@@ -1,5 +1,5 @@
 {
   "app": "TIPON Face Attendance",
-  "version": "5.5.29",
-  "label": "Attendance uploads prioritized before pending site edits. Logs show Synced, Pending Sync, or Needs Review without hiding rejected local events; payroll export excludes rejected events. Overnight Time Out reconciliation, structured member identity, authorized re-enrollment, randomized live blink/pose challenges, four concise terminal voice prompts, and offline cached configuration and AI. PAD is pilot-only, not certified."
+  "version": "5.5.30",
+  "label": "Fail-closed live-face proof required for attendance and face enrollment; attendance uploads prioritized, rejected/pending sync statuses visible, overnight shift reconciliation, structured names, authorized re-enrollment and offline AI cache. Basic blink/pose liveness is not PAD-certified."
 }
