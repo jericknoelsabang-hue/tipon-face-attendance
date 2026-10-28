@@ -85,7 +85,7 @@ loadCollections=async function(){
   state.punches=allPunches.filter(x=>belongs(x)&&(u?.role==='admin'||u&&TIPONOrgCore.inScope(u,{...x,platform:x.platform||allSites.find(s=>s.id===x.siteId)?.platform}))).sort((a,b)=>Date.parse(b.timestamp)-Date.parse(a.timestamp));
   state.schedules=schedules.filter(x=>belongs(x)&&!x.deleted);state.users=[];
 };
-enterApp=async function(){
+enterApp=async function(options={}){
   const bound=await getOne('meta','tp5-boundOrganization');
   if(bound&&bound.orgId!==state.orgId)throw Error('This browser profile already belongs to another organization. Use a separate browser profile; do not overwrite its data.');
   if(!bound)await OrgDB.rawSave('meta',{id:'tp5-boundOrganization',orgId:state.orgId});
@@ -93,7 +93,12 @@ enterApp=async function(){
   setText('sidebarUserName',state.user.name);setText('sidebarUserRole',roleName(state.user.role));setText('avatarLetter',initial(state.user.name));setText('greetingName',state.user.name.split(' ')[0]);
   await loadCollections();await TIPONPlatforms.load();fillCoopSelect('memberCoop');fillCoopSelect('siteCoop');
   const savedPage=await getOne('meta','tp5-last-page:'+state.user.id),defaultPage=isAdmin()?'dashboard':TIPONOrgCore.canUseTerminal(state.user)?'scanner':'members';
-  const startPage=savedPage?.page&&TIPONOrgCore.allowed(state.user,savedPage.page)&&(savedPage.page!=='scanner'||hasTerminalSession())?savedPage.page:defaultPage;
+  // A fresh login always lands on the role's primary workspace.
+  // Refreshing/restoring an active session can keep its last allowed tab.
+  const startPage=options.freshLogin?defaultPage:(
+    savedPage?.page&&TIPONOrgCore.allowed(state.user,savedPage.page)&&
+    (savedPage.page!=='scanner'||hasTerminalSession())?savedPage.page:defaultPage
+  );
   applyRoles();await showPage(startPage);refreshClock();await checkOfflineReady();
   if(isAdmin()&&state.user.defaultPassword)showToast('Change the initial administrator password in Settings before organization rollout.','info',10000);
 };
@@ -129,7 +134,7 @@ applyRoles=function(){
   ['importBackup','exportBackup'].forEach(id=>{if($(id))$(id).hidden=!isAdmin();});
 };
 const originalShowPage=showPage;
-Object.assign(pageNames,{accounts:'Accounts & devices',members:'Member list',adminSites:'Work locations list'});
+Object.assign(pageNames,{accounts:'Accounts & Devices',members:'Member List',adminSites:'Work Locations List',settings:'Settings & Offline',dashboard:'Dashboard',scanner:'Face Terminal',terminalLogs:'Attendance Logs',sites:'Work Locations',records:'Attendance Logs'});
 function refreshWorkspaceViews(){
  if(!state.user)return;
  if(state.page==='terminalLogs'||state.page==='records')renderTerminalLogs();
@@ -155,10 +160,8 @@ openSiteForm=function(site){
   $('siteCoop').disabled=user;$('sitePlatform').disabled=user;
   $('siteCoop').value=user?state.user.coop:site?.coop||'';
   if(!site&&!user)$('siteCoop').value='';
-  const plan=site?.schedule||{};
-  $('siteScheduleEnabled').checked=!!plan.enabled;
-  $('siteShiftStart').value=plan.start||'06:00';$('siteShiftEnd').value=plan.end||'15:00';$('siteGrace').value=plan.grace||0;
-  document.querySelectorAll('[name="siteWorkDay"]').forEach(x=>x.checked=(plan.days||[1,2,3,4,5,6]).includes(Number(x.value)));
+  // Schedule controls were removed from this form. Existing schedules
+  // remain stored and are preserved whenever worksite metadata is edited.
   $('siteUseGps').hidden=isAdmin();
   $('siteDialog').classList.toggle('admin-location-dialog',isAdmin());
   $('adminSiteMapTools').hidden=!isAdmin();$('adminMapCanvas').hidden=!isAdmin();
@@ -178,7 +181,11 @@ renderDashboard=function(){
 };
 window.OrgUI=(()=>{
   let editingSchedule=null;
-  function readSiteSchedule(){return {enabled:$('siteScheduleEnabled').checked,days:[...document.querySelectorAll('[name="siteWorkDay"]:checked')].map(x=>Number(x.value)),start:$('siteShiftStart').value,end:$('siteShiftEnd').value,grace:Number($('siteGrace').value)||0};}
+  function readSiteSchedule(){
+    // Preserve legacy schedules without showing schedule configuration in the GPS editor.
+    // New work locations are intentionally unscheduled; existing attendance is untouched.
+    return state.editSite?.schedule||{enabled:false,days:[],start:'',end:'',grace:0};
+  }
   function csv(name,headers,rows){const safe=v=>{let s=String(v??'');if(/^[=+\-@\t\r]/.test(s))s="'"+s;return '"'+s.replace(/"/g,'""')+'"';};downloadBlob(name,new Blob(['\ufeff'+[headers,...rows].map(r=>r.map(safe).join(',')).join('\r\n')],{type:'text/csv;charset=utf-8'}));}
   function dashboardFilter(){return {coop:$('dashboardCoop').value,platform:''};}
   function filteredMembers(){const f=dashboardFilter(),sites=new Map(state.sites.map(x=>[x.id,x]));return state.members.filter(m=>(!f.coop||m.coop===f.coop)&&(!f.platform||TIPONOrgCore.platformKey(m.platform||sites.get(m.siteId)?.platform)===TIPONOrgCore.platformKey(f.platform)));}
@@ -193,11 +200,12 @@ window.OrgUI=(()=>{
     const fromField=$('dashboardFrom'),toField=$('dashboardTo'),today=todayPH();
     if(!fromField.value)fromField.value=today;
     if(!toField.value)toField.value=today;
-    if(fromField.value>toField.value){
-      setText('orgSyncStamp','From date must not be later than To date. Correct the date range.');
-      $('dashboardSummary').innerHTML='';
-      $('dashboardRanking').innerHTML='';
-      return;
+    // A reversed range is not a valid filter. Clamp the To Date automatically
+    // and constrain the date picker; never blank the dashboard when it happens.
+    toField.min=fromField.value;
+    if(fromField.value&&toField.value&&toField.value<fromField.value){
+      toField.value=fromField.value;
+      showToast('To Date cannot be earlier than From Date. The range was corrected.','info',5500);
     }
     const from=fromField.value,to=toField.value;
     // Compatibility: day-based legacy actions still read dashboardDay.
@@ -477,7 +485,16 @@ window.OrgUI=(()=>{
   function bind(){
     bindRegistryUploads();
     ['registerCoop','dashboardCoop','reportCoop'].forEach(id=>fillCoopSelect(id,['dashboardCoop','reportCoop'].includes(id)));
-    ['dashboardFrom','dashboardTo','dashboardCoop','presenceFilter'].forEach(id=>attach(id,'change',renderMpc));
+    ['dashboardFrom','dashboardTo'].forEach(id=>attach(id,'change',()=>{
+      const from=$('dashboardFrom'),to=$('dashboardTo');
+      to.min=from.value||'';
+      if(from.value&&to.value&&to.value<from.value){
+        to.value=from.value;
+        showToast('To Date must be on or after From Date. Adjusted to match From Date.','info',5200);
+      }
+      renderMpc();
+    }));
+    ['dashboardCoop','presenceFilter'].forEach(id=>attach(id,'change',renderMpc));
     attach('dashboardRefresh','click',async()=>{
       const result=await TIPONSync.run();
       if(!result?.ok)showToast(result?.error||'Refresh is not available right now. Check synchronization status.','error');
@@ -485,7 +502,8 @@ window.OrgUI=(()=>{
     });
     attach('dashboardResetFilters','click',()=>{
       $('dashboardCoop').value='';$('presenceFilter').value='';
-      $('dashboardFrom').value=todayPH();$('dashboardTo').value=todayPH();renderMpc();
+      $('dashboardFrom').value=todayPH();$('dashboardTo').value=todayPH();
+      $('dashboardTo').min=todayPH();renderMpc();
     });
     ['reportFrom','reportTo','reportCoop'].forEach(id=>attach(id,'change',renderReports));
     attach('refreshAccounts','click',renderAccounts);
