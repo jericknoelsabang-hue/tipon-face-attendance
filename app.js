@@ -100,7 +100,7 @@ async function showPage(page){
   document.querySelectorAll('.page').forEach(section=>section.hidden=section.id!==`page-${page}`);
   document.querySelectorAll('[data-page]').forEach(button=>button.classList.toggle('active',button.dataset.page===page));
   setText('crumbTitle',pageNames[page]);window.scrollTo({top:0,behavior:'instant'});
-  if(page==='dashboard')renderDashboard();if(page==='scanner'){renderTerminal();if(!state.scanning)startScanner();}if(page==='terminalLogs')renderTerminalLogs();if(page==='members')renderMembers();if(page==='sites'){renderSites();if(typeof renderOfficeDirectory==='function')renderOfficeDirectory();}if(page==='records')renderRecords();if(page==='settings')await checkOfflineReady();
+  if(page==='adminSites'){window.TIPONAdminSites?.render();}if(page==='dashboard')renderDashboard();if(page==='scanner'){renderTerminal();if(!state.scanning)startScanner();}if(page==='terminalLogs')renderTerminalLogs();if(page==='members')renderMembers();if(page==='sites'){renderSites();if(typeof renderOfficeDirectory==='function')renderOfficeDirectory();}if(page==='records')renderRecords();if(page==='settings')await checkOfflineReady();
 }
 function renderDashboard(){const today=todayPH();const todayPunches=state.punches.filter(e=>e.day===today&&!e.reviewStatus);const present=new Set(todayPunches.filter(e=>e.type==='IN').map(e=>e.memberId));
  setText('metricMembers',state.members.length);setText('metricPresent',present.size);setText('metricPunches',todayPunches.length);setText('metricSites',state.sites.length);
@@ -439,15 +439,14 @@ function filteredTerminalLogRows(){
 }
 function canCorrectAttendance(){const u=state.user,a=window.TIPONAuth?.current();return !!u&&!!a&&a.account?.id===u.id&&a.orgId===state.orgId&&a.offlineUntil>Date.now()&&(isAdmin()||(u.role==='registrar'&&['supervisor','member supervisor'].includes(String(u.position||'').trim().toLowerCase())));}
 function attendanceAccountLabel(row){
- const ids=row.eventIds||[],uuidPattern=/^[0-9a-f]{8}-[0-9a-f-]{27,}$/i;
- const knownAccounts=[state.user,...(state.users||[]),...(state.accounts||[])];
- const names=state.punches.filter(p=>ids.includes(p.id)).map(p=>{
-  const id=p.recordedById||p.performedBy||'';
-  const known=knownAccounts.find(u=>u&&u.id===id);
-  const label=p.recordedByUsername||known?.username||p.performedBy||'';
-  return label&&!uuidPattern.test(String(label))?String(label):'';
- }).filter(Boolean);
- return [...new Set(names)].join(' / ')||'—';
+ const ids=row.eventIds||[];
+ const idsToEvents=state.punches.filter(p=>ids.includes(p.id));
+ const knownAccounts=[state.user,...(state.users||[]),...(state.accounts||[])].filter(Boolean);
+ const usernames=idsToEvents.map(p=>{
+  const account=knownAccounts.find(u=>u.id===p.recordedById);
+  return String(p.recordedByUsername||account?.username||p.performedBy||'').trim();
+ }).filter(v=>v&&!/^[0-9a-f]{8}-[0-9a-f-]{27,}$/i.test(v));
+ return [...new Set(usernames)].join(' / ')||'Username unavailable';
 }
 function renderTerminalLogs(){
  if(!$('terminalLogRows'))return;
@@ -841,7 +840,7 @@ function bindEvents(){
 }
 
 async function boot(){
- bindEvents();OrgUI.bind();TIPONCamera.bind();TIPONPlatforms.bind();attach('refreshAppFiles','click',openAppUpdater);registerWorker().catch(console.warn);setInterval(refreshClock,30000);refreshClock();
+ bindEvents();OrgUI.bind();TIPONCamera.bind();TIPONPlatforms.bind();window.TIPONAdminSites?.bind();attach('refreshAppFiles','click',openAppUpdater);registerWorker().catch(console.warn);setInterval(refreshClock,30000);refreshClock();
  if(!window.isSecureContext||!('indexedDB' in window)||!window.crypto?.subtle){$('bootAlert').hidden=false;setText('bootAlert','Open the app using HTTPS (or localhost). Camera, GPS and offline account access need a secure browser.');return;}
  try{db=await openDB();await initializeLocal();await TIPONCamera.init();await TIPONSync.init();await TIPONAuth.init();}
  catch(err){$('bootAlert').hidden=false;setText('bootAlert',`Startup failed: ${err.message}`);console.error(err);}
