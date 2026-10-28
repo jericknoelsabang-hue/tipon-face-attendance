@@ -1,5 +1,5 @@
 {
   "app": "TIPON Face Attendance",
-  "version": "5.5.13",
-  "label": "Reference workers restored to login; address search now fills GPS/map preview using permitted Leaflet CDN with OSM iframe fallback; existing enrolled faces cannot be reused under different local Member IDs."
+  "version": "5.5.14",
+  "label": "Original Picture 2 desktop login panel restored at native 996x917 resolution, with guided member enrollment for User-scoped Work Locations (refresh, create and return to draft), plus address-to-GPS lookup for User site setup."
 }
