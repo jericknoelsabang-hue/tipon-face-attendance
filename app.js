@@ -624,14 +624,47 @@ function blinkRatio(face){
  const l=eyeAspectRatio(p,[36,37,38,39,40,41]),r=eyeAspectRatio(p,[42,43,44,45,46,47]);
  return l==null||r==null?null:(l+r)/2;
 }
+// The previous fixed .17/.22 rule often missed normal (<300ms) blinks on
+// slower computers. Calibrate per face and sample quickly without removing the
+// live blink requirement. This is a basic liveness check, not spoof-proof.
+function advanceEnrollmentBlink(ratio,now=Date.now()){
+ if(!Number.isFinite(ratio)||ratio<0.07||ratio>0.60)
+  return 'Eye landmarks unclear. Move closer and face the camera in good lighting.';
+ const sample=state.enrollBlinkOpen||0;
+ if(!state.enrollBlinkClosed){
+  if(ratio>=0.115&&ratio<=0.48){
+   state.enrollBlinkOpen=Math.max(sample*0.995,ratio);
+   state.enrollBlinkBaselineFrames=(state.enrollBlinkBaselineFrames||0)+1;
+  }
+  if((state.enrollBlinkBaselineFrames||0)<2)
+   return 'Keep both eyes open and centered briefly to calibrate blink detection.';
+  const baseline=state.enrollBlinkOpen;
+  if(ratio<Math.max(0.085,baseline*0.73)&&ratio<baseline*0.82){
+   state.enrollBlinkClosed=true;state.enrollBlinkClosedAt=now;
+   return 'Closed eyes detected. Open your eyes to confirm the live blink.';
+  }
+  return 'Face detected. Close BOTH eyes for one second, then open them.';
+ }
+ const elapsed=now-(state.enrollBlinkClosedAt||now);
+ if(elapsed>4500){
+  state.enrollBlinkClosed=false;
+  return 'Blink timed out. Keep your face centered and blink slowly again.';
+ }
+ const open=state.enrollBlinkOpen||0.23;
+ if(elapsed>80&&ratio>Math.max(0.115,open*0.85)){
+  state.enrollBlinkSeen=true;
+  return 'Live blink verified. Turn slightly left and right for three face samples.';
+ }
+ return 'Keep opening your eyes until the live blink check is confirmed.';
+}
 async function beginEnrollment(){
  if(!canEdit())return;
  if(!$('memberName').value.trim()||!$('memberId').value.trim()){showToast('Enter member ID and full name before enrolling the face.','error');return;}
  // Clicking Enroll face is the explicit acknowledgement shown beside the approved biometric privacy notice.
  state.consentAcknowledgedAt=state.editMember?.consentAt||new Date().toISOString();
- if($('memberDialog').open)$('memberDialog').close();if(!$('enrollDialog').open)$('enrollDialog').showModal();state.enrollActive=true;state.enrollCollected=[];state.enrollBlinkClosed=false;state.enrollBlinkSeen=false;
+ if($('memberDialog').open)$('memberDialog').close();if(!$('enrollDialog').open)$('enrollDialog').showModal();state.enrollActive=true;state.enrollCollected=[];state.enrollBlinkClosed=false;state.enrollBlinkSeen=false;state.enrollBlinkOpen=0;state.enrollBlinkBaselineFrames=0;state.enrollBlinkClosedAt=0;
  const run=(state.enrollRun||0)+1;state.enrollRun=run;TIPONCamera.render();
- setText('enrollCount','0 / 3 samples');setText('enrollStatus','Preparing camera and live blink check…');$('enrollProgress').style.width='0%';$('retryEnrollment').hidden=true;
+ setText('enrollCount','0 / 3 samples');setText('enrollStatus','Preparing live detection. Face the camera, keep both eyes open briefly, then blink slowly (close for one second and reopen).');$('enrollProgress').style.width='0%';$('retryEnrollment').hidden=true;
  try{await loadFaceModels();if(!state.enrollActive||state.enrollRun!==run)return;
   const stream=await getCameraStream('enroll');if(!state.enrollActive||state.enrollRun!==run||document.hidden){stream.getTracks().forEach(t=>t.stop());return;}state.enrollStream=stream;const v=$('enrollVideo');v.srcObject=stream;await v.play();enrollTick();
  }catch(err){setText('enrollStatus',err.message);$('retryEnrollment').hidden=false;toastError(err,'Enrollment camera');}
@@ -644,17 +677,14 @@ async function enrollTick(){if(!state.enrollActive)return;const run=state.enroll
    else{
      const ratio=blinkRatio(faces[0]);
      if(!state.enrollBlinkSeen){
-       if(ratio==null){setText('enrollStatus','Keep one face centered so the live blink check can read both eyes.');}
-       else if(ratio<.17){state.enrollBlinkClosed=true;setText('enrollStatus','Blink detected. Open your eyes to complete the live check.');}
-       else if(state.enrollBlinkClosed&&ratio>.22){state.enrollBlinkSeen=true;setText('enrollStatus','Live check passed. Turn slightly left for sample 1.');}
-       else setText('enrollStatus','Blink once to verify a live face before enrollment.');
+       setText('enrollStatus',advanceEnrollmentBlink(ratio));
      }else{
        const descriptor=Array.from(faces[0].descriptor),match=nearestMember(descriptor);
        if(match.best&&match.best.member.id!==state.editMember?.id&&match.best.distance<.40){
          setText('enrollStatus',`Face may already belong to ${match.best.member.name}. Enrollment blocked.`);$('retryEnrollment').hidden=false;await stopEnrollment(true);return;
        }
        const previous=state.enrollCollected.at(-1);
-       if(previous&&euclidean(previous,descriptor)<.035){
+       if(previous&&euclidean(previous,descriptor)<.023){
          setText('enrollStatus',state.enrollCollected.length===1?'Turn slightly left for a distinct sample.':'Turn slightly right for a distinct sample.');
        }else{
          state.enrollCollected.push(descriptor);playTerminalSound('success');setText('enrollCount',`${state.enrollCollected.length} / 3 samples`);
@@ -669,7 +699,7 @@ async function enrollTick(){if(!state.enrollActive)return;const run=state.enroll
    }
   }
  }catch(err){setText('enrollStatus',`Recognition error: ${err.message}`);$('retryEnrollment').hidden=false;}
- if(state.enrollActive&&state.enrollRun===run)state.enrollTimer=setTimeout(enrollTick,500);
+ if(state.enrollActive&&state.enrollRun===run)state.enrollTimer=setTimeout(enrollTick,state.enrollBlinkSeen?220:90);
 }
 async function stopEnrollment(keepOpen=false){state.enrollRun=(state.enrollRun||0)+1;state.enrollActive=false;if(state.enrollTimer){clearTimeout(state.enrollTimer);state.enrollTimer=null;}const v=$('enrollVideo');v.pause();v.srcObject=null;if(state.enrollStream){state.enrollStream.getTracks().forEach(x=>x.stop());state.enrollStream=null;}if(!keepOpen&&$('enrollDialog').open)$('enrollDialog').close();}
 async function finishEnrollment(cancel){await stopEnrollment();if(cancel)showToast('Face enrollment canceled. Previous samples, if any, were retained.');if(!$('memberDialog').open)$('memberDialog').showModal();}
