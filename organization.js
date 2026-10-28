@@ -21,7 +21,8 @@ window.OrgDB=(()=>{
     if(old?._pendingOp){existingOp=await getOne('outbox',old._pendingOp);if(existingOp?.everSent)throw Error('This record is waiting for server acknowledgement. Sync before editing it again.');opId=old._pendingOp;}
     const value={...old,...input,orgId:state.orgId,createdBy:old?.createdBy||u.id,updatedAt:new Date().toISOString(),rev:Number(old?.rev)||0};
     if(type==='sites'){
-      value.platform=$('siteDialog')?.open?$('sitePlatform').value.trim():(value.platform||'');
+      // Each saved Work Location carries its own approved MPC / Business Platform pair.
+      value.platform=String(value.platform||($('siteDialog')?.open?$('sitePlatform').value:'')).trim();
       if($('siteDialog')?.open)value.schedule=OrgUI.readSiteSchedule();
     }
     if(type==='members'){
@@ -33,7 +34,7 @@ window.OrgDB=(()=>{
     }
     if(value.deleted&&!(isAdmin()||u.role==='registrar'&&(type==='members'&&old?.createdBy===u.id||type==='sites'&&old&&TIPONOrgCore.inScope(u,old))))throw Error('Only the administrator or record creator can delete this record.');
     if(type==='members'||type==='sites'){delete value.officeId;delete value.satelliteOffice;}
-    const wire={...value};delete wire._pendingOp;delete wire._row;
+    const wire={...value};delete wire._pendingOp;delete wire._row;delete wire.syncIssue;
     if(type==='members'){
       const hasFace=Array.isArray(value.descriptors)&&value.descriptors.length>=3;
       if(!hasFace&&!(isAdmin()&&value.importedWithoutFace===true&&!old?.template))throw Error('Three facial samples are required.');
@@ -188,6 +189,7 @@ openSiteForm=function(site){
   $('siteCoop').disabled=user;$('sitePlatform').disabled=user;
   $('siteCoop').value=user?state.user.coop:site?.coop||'';
   if(!site&&!user)$('siteCoop').value='';
+  window.TIPONSiteScopes?.reset(site,isAdmin());
   // Schedule controls were removed from this form. Existing schedules
   // remain stored and are preserved whenever worksite metadata is edited.
   $('siteUseGps').hidden=isAdmin();

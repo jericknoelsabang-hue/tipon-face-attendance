@@ -31,7 +31,9 @@ window.TIPONAdminSites=(()=>{
       const coords=Number.isFinite(lat)&&Number.isFinite(lng)
         ?lat.toFixed(6)+', '+lng.toFixed(6):'Not configured';
       return '<tr>'+
-        '<td><b>'+esc(site.name||'—')+'</b></td>'+
+        '<td><b>'+esc(site.name||'—')+'</b>'+(site._pendingOp?
+          '<small class="mini-info" style="display:block;color:'+(site.syncIssue?'#ba7520':'#58749b')+'" title="'+esc(site.syncIssue||'Automatic sync will retry')+'">'+
+          (site.syncIssue?'Needs Review':'Syncing…')+'</small>':'')+'</td>'+
         '<td>'+esc(site.coop||'—')+'</td><td>'+esc(site.platform||'—')+'</td>'+
         '<td>'+esc(site.address||'—')+'</td><td><small>'+esc(coords)+'</small></td>'+
         '<td><div class="site-actions">'+
@@ -98,7 +100,7 @@ window.TIPONAdminSites=(()=>{
     if(zoom)map.setView([lat,lng],Math.max(map.getZoom(),15));
   }
   function setCoordinates(lat,lng,zoom=false){
-    if(!available()||!Number.isFinite(Number(lat))||!Number.isFinite(Number(lng))||Math.abs(lat)>90||Math.abs(lng)>180)return;
+    if(!(available()||canEdit())||!Number.isFinite(Number(lat))||!Number.isFinite(Number(lng))||Math.abs(lat)>90||Math.abs(lng)>180)return;
     field('siteLat').value=Number(lat).toFixed(7);
     field('siteLng').value=Number(lng).toFixed(7);
     setPin(Number(lat),Number(lng),{zoom});
@@ -107,7 +109,7 @@ window.TIPONAdminSites=(()=>{
     setText('fullMapCoordinates',Number(lat).toFixed(7)+', '+Number(lng).toFixed(7));
   }
   function syncFromInputs(){
-    if(!available()||!field('siteDialog')?.open)return;
+    if(!(available()||canEdit())||!field('siteDialog')?.open)return;
     const point=selectedCoordinates();
     if(point)setPin(point.lat,point.lng);
   }
@@ -148,59 +150,101 @@ window.TIPONAdminSites=(()=>{
       if(hasPoint)updateSiteMap();
     }
   }
-  async function findPlace(){
-    if(!available()||!field('siteDialog')?.open)return;
-    const q=field('siteAddress').value.trim();
-    if(q.length<3){setText('adminSiteMapHint','Enter a complete address or recognizable landmark in Address / Site Description, then select Find on Map.');field('siteAddress').focus();return;}
-    if(!navigator.onLine){setText('adminSiteMapHint','Internet is needed to search the address. Exact GPS coordinates can still be entered manually.');return;}
-    if(Date.now()-lastSearch<1100){setText('adminSiteMapHint','Search requests are limited. Try again shortly.');return;}
-    lastSearch=Date.now();const button=field('adminSitePlaceFind');button.disabled=true;
-    setText('adminSiteMapHint','Searching for the address: '+q+'…');
-    try{
-      const response=await fetch('https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=ph&q='+encodeURIComponent(q),
-       {method:'GET',headers:{Accept:'application/json'}});
-      if(!response.ok)throw Error('Location search unavailable (HTTP '+response.status+').');
-      const hits=await response.json();
-      if(!Array.isArray(hits)||!hits.length)throw Error('No matching Philippine location was found. Zoom and choose a point manually.');
-      const {lat,lon,display_name}=hits[0];
-      setCoordinates(Number(lat),Number(lon),true);
-      if(!map)await openMap();
-      setText('adminSiteMapHint','Found '+String(display_name).slice(0,180)+'. Latitude and Longitude are filled. Check the map preview, adjust if necessary, and Save Location.');
-      showToast('Address located. GPS coordinates have been filled.','success');
-    }catch(error){setText('adminSiteMapHint',error.message);showToast(error.message,'error');}
-    finally{button.disabled=false;}
+  // Photon supports autocomplete; the public Nominatim instance explicitly
+  // prohibits client-side autocomplete. Throttle and cache Photon requests.
+  const PHOTON_ENDPOINT='https://photon.komoot.io/api/';
+  const placeCache=new Map();
+  let placeController=null;
+  const canSearchPlaces=()=>!!field('siteDialog')?.open&&(available()||canEdit());
+  const pause=ms=>new Promise(resolve=>setTimeout(resolve,ms));
+  function describePlace(p){
+    const street=[p.housenumber,p.street].filter(Boolean).join(' ');
+    const fields=[p.name,street,p.district,p.city,p.county,p.state,p.country];
+    const seen=new Set();
+    return fields.filter(x=>{const k=String(x||'').trim().toLowerCase();if(!k||seen.has(k))return false;seen.add(k);return true;}).join(', ');
   }
-  function closeSuggestions(){const box=field('siteAddressSuggestions');if(box){box.hidden=true;box.replaceChildren();}}
+  async function queryPlaces(query,limit=5,signal){
+    const key=query.trim().toLowerCase(),found=placeCache.get(key);
+    if(found&&Date.now()-found.time<240000)return found.items.slice(0,limit);
+    const delay=Math.max(0,1300-(Date.now()-lastSearch));
+    if(delay)await pause(delay);
+    if(signal?.aborted)return [];
+    const url=PHOTON_ENDPOINT+'?q='+encodeURIComponent(query.trim())+'&countrycode=PH&limit='+Math.max(1,Math.min(5,limit))+'&lang=en';
+    lastSearch=Date.now();
+    const response=await fetch(url,{method:'GET',signal,headers:{Accept:'application/json'}});
+    if(!response.ok)throw Error('Address suggestions are temporarily unavailable (HTTP '+response.status+').');
+    const data=await response.json(),unique=new Set(),items=[];
+    for(const feature of data.features||[]){
+      const coords=feature.geometry?.coordinates||[],lat=Number(coords[1]),lon=Number(coords[0]);
+      const label=describePlace(feature.properties||{});
+      if(!label||!Number.isFinite(lat)||!Number.isFinite(lon)||lat<4||lat>22||lon<116||lon>128)continue;
+      const id=lat.toFixed(5)+'|'+lon.toFixed(5)+'|'+label.toLowerCase();
+      if(unique.has(id))continue;unique.add(id);
+      items.push({lat,lon,display_name:label});
+    }
+    placeCache.set(key,{time:Date.now(),items});
+    if(placeCache.size>40)placeCache.delete(placeCache.keys().next().value);
+    return items.slice(0,limit);
+  }
+  function closeSuggestions(){
+    const box=field('siteAddressSuggestions');
+    if(box){box.hidden=true;box.replaceChildren();}
+  }
+  function pickPlace(item){
+    const address=field('siteAddress');
+    if(address)address.value=item.display_name;
+    closeSuggestions();
+    setCoordinates(Number(item.lat),Number(item.lon),true);
+    if(available()&&!map)void openMap();
+    setText('adminSiteMapHint','Address selected. Verify the map pin and GPS coordinates before saving.');
+  }
   function showSuggestions(items){
     const box=field('siteAddressSuggestions');if(!box)return;
     box.replaceChildren();
     for(const item of items){
-      const button=document.createElement('button');button.type='button';button.className='site-address-suggestion';
+      const button=document.createElement('button');
+      button.type='button';button.className='site-address-suggestion';button.setAttribute('role','option');
       button.textContent=String(item.display_name||'').slice(0,220);
-      button.addEventListener('click',async()=>{
-        field('siteAddress').value=item.display_name||'';closeSuggestions();
-        setCoordinates(Number(item.lat),Number(item.lon),true);
-        if(!map)await openMap();
-        setText('adminSiteMapHint','Location selected. Confirm the pin and save the work location.');
-      });
+      button.addEventListener('click',()=>pickPlace(item));
       box.append(button);
     }
     box.hidden=!items.length;
   }
   function suggestPlaces(){
-    clearTimeout(suggestTimer);const query=field('siteAddress').value.trim(),seq=++suggestSeq;
-    if(!available()||query.length<3||!navigator.onLine){closeSuggestions();return;}
+    clearTimeout(suggestTimer);placeController?.abort();placeController=null;
+    const query=field('siteAddress')?.value.trim()||'',seq=++suggestSeq;
+    if(!canSearchPlaces()||query.length<3||!navigator.onLine){closeSuggestions();return;}
     suggestTimer=setTimeout(async()=>{
+      if(seq!==suggestSeq||!canSearchPlaces())return;
+      const controller=new AbortController();placeController=controller;
       try{
-        if(Date.now()-lastSearch<1100){suggestPlaces();return;}
-        lastSearch=Date.now();
-        const url='https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&limit=5&countrycodes=ph&q='+encodeURIComponent(query);
-        const response=await fetch(url,{headers:{Accept:'application/json'}});
-        if(!response.ok)throw Error('Place suggestions are temporarily unavailable.');
-        const hits=await response.json();if(seq!==suggestSeq)return;
-        showSuggestions(Array.isArray(hits)?hits:[]);
-      }catch{if(seq===suggestSeq)closeSuggestions();}
-    },1100);
+        const hits=await queryPlaces(query,5,controller.signal);
+        if(seq!==suggestSeq||controller.signal.aborted)return;
+        showSuggestions(hits);
+      }catch(error){
+        if(seq===suggestSeq&&error?.name!=='AbortError')closeSuggestions();
+      }
+    },650);
+  }
+  async function findPlace(){
+    if(!canSearchPlaces())return;
+    const q=field('siteAddress')?.value.trim()||'';
+    if(q.length<3){setText('adminSiteMapHint','Enter at least three characters in Address / Site Description.');field('siteAddress')?.focus();return;}
+    if(!navigator.onLine){setText('adminSiteMapHint','Connect to the internet to search an address, or enter GPS coordinates manually.');return;}
+    clearTimeout(suggestTimer);placeController?.abort();placeController=null;
+    const seq=++suggestSeq,button=field('adminSitePlaceFind');if(button)button.disabled=true;
+    setText('adminSiteMapHint','Searching for '+q+'...');
+    try{
+      const hits=await queryPlaces(q,5);
+      if(seq!==suggestSeq)return;
+      if(!hits.length){setText('adminSiteMapHint','No exact place found. Add the city or barangay to your search, or choose a pin manually.');return;}
+      pickPlace(hits[0]);
+      if(available()&&!map)await openMap();
+      showToast('Location found. Latitude and Longitude have been filled.','success',5000);
+    }catch(error){
+      setText('adminSiteMapHint','Address service unavailable. Select a point on the map or enter GPS coordinates.');
+      showToast('Address search is unavailable. You can still select a GPS point manually.','info');
+    }finally{if(button)button.disabled=false;}
   }
   function restoreMapCanvas(){
     const canvas=field('adminMapCanvas'),preview=field('siteMapPreview');

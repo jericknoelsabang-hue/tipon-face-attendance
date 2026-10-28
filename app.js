@@ -361,76 +361,97 @@ function updateSiteMap(){
 async function saveSiteForm(e){
  e.preventDefault();
  if(!canEdit()&&!isAdmin())return;
- const latValue=$('siteLat').value.trim(),lngValue=$('siteLng').value.trim();
- const lat=Number(latValue),lng=Number(lngValue),radius=Number($('siteRadius').value);
- const coop=$('siteCoop').value,platform=$('sitePlatform').value.trim(),name=$('siteName').value.trim();
- if(!latValue||!lngValue||!Number.isFinite(lat)||!Number.isFinite(lng)||!Number.isFinite(radius)||
-   Math.abs(lat)>90||Math.abs(lng)>180||radius<GPS_MIN_RADIUS||radius>2000){
-  showToast('Select a work location on the map or enter valid latitude and longitude.','error');return;
+ const admin=isAdmin(),previous=state.editSite;
+ const name=$('siteName').value.trim(),address=$('siteAddress').value.trim();
+ const latText=$('siteLat').value.trim(),lngText=$('siteLng').value.trim();
+ const lat=Number(latText),lng=Number(lngText),radius=Number($('siteRadius').value);
+ if(!name||!latText||!lngText||!Number.isFinite(lat)||!Number.isFinite(lng)||
+    Math.abs(lat)>90||Math.abs(lng)>180||!Number.isFinite(radius)||radius<GPS_MIN_RADIUS||radius>2000){
+  showToast('Enter a Work Location Name and select valid GPS coordinates.','error');return;
  }
- if(!name||!TIPONOrgCore.COOPS.includes(coop)||!platform){
-  showToast('Enter Location name and select a listed Cooperative and Business Platform.','error');return;
+ let pairs;
+ try{pairs=window.TIPONSiteScopes?.pairs(previous)||[{coop:$('siteCoop').value,platform:$('sitePlatform').value.trim()}];}
+ catch(error){showToast(error.message,'error',8500);return;}
+ const validPlatforms=new Set(TIPONOrgCore.platformNames(TIPONPlatforms.names()).map(TIPONOrgCore.platformKey));
+ const valid=pairs.length&&pairs.every(p=>TIPONOrgCore.COOPS.includes(p.coop)&&validPlatforms.has(TIPONOrgCore.platformKey(p.platform))&&TIPONOrgCore.inScope(state.user,p));
+ if(!valid){showToast('Select approved Cooperatives and Business Platforms.','error');return;}
+ if(admin&&!navigator.onLine){showToast('Connect to the internet to centrally register Work Locations.','error');return;}
+ const gpsChanged=!!previous&&(Number(previous.lat)!==lat||Number(previous.lng)!==lng||Number(previous.radius)!==radius);
+ if(previous&&gpsChanged){
+  const open=TIPONOrgCore.project(state.punches.filter(p=>!p.reviewStatus)).filter(p=>p.siteId===previous.id&&p.timeIn&&!p.timeOut);
+  if(open.length){showToast('Complete Time Out before changing the existing location geofence.','error',9000);return;}
  }
- if(!TIPONOrgCore.platformNames(TIPONPlatforms.names()).some(p=>TIPONOrgCore.platformKey(p)===TIPONOrgCore.platformKey(platform))){
-  showToast('Choose a registered Business Platform.','error');return;
- }
- const previous=state.editSite,changingScope=!!previous&&(
-   previous.coop!==coop||TIPONOrgCore.platformKey(previous.platform)!==TIPONOrgCore.platformKey(platform));
- const movingGPS=!!previous&&(Number(previous.lat)!==lat||Number(previous.lng)!==lng||Number(previous.radius)!==radius);
- const geofenceChanged=changingScope||movingGPS;
- if(previous&&geofenceChanged){
-  const inProgress=TIPONOrgCore.project(state.punches.filter(p=>!p.reviewStatus)).filter(p=>
-   p.siteId===previous.id&&p.timeIn&&!p.timeOut);
-  if(inProgress.length){
-   const memberNames=[...new Set(inProgress.map(p=>p.memberName||p.memberId))].slice(0,3).join(', ');
-   showToast('Complete Time Out before moving this geofence or changing MPC/BP. Open session: '+memberNames+'. You can edit its name or description without changing GPS.','error',10000);
-   return;
+ const normalized=value=>String(value||'').trim().normalize('NFKC').replace(/\s+/g,' ').toLowerCase();
+ const samePair=(site,p)=>site.coop===p.coop&&TIPONOrgCore.platformKey(site.platform)===TIPONOrgCore.platformKey(p.platform);
+ // Existing site retains its MPC/BP ID and history. Other selected pairs
+ // receive independent site IDs because the central schema is scoped to one pair.
+ const proposals=[],seenIds=new Set(),existingInSync=[];
+ for(const pair of pairs){
+  const current=previous&&samePair(previous,pair)?previous:null;
+  const duplicate=state.sites.find(s=>s.id!==current?.id&&!s.deleted&&samePair(s,pair)&&normalized(s.name)===normalized(name));
+  if(duplicate){
+   const identical=Math.abs(Number(duplicate.lat)-lat)<.0000001&&Math.abs(Number(duplicate.lng)-lng)<.0000001&&
+     Number(duplicate.radius||150)===radius&&normalized(duplicate.address)===normalized(address);
+   if(!identical){showToast('A Work Location named "'+name+'" already exists for '+pair.coop+' / '+pair.platform+'. Edit it instead of creating a duplicate.','error',9500);return;}
+   if(duplicate._pendingOp)existingInSync.push(duplicate.id);
+   continue;
   }
-  if(changingScope&&state.members.some(m=>!m.deleted&&(m.siteId===previous.id||m.siteIds?.includes(previous.id)))){
-   showToast('Reassign members before changing this work location MPC/BP. GPS and attendance history remain unchanged.','error',8500);
-   return;
-  }
+  const site={id:current?.id||uuid(),name,coop:pair.coop,platform:pair.platform,address,
+    lat,lng,radius,createdAt:current?.createdAt||new Date().toISOString()};
+  if(current&&current.name===name&&normalized(current.address)===normalized(address)&&!gpsChanged)continue;
+  proposals.push(site);seenIds.add(site.id);
  }
- const site={
-  id:previous?.id||uuid(),name,coop,platform,address:$('siteAddress').value.trim(),
-  lat,lng,radius,createdAt:previous?.createdAt||new Date().toISOString()
- };
- if(previous&&!geofenceChanged&&name===previous.name&&
-    site.address===(previous.address||'')&&
-    JSON.stringify(OrgUI.readSiteSchedule())===JSON.stringify(previous.schedule||OrgUI.readSiteSchedule())){
-  $('siteDialog').close();showToast('No work-location changes to save.','info');return;
+ if(!proposals.length&&!existingInSync.length){
+  $('siteDialog').close();showToast('The selected Work Locations already exist with these details.','info');return;
  }
+ // Validate every intended pair before writes; do not stage a partial invalid group.
  const submit=$('siteForm').querySelector('[type="submit"],.dialog-actions .btn.primary');
  if(submit)submit.disabled=true;
+ const staged=[],allIds=[...existingInSync];let syncResult=null;
  try{
-  const admin=isAdmin();
-  if(admin){
-   if(!navigator.onLine)throw Error('Administrator Work Location changes require an online session.');
-   const health=await TIPONAPI.raw({action:'health'});
-   if(!health||health.ok===false)throw Error('The central organization backend is not ready. No changes were staged.');
+  for(const site of proposals){
+   await saveOne('sites',site);
+   staged.push(site.id);allIds.push(site.id);
   }
-  await saveOne('sites',site);
   await loadCollections();
-  if(admin){
-   // Do not report success until the server acknowledges this specific site.
-   const result=await TIPONSync.submitPendingNow();
-   const stored=await getOne('sites',site.id);
-   const pending=stored?._pendingOp?await getOne('outbox',stored._pendingOp):null;
-   if(!stored||stored._pendingOp){
-    $('siteDialog').close();renderSites();window.TIPONAdminSites?.render();
-    const reason=pending?.error||result?.error||'Central server has not acknowledged this location.';
-    TIPONSync.kick();
-    showToast('Work location saved. Automatic sync will retry when the central connection is ready. '+reason,'info',11000);
-    return;
-   }
+  if(!admin){
+   $('siteDialog').close();renderSites();TIPONSync.kick();
+   showToast('Work Location saved on this device. Automatic central synchronization is enabled.','success',6500);
+   return;
   }
-  $('siteDialog').close();renderSites();
-  if(admin)window.TIPONAdminSites?.render();
-  renderDashboard();
-  if(admin)showToast('Work Location saved and confirmed by the central organization database.','success',7000);
-  else{TIPONSync.kick();showToast('Work Location saved locally and queued for central synchronization.','success',6500);}
- }catch(err){toastError(err,'Could not save work location');}
- finally{if(submit)submit.disabled=false;}
+  // Sending more than one scoped site may require several server batches.
+  // Verify each ID after every pass; a generic "sync ok" is never proof.
+  let outstanding=allIds.slice();
+  for(let attempt=0;attempt<Math.ceil(allIds.length/3)+2&&outstanding.length;attempt++){
+   syncResult=await TIPONSync.submitPendingNow();
+   outstanding=(await Promise.all(allIds.map(async id=>{
+     const site=await getOne('sites',id);
+     return site?._pendingOp?id:null;
+   }))).filter(Boolean);
+   if(!syncResult?.ok)break;
+  }
+  await loadCollections();
+  $('siteDialog').close();renderSites();window.TIPONAdminSites?.render();renderDashboard();
+  const confirmed=allIds.length-outstanding.length;
+  if(!outstanding.length){
+   showToast(confirmed+' Work Location'+(confirmed===1?'':'s')+' confirmed in the central database.','success',7000);
+  }else{
+   const failed=await Promise.all(outstanding.map(async id=>{
+     const site=await getOne('sites',id);return site?._pendingOp?await getOne('outbox',site._pendingOp):null;
+   }));
+   const needsReview=failed.some(op=>op?.errorCode==='NEEDS_REVIEW'||op?.errorCode==='FORBIDDEN'||op?.errorCode==='CONFLICT');
+   const info=needsReview?'Some records need authorized review.': 'Automatic sync remains active for unconfirmed records.';
+   // Compact and non-alarming; never paste unrelated server rejection text
+   // (for example, an invalid Admin member edit) into the Work Location toast.
+   showToast(confirmed+' of '+allIds.length+' Work Locations centrally confirmed. '+info,'info',9000);
+  }
+ }catch(error){
+  await loadCollections().catch(()=>{});
+  renderSites();if(admin)window.TIPONAdminSites?.render();
+  const count=staged.length;
+  if(count)showToast(count+' Work Location change'+(count===1?' was':'s were')+' stored locally; central confirmation is not complete. Open Settings & Offline for sync details.','info',9500);
+  else toastError(error,'Could not save Work Location');
+ }finally{if(submit)submit.disabled=false;}
 }
 async function handleSiteCardsClick(e){const edit=e.target.closest('[data-site-edit]');const del=e.target.closest('[data-site-delete]');if(edit){const site=state.sites.find(s=>s.id===edit.dataset.siteEdit);if(site)openSiteForm(site);}
  if(del){const site=state.sites.find(s=>s.id===del.dataset.siteDelete);if(!site)return;if(state.members.some(m=>m.siteId===site.id||(m.siteIds||[]).includes(site.id))){showToast('Reassign or delete enrolled members before deleting their site.','error');return;}const ok=await confirmAction('Delete work location',`Delete ${site.name}? This change will sync to your organization.`);if(ok){await deleteOne('sites',site.id);await loadCollections();renderSites();showToast('Location removed.','success');}}}

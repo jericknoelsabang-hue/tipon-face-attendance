@@ -1,5 +1,5 @@
 {
   "app": "TIPON Face Attendance",
-  "version": "5.5.16",
-  "label": "Serialized Admin site saves, Absenteeism Dashboard with 14-day trends and flagged No Time In, faster login and workspace setup, scheduled live polling; no changes to biometric security."
+  "version": "5.5.17",
+  "label": "Work location automatic sync cleanup, admin multiple MPC/BP selection stored as separate scoped records, Photon address-as-you-type suggestions, clearer server error feedback and queued site acknowledgement reconciliation."
 }
