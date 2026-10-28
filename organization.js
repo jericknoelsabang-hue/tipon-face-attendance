@@ -287,17 +287,21 @@ window.OrgUI=(()=>{
     const coops=[...new Set([...TIPONOrgCore.COOPS,...all.map(m=>m.coop).filter(Boolean)])];
     $('coopDashboardCards').innerHTML=coops.map(coop=>'<article class="coop-summary" data-coop="'+esc(coop)+'"><span class="coop-monogram" aria-hidden="true">'+esc(coop.split(' ').map(w=>w[0]).join('').slice(0,3))+'</span><h3>'+esc(coop)+'</h3><strong>'+all.filter(m=>m.coop===coop).length+'</strong><small>Registered members</small></article>').join('');
     const members=filteredMembers().filter(m=>!m.deleted&&m.active!==false);
-    const events=state.punches.filter(p=>{
-      if(p.reviewStatus||p.deleted||!p.timestamp)return false;
-      const punchDay=TIPONCore.phStamp(p.timestamp).slice(0,10);
-      return punchDay>=from&&punchDay<=to;
-    });
+    const events=state.punches.filter(p=>!p.reviewStatus&&!p.deleted&&p.timestamp);
+    const punchDay=p=>TIPONCore.phStamp(p.timestamp).slice(0,10);
     const tally=items=>{
       let timedIn=0,timedOut=0,complete=0,missing=0;
       for(const m of items){
         const punches=events.filter(p=>String(p.memberId)===String(m.id)&&(!p.coop||p.coop===m.coop));
-        const i=punches.some(p=>p.type==='IN'),out=punches.some(p=>p.type==='OUT');
-        if(i)timedIn++;if(out)timedOut++;if(i&&out)complete++;if(!i&&!out)missing++;
+        const ins=punches.filter(p=>p.type==='IN'&&punchDay(p)>=from&&punchDay(p)<=to);
+        // Attribute overnight Time Out to its original Time In session.
+        const outs=punches.filter(p=>p.type==='OUT'&&
+          (punchDay(p)>=from&&punchDay(p)<=to||
+           ins.some(i=>String(p.sessionId||'')===String(i.sessionId||i.id))));
+        const paired=ins.some(i=>outs.some(o=>String(o.sessionId||'')===String(i.sessionId||i.id)&&
+          Date.parse(o.timestamp)>=Date.parse(i.timestamp)));
+        if(ins.length)timedIn++;if(outs.length)timedOut++;if(paired)complete++;
+        if(!ins.length&&!outs.length)missing++;
       }
       return {members:items.length,timedIn,timedOut,complete,missing};
     };
