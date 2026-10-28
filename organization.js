@@ -167,7 +167,14 @@ showPage=async function(page){
   if(!TIPONOrgCore.allowed(state.user,page)||(page==='scanner'&&!hasTerminalSession())){showToast('Your account does not have permission for that screen.','error');return;}
   await originalShowPage(page);applyRoles();
   if(state.user)await OrgDB.rawSave('meta',{id:'tp5-last-page:'+state.user.id,page});
-  if(page==='accounts')await OrgUI.renderAccounts();if(page==='adminSites')window.TIPONAdminSites?.render();if(page==='settings')OrgUI.renderSettings();if(page==='scanner')TIPONCamera.render();if(page==='terminalLogs')renderTerminalLogs();
+  if(page==='accounts')await OrgUI.renderAccounts();
+  if(page==='adminSites'){
+    window.TIPONAdminSites?.render();
+    // Fetch the authoritative platform directory when opening the Admin panel.
+    // A temporary network issue must not block the Work Location list.
+    void TIPONPlatforms.refresh().catch(error=>console.warn('Business Platform directory refresh:',error.message||error));
+  }
+  if(page==='settings')OrgUI.renderSettings();if(page==='scanner')TIPONCamera.render();if(page==='terminalLogs')renderTerminalLogs();
 };
 const originalOpenMember=openMemberForm,originalOpenSite=openSiteForm;
 openMemberForm=function(member){

@@ -17,6 +17,8 @@ window.TIPONAdminSites=(()=>{
     return Number.isFinite(lat)&&Number.isFinite(lng)&&Math.abs(lat)<=90&&Math.abs(lng)<=180
       ?{lat,lng}:null;
   }
+  const PAGE_SIZE=10;
+  let sitePage=1;
   function render(){
     if(!available())return;
     const query=(field('adminSiteSearch')?.value||'').trim().toLowerCase();
@@ -25,8 +27,16 @@ window.TIPONAdminSites=(()=>{
         .join(' ').toLowerCase().includes(query))
       .sort((a,b)=>String(a.coop||'').localeCompare(String(b.coop||''))||
         String(a.name||'').localeCompare(String(b.name||'')));
-    setText('adminSiteCount',data.length+' work location'+(data.length===1?'':'s'));
-    field('adminSiteRows').innerHTML=data.length?data.map(site=>{
+    const total=data.length,pages=Math.max(1,Math.ceil(total/PAGE_SIZE));
+    sitePage=Math.max(1,Math.min(sitePage,pages));
+    const first=(sitePage-1)*PAGE_SIZE;
+    const page=data.slice(first,first+PAGE_SIZE);
+    setText('adminSiteCount',total+' work location'+(total===1?'':'s'));
+    setText('adminSitePageCount',total?'Showing '+(first+1)+'–'+(first+page.length)+' of '+total+' work locations':'0 work locations');
+    setText('adminSitePage','Page '+sitePage+' of '+pages);
+    field('adminSitePrev').disabled=sitePage<=1;
+    field('adminSiteNext').disabled=sitePage>=pages;
+    field('adminSiteRows').innerHTML=page.length?page.map(site=>{
       const lat=Number(site.lat),lng=Number(site.lng);
       const coords=Number.isFinite(lat)&&Number.isFinite(lng)
         ?lat.toFixed(6)+', '+lng.toFixed(6):'Not configured';
@@ -40,7 +50,11 @@ window.TIPONAdminSites=(()=>{
         '<button type="button" class="tiny-button" data-admin-site-edit="'+esc(site.id)+'">Edit</button> '+
         '<button type="button" class="tiny-button delete" data-admin-site-delete="'+esc(site.id)+'">Delete</button>'+
         '</div></td></tr>';
-    }).join(''):'<tr><td colspan="6"><div class="empty-state">No matching work locations. Select Add work location to register a new GPS site.</div></td></tr>';
+    }).join(''):'<tr><td colspan="6"><div class="empty-state">'+
+      (query?'No Work Locations match your search.':'No Work Locations are registered yet.')+
+      '</div></td></tr>';
+    // The Business Platforms table shares this Admin page, not the Sites data store.
+    TIPONPlatforms.renderDirectory?.();
   }
   async function refresh(){
     if(!available()||refreshing)return;
@@ -275,7 +289,9 @@ window.TIPONAdminSites=(()=>{
   }
   function bind(){
     attach('adminSiteAdd','click',()=>{if(available())openSiteForm(null);});
-    attach('adminSiteSearch','input',render);
+    attach('adminSiteSearch','input',()=>{sitePage=1;render();});
+    attach('adminSitePrev','click',()=>{if(sitePage>1){sitePage--;render();}});
+    attach('adminSiteNext','click',()=>{sitePage++;render();});
     attach('adminSitesRefresh','click',refresh);
     attach('adminSiteRows','click',async event=>{
       if(!available())return;

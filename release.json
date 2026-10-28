@@ -1,5 +1,5 @@
 {
   "app": "TIPON Face Attendance",
-  "version": "5.5.17",
-  "label": "Work location automatic sync cleanup, admin multiple MPC/BP selection stored as separate scoped records, Photon address-as-you-type suggestions, clearer server error feedback and queued site acknowledgement reconciliation."
+  "version": "5.5.18",
+  "label": "Align MPC and BP checkbox text, paginate Work Locations, add Admin Business Platforms directory (BP name, abbreviation, search, paging, Add/Edit/Delete with safe backend acknowledgements)."
 }

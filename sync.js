@@ -197,7 +197,8 @@ window.TIPONSync=(()=>{
     do{
       const response=await TIPONAPI.call({action:'catalog',cursor});if(startVersion===null)startVersion=response.catalogVersion;
       if(response.catalogVersion!==startVersion)throw Error('Directory changed during download. Retrying a consistent snapshot.');
-      if(response.businessPlatforms?.length)await TIPONPlatforms.accept(response.businessPlatforms);
+      if(response.businessPlatforms?.length)await TIPONPlatforms.accept(response.businessPlatforms,
+        response.businessPlatformRecords||response.businessPlatformDetails||response.platformRecords||null);
       for(const type of ['sites','members','schedules'])for(const entity of response[type]||[]){
         if(type==='members'||type==='sites')seen[type].add(entity.id);
         if(type==='members'){
