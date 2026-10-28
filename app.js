@@ -230,25 +230,57 @@ function updateMemberSite(){
    sites.length?sites.map(s=>s.name+' · '+Number(s.lat).toFixed(6)+', '+Number(s.lng).toFixed(6)+' ('+(s.radius||150)+' m GPS)').join(' | '):
    'You can assign a Work Location now or later. Time In requires an enrolled face and a confirmed GPS Work Location.');
 }
-function openMemberForm(member){if(!canEdit())return;
- state.editMember=member||null;state.pendingDescriptors=member?.descriptors?.map(a=>[...a])||[];state.consentAcknowledgedAt=member?.consentAt||null;
+function parseMemberIdentity(full){
+ const name=String(full||'').trim().replace(/\s+/g,' ');
+ if(!name)return {last:'',first:'',middle:''};
+ let last='',first='';
+ if(name.includes(',')){const index=name.indexOf(',');last=name.slice(0,index).trim();first=name.slice(index+1).trim();}
+ else {const parts=name.split(' ');last=parts.length>1?parts.pop():'';first=parts.join(' ')||name;}
+ let middle='';
+ const match=first.match(/\s+([\p{L}])\.?$/u);
+ if(match){middle=match[1];first=first.slice(0,match.index).trim();}
+ return {last,first,middle};
+}
+function memberNameFromFields(){
+ const last=String($('memberLastName')?.value||'').trim().replace(/\s+/g,' ');
+ const first=String($('memberFirstName')?.value||'').trim().replace(/\s+/g,' ');
+ const middle=String($('memberMiddleInitial')?.value||'').trim().replace(/[.\s]/g,'');
+ if(!last||!first||(middle&&!/^[\p{L}]$/u.test(middle)))return '';
+ const seed=state.memberNameSeed;
+ if(state.editMember&&seed&&seed.last===last&&seed.first===first&&seed.middle===middle)
+  return state.editMember.name;
+ return last.toLocaleUpperCase('en-PH')+', '+first.toLocaleUpperCase('en-PH')+
+   (middle?' '+middle.toLocaleUpperCase('en-PH')+'.':'');
+}
+function openMemberForm(member){
+ if(!canEdit())return;
+ state.editMember=member||null;
+ state.faceReplacementPending=false;
+ state.memberNameSeed=parseMemberIdentity(member?.name);
+ state.pendingDescriptors=member?.descriptors?.map(a=>[...a])||[];
+ state.consentAcknowledgedAt=member?.consentAt||null;
  $('memberForm').reset();
  TIPONPlatforms.fill('memberPlatform',member?.platform||state.user?.platform||'');
  $('memberPlatform').disabled=state.user?.role==='registrar';
  const identityLocked=!!member&&(member.workLocationReassignmentRequired===true||
   ((member.importPending===true||member.importedWithoutFace===true)&&!member.template));
- $('memberName').readOnly=identityLocked;
+ for(const id of ['memberLastName','memberFirstName','memberMiddleInitial'])$(id).readOnly=identityLocked;
+ $('memberLastName').value=state.memberNameSeed.last;
+ $('memberFirstName').value=state.memberNameSeed.first;
+ $('memberMiddleInitial').value=state.memberNameSeed.middle;
  $('memberCoop').disabled=identityLocked;
- setText('memberFormTitle',identityLocked?'Assign GPS Work Location / Enroll Face':member?'Edit Member':'Enroll New Member');
+ setText('memberFormTitle',identityLocked?'Assign Work Location / Enroll Face':member?'Edit Member':'Add Member');
  $('memberId').disabled=!!member;
  if(member){$('memberId').value=member.id;$('memberName').value=member.name;$('memberCoop').value=member.coop;}
  fillMemberSites(member?.siteIds||member?.siteId);
- const alreadyEnrolled=member?.active!==false&&state.pendingDescriptors.length>=3;
- setText('enrollFaceLabel',alreadyEnrolled?'FACE ALREADY ENROLLED · re-enrollment is disabled':'Not enrolled · select Enroll face');
- $('enrollFaceButton').disabled=alreadyEnrolled;
- $('enrollFaceButton').textContent=alreadyEnrolled?'Already Enrolled':'Enroll Face';
+ const enrolled=!!member&&member.active!==false&&!!(member.template||state.pendingDescriptors.length>=3);
+ const mayReplace=!enrolled||member.createdBy===state.user?.id||member.workLocationReassignmentRequired===true;
+ setText('enrollFaceLabel',enrolled?(mayReplace?'Enrolled · Face can be replaced.':'Enrolled · Original enrollment account required.'):'Not Enrolled · Complete Face Verification.');
+ $('enrollFaceButton').disabled=!mayReplace||!!member?._pendingOp;
+ $('enrollFaceButton').textContent=enrolled?'Re-enroll Face':'Enroll Face';
  $('memberDialog').showModal();
 }
+
 /**
  * Compatibility with the existing TIPON v5 API for ENROLLED members.
  * Adding another approved site without removing an old site is safe even
@@ -298,12 +330,12 @@ async function addExistingEnrolledMemberLocations(old,siteIds){
 
 async function saveMemberForm(e){
  e.preventDefault();if(!canEdit())return;
- const id=$('memberId').value.trim(),name=$('memberName').value.trim(),
+ const id=$('memberId').value.trim(),name=memberNameFromFields(),
    coop=$('memberCoop').value,platform=$('memberPlatform').value.trim(),
    siteIds=[...$('memberSite').selectedOptions].map(o=>o.value),
    sites=siteIds.map(id=>state.sites.find(x=>x.id===id&&!x.deleted));
  if(!id||!name||!platform||!TIPONOrgCore.inScope(state.user,{coop,platform})){
-   showToast('Enter a valid Member ID, Full Name, Cooperative and Business Platform.','error');return;
+   showToast('Enter Member ID, Last Name, First Name, Cooperative and Business Platform.','error');return;
  }
  if(siteIds.length>40||sites.some(s=>!s||s.coop!==coop||
    TIPONOrgCore.platformKey(s.platform)!==TIPONOrgCore.platformKey(platform))){
@@ -323,7 +355,7 @@ async function saveMemberForm(e){
  const locationOnly=!!old&&!state.pendingDescriptors?.length&&!old.template||
    !!old&&!!old.template&&name===old.name&&coop===old.coop&&
      TIPONOrgCore.platformKey(platform)===TIPONOrgCore.platformKey(old.platform);
- if(locationOnly){
+ if(locationOnly&&!state.faceReplacementPending){
    if(name!==old.name||coop!==old.coop||
      TIPONOrgCore.platformKey(platform)!==TIPONOrgCore.platformKey(old.platform)){
      showToast('Only the Assigned Work Location can be changed here. Ask an Administrator to edit identity or MPC/BP.','info');return;
@@ -420,9 +452,9 @@ async function saveMemberForm(e){
  }
  const record={id,name,coop,platform,siteId:siteIds[0]||'',siteIds,
    descriptors:state.pendingDescriptors,
-   consentAt:old?.consentAt||new Date(state.consentAcknowledgedAt||Date.now()).toISOString(),
-   enrolledBy:old?.enrolledBy||state.deviceId,
-   enrolledByUsername:old?.enrolledByUsername||state.user.username||'',
+   consentAt:state.faceReplacementPending?new Date(state.consentAcknowledgedAt||Date.now()).toISOString():(old?.consentAt||new Date(state.consentAcknowledgedAt||Date.now()).toISOString()),
+   enrolledBy:state.faceReplacementPending?state.user.id:(old?.enrolledBy||state.user.id),
+   enrolledByUsername:state.faceReplacementPending?state.user.username:(old?.enrolledByUsername||state.user.username||''),
    createdAt:old?.createdAt||new Date().toISOString(),updatedAt:new Date().toISOString()};
  try{
    if(!siteIds.length){
@@ -988,11 +1020,13 @@ async function beginEnrollment(){
  if(!canEdit())return;
  const existing=state.editMember;
  if(existing?.active!==false&&existing?.descriptors?.length>=3){
-  showToast('This member already has an enrolled face. A second enrollment is not allowed.','error',7500);return;
+  if(existing.createdBy!==state.user?.id&&!existing.workLocationReassignmentRequired){showToast('Only the approved enrollment User can replace this face.','error');return;}
  }
- if(!$('memberName').value.trim()||!$('memberId').value.trim()){showToast('Enter member ID and full name before enrolling the face.','error');return;}
+ const fullName=memberNameFromFields();
+  if(!fullName||!$('memberId').value.trim()){showToast('Enter Member ID, Last Name and First Name first.','error');return;}
+  $('memberName').value=fullName;
  // Clicking Enroll face is the explicit acknowledgement shown beside the approved biometric privacy notice.
- state.consentAcknowledgedAt=state.editMember?.consentAt||new Date().toISOString();
+ state.consentAcknowledgedAt=new Date().toISOString();
  if($('memberDialog').open)$('memberDialog').close();if(!$('enrollDialog').open)$('enrollDialog').showModal();state.enrollActive=true;state.enrollCollected=[];state.enrollBlinkClosed=false;state.enrollBlinkSeen=false;state.enrollBlinkOpen=0;state.enrollBlinkBaselineFrames=0;state.enrollBlinkClosedAt=0;
  const run=(state.enrollRun||0)+1;state.enrollRun=run;TIPONCamera.render();
  setText('enrollCount','0 / 3 samples');setText('enrollStatus','Preparing live detection. Face the camera, keep both eyes open briefly, then blink slowly (close for one second and reopen).');$('enrollProgress').style.width='0%';$('retryEnrollment').hidden=true;
@@ -1029,7 +1063,7 @@ async function enrollTick(){if(!state.enrollActive)return;const run=state.enroll
              setText('enrollStatus','Duplicate face detected. Enrollment blocked.');
              $('retryEnrollment').hidden=false;await stopEnrollment(true);return;
            }
-           state.pendingDescriptors=state.enrollCollected;setText('enrollFaceLabel','ENROLLED · 3 live samples ready to save');
+           state.pendingDescriptors=state.enrollCollected;state.faceReplacementPending=!!state.editMember?.template;setText('enrollFaceLabel','Verified · 3 Live Samples Ready to Save');
            playTerminalSound('success');showToast('Live face enrollment complete. Save the member record next.','success');await finishEnrollment(false);return;
          }
        }
