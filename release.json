@@ -1,5 +1,5 @@
 {
   "app": "TIPON Face Attendance",
-  "version": "5.5.23",
-  "label": "Fix Member List Work Location update UX: existing enrolled members can add approved sites using the current authenticated submit API and central receipt without re-enrollment; backend-required removals and NOT ENROLLED location-only edits show actionable guidance and never claim an unconfirmed sync. New-member enrollment and attendance checks unchanged."
+  "version": "5.5.24",
+  "label": "Admin Work Locations: delete directly with the authenticated existing submit API, verify exact operation receipt before local removal, automatically reconcile previous pending edits, block linked members and preserve attendance. Display specific server error and retain local records on timeout/rejection."
 }

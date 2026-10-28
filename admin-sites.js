@@ -69,22 +69,119 @@ window.TIPONAdminSites=(()=>{
     }catch(error){toastError(error,'Could not refresh work locations');}
     finally{refreshing=false;btn.disabled=false;}
   }
+  const deletingSites=new Set();
+  function memberUsesSite(siteId){
+    return state.members.some(member=>!member.deleted&&
+      (member.siteId===siteId||Array.isArray(member.siteIds)&&member.siteIds.includes(siteId)));
+  }
+  function deleteErrorText(error){
+    const code=String(error?.code||'').toUpperCase(),detail=String(error?.message||error||'Unknown error');
+    if(code==='CONFLICT'||/record changed|revision conflict/i.test(detail))
+      return 'The Work Location changed on another device. Refresh the list, then try again.';
+    if(code==='DEPENDENCY'||/reassign members|assigned to members|open Time Out|open time in/i.test(detail))
+      return 'Cannot delete this Work Location while members or open attendance sessions depend on it. Reassign members and complete Time Out first.';
+    if(code==='TIMEOUT'||/did not respond|timed out/i.test(detail))
+      return 'The server reply timed out. No local deletion was made. Refresh Work Locations to check whether the server processed it before retrying.';
+    if(code==='NETWORK'||code==='SETUP'||!navigator.onLine)
+      return 'The central server is unavailable. No deletion was made. Connect to the internet and try again.';
+    if(code==='FORBIDDEN'||code==='AUTH'||code==='AUTHZ')
+      return 'Your session or account is not authorized to delete this Work Location. Sign in again with an approved Administrator account.';
+    return detail;
+  }
+  /**
+   * The older deleteOne('sites') marks a site locally as deleted before the
+   * outbox gets an ACK; repeating it while _pendingOp.everSent is true fails.
+   * For Admin deletion use the already-deployed, authenticated submit API
+   * directly, and update the local cache ONLY after the exact operation ACK.
+   */
   async function deleteSite(site){
-    if(!available()||!site)return;
-    if(state.members.some(m=>!m.deleted&&(m.siteId===site.id||Array.isArray(m.siteIds)&&m.siteIds.includes(site.id)))){
-      showToast('This site is assigned to members. Reassign those members before deleting it.','error',8000);return;
-    }
-    const ok=await confirmAction('Delete work location?',
-      'Remove '+site.name+' from the central directory? This may affect registered kiosks assigned to its GPS location. Attendance history will be retained.');
-    if(!ok)return;
+    if(!available()||!site||deletingSites.has(site.id))return;
+    deletingSites.add(site.id);
     try{
-      await deleteOne('sites',site.id);
+      if(!navigator.onLine){
+        showToast('Internet connection is required to delete Work Locations centrally. No records were changed.','error',7500);
+        return;
+      }
+      let current=await getOne('sites',site.id);
+      if(!current||current.deleted){
+        await loadCollections();render();
+        showToast('This Work Location is no longer in the active directory.','info',6500);
+        return;
+      }
+      // Resolve previously queued edits before creating another revision.
+      if(current._pendingOp){
+        const queued=await getOne('outbox',current._pendingOp);
+        if(queued&&queued.ownerId!==state.user?.id){
+          showToast('This Work Location has a pending edit owned by another account. Its owner must synchronize that edit first.','info',8500);
+          return;
+        }
+        const syncResult=await TIPONSync.submitPendingNow();
+        current=await getOne('sites',site.id);
+        if(!current||current.deleted&&!current._pendingOp){
+          await loadCollections();render();
+          showToast('The previously queued Work Location deletion is now reflected in the directory.','success',7500);
+          return;
+        }
+        if(current._pendingOp){
+          const pending=await getOne('outbox',current._pendingOp);
+          const reason=pending?.error||current.syncIssue||syncResult?.error;
+          showToast(reason?
+            'Cannot delete while a prior Work Location change is unconfirmed: '+String(reason).slice(0,190)+'. Resolve it in Settings & Offline.':
+            'The previous Work Location change is still awaiting central confirmation. Sync it before deleting.','info',10000);
+          return;
+        }
+        if(!syncResult?.ok){
+          showToast('Could not verify the latest Work Location record. Refresh and try again.','info',8500);
+          return;
+        }
+      }
+      if(memberUsesSite(site.id)){
+        showToast('This Work Location is assigned to members. Reassign those members before deleting it.','error',8500);
+        return;
+      }
+      const ok=await confirmAction('Delete Work Location?',
+        'Permanently remove '+current.name+' from the active organization directory? Existing attendance history is retained. This cannot proceed while members or open attendance sessions depend on the location.');
+      if(!ok)return;
+      // Reread the exact record and revision AFTER confirmation to prevent
+      // using a stale selection or overwriting a concurrent local edit.
+      current=await getOne('sites',site.id);
+      if(!current||current.deleted||current._pendingOp)
+        throw Object.assign(Error('This location changed while the confirmation was open. Refresh before deleting.'),{code:'CONFLICT'});
+      if(memberUsesSite(site.id))
+        throw Object.assign(Error('The site is still assigned to members.'),{code:'DEPENDENCY'});
+      const opId=uuid(),baseRev=Number(current.rev)||0;
+      const wire={...current,deleted:true,active:false,updatedAt:new Date().toISOString()};
+      for(const key of ['_row','_pendingOp','syncIssue','descriptors','templateError'])
+        delete wire[key];
+      // No optimistic tombstone; the server checks active dependents,
+      // admin authorization and base revision, then writes its audit log.
+      const response=await TIPONAPI.call({action:'submit',
+        operations:[{id:opId,type:'sites',value:wire,baseRev}],events:[]});
+      const failure=(response.operationErrors||[]).find(x=>x.id===opId);
+      if(failure)throw Object.assign(Error(failure.error||'Central deletion rejected.'),{code:failure.code||'SERVER'});
+      if(!Array.isArray(response.ackOps)||!response.ackOps.includes(opId))
+        throw Error('The central server did not acknowledge this deletion. Refresh to verify the latest state.');
+      const receipt=(response.receipts||[]).find(x=>x.type==='sites'&&x.id===site.id);
+      if(!receipt||Number(receipt.rev)!==baseRev+1)
+        throw Error('The deletion receipt was incomplete. Refresh Work Locations before trying again.');
+      const latest=await getOne('sites',site.id);
+      if(latest?._pendingOp)
+        throw Error('A concurrent pending edit appeared after server confirmation. Refresh Work Locations to reconcile it.');
+      const tombstone={...latest,...wire,rev:Number(receipt.rev),deleted:true,active:false,orgId:state.orgId};
+      delete tombstone._pendingOp;delete tombstone.syncIssue;
+      await OrgDB.rawSave('sites',tombstone);
       await loadCollections();render();
-      const result=await TIPONSync.submitPendingNow();
-      if(!result?.ok)throw Error(result?.error||'Work Location deletion is not yet confirmed.');
-      await loadCollections();render();
-      showToast('Work Location deletion submitted and synchronized.','success');
-    }catch(error){toastError(error,'Deletion not confirmed; check Settings > Pending changes');}
+      TIPONSync.kick();
+      showToast('Work Location deleted and confirmed by the central organization. Attendance history was retained.','success',7500);
+    }catch(error){
+      const detail=deleteErrorText(error);
+      showToast(detail,'error',9000);
+      // A timeout may have occurred after a successful server write; refresh
+      // the authoritative catalog rather than submitting another delete.
+      if(error?.code==='TIMEOUT'||error?.code==='CONFLICT')TIPONSync.kick();
+    }finally{
+      deletingSites.delete(site.id);
+    }
   }
   async function loadLeaflet(){
     if(window.L?.map)return window.L;
