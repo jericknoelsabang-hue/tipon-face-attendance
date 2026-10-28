@@ -166,6 +166,9 @@ openSiteForm=function(site){
   $('siteDialog').classList.toggle('admin-location-dialog',isAdmin());
   $('adminSiteMapTools').hidden=!isAdmin();$('adminMapCanvas').hidden=!isAdmin();
   $('siteMapPreview').classList.toggle('admin-picker',isAdmin());
+  // The dialog is now open: refresh Admin map controls with the correct role.
+  // This exposes Open Full Map even before an address or coordinate is chosen.
+  updateSiteMap();
   if(isAdmin())requestAnimationFrame(()=>window.TIPONAdminSites?.openMap());
 };
 const oldRenderMembers=renderMembers,oldRenderSites=renderSites;
