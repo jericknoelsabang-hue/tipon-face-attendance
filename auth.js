@@ -125,6 +125,10 @@ window.TIPONAuth=(()=>{
   }
   async function ensureOnline(){
     if(!session)throw Object.assign(Error('Sign in to continue.'),{code:'AUTH'});
+    if(inactivityExceeded(session)){
+      await checkIdleSession();
+      throw Object.assign(Error('Session expired after 90 seconds without activity. Sign in again.'),{code:'AUTH'});
+    }
     if(session.offlineUntil<Date.now())throw Object.assign(Error('Offline lease expired. Sign in online again.'),{code:'AUTH'});
     if(session.token&&(!session.expiresAt||session.expiresAt>Date.now()+30000))return session.token;
     if(!session.proof)throw Object.assign(Error('Online sign-in is required.'),{code:'AUTH'});
