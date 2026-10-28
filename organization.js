@@ -91,7 +91,7 @@ enterApp=async function(){
   if(!bound)await OrgDB.rawSave('meta',{id:'tp5-boundOrganization',orgId:state.orgId});
   $('appShell').hidden=false;$('mobileNav').hidden=state.user?.role==='kiosk';
   setText('sidebarUserName',state.user.name);setText('sidebarUserRole',roleName(state.user.role));setText('avatarLetter',initial(state.user.name));setText('greetingName',state.user.name.split(' ')[0]);
-  await loadCollections();await TIPONPlatforms.load();fillCoopSelect('memberCoop');
+  await loadCollections();await TIPONPlatforms.load();fillCoopSelect('memberCoop');fillCoopSelect('siteCoop');
   const savedPage=await getOne('meta','tp5-last-page:'+state.user.id),defaultPage=isAdmin()?'dashboard':TIPONOrgCore.canUseTerminal(state.user)?'scanner':'members';
   const startPage=savedPage?.page&&TIPONOrgCore.allowed(state.user,savedPage.page)&&(savedPage.page!=='scanner'||hasTerminalSession())?savedPage.page:defaultPage;
   applyRoles();await showPage(startPage);refreshClock();await checkOfflineReady();
@@ -129,26 +129,41 @@ applyRoles=function(){
   ['importBackup','exportBackup'].forEach(id=>{if($(id))$(id).hidden=!isAdmin();});
 };
 const originalShowPage=showPage;
-Object.assign(pageNames,{accounts:'Accounts & devices',members:'Member list'});
+Object.assign(pageNames,{accounts:'Accounts & devices',members:'Member list',adminSites:'Work locations list'});
 function refreshWorkspaceViews(){
  if(!state.user)return;
  if(state.page==='terminalLogs'||state.page==='records')renderTerminalLogs();
  if(state.page==='members')renderMembers();
  if(state.page==='sites')renderSites();
+ if(state.page==='adminSites')window.TIPONAdminSites?.render();
 }
 window.addEventListener('tipon:workspace-data-updated',refreshWorkspaceViews);
 showPage=async function(page){
   if(!TIPONOrgCore.allowed(state.user,page)||(page==='scanner'&&!hasTerminalSession())){showToast('Your account does not have permission for that screen.','error');return;}
   await originalShowPage(page);applyRoles();
   if(state.user)await OrgDB.rawSave('meta',{id:'tp5-last-page:'+state.user.id,page});
-  if(page==='accounts')await OrgUI.renderAccounts();if(page==='settings')OrgUI.renderSettings();if(page==='scanner')TIPONCamera.render();if(page==='terminalLogs')renderTerminalLogs();
+  if(page==='accounts')await OrgUI.renderAccounts();if(page==='adminSites')window.TIPONAdminSites?.render();if(page==='settings')OrgUI.renderSettings();if(page==='scanner')TIPONCamera.render();if(page==='terminalLogs')renderTerminalLogs();
 };
 const originalOpenMember=openMemberForm,originalOpenSite=openSiteForm;
 openMemberForm=function(member){if(!canEdit())return;originalOpenMember(member);if(state.user.role==='registrar'){$('memberCoop').value=state.user.coop;$('memberCoop').disabled=true;fillMemberSites(member?.siteIds||member?.siteId);}else $('memberCoop').disabled=false;};
-openSiteForm=function(site){if(!canEdit())return;originalOpenSite(site);TIPONPlatforms.fill('sitePlatform',site?.platform||(state.user.role==='registrar'?state.user.platform:''));
-  $('siteCoop').disabled=state.user.role==='registrar';$('sitePlatform').disabled=state.user.role==='registrar';if(state.user.role==='registrar')$('siteCoop').value=state.user.coop;
-  const plan=site?.schedule||{};$('siteScheduleEnabled').checked=!!plan.enabled;$('siteShiftStart').value=plan.start||'06:00';$('siteShiftEnd').value=plan.end||'15:00';$('siteGrace').value=plan.grace||0;
+openSiteForm=function(site){
+  if(!canEdit()&&!isAdmin())return;
+  originalOpenSite(site);
+  fillCoopSelect('siteCoop');
+  TIPONPlatforms.fill('sitePlatform',site?.platform||(state.user.role==='registrar'?state.user.platform:''));
+  const user=state.user.role==='registrar';
+  $('siteCoop').disabled=user;$('sitePlatform').disabled=user;
+  $('siteCoop').value=user?state.user.coop:site?.coop||'';
+  if(!site&&!user)$('siteCoop').value='';
+  const plan=site?.schedule||{};
+  $('siteScheduleEnabled').checked=!!plan.enabled;
+  $('siteShiftStart').value=plan.start||'06:00';$('siteShiftEnd').value=plan.end||'15:00';$('siteGrace').value=plan.grace||0;
   document.querySelectorAll('[name="siteWorkDay"]').forEach(x=>x.checked=(plan.days||[1,2,3,4,5,6]).includes(Number(x.value)));
+  $('siteUseGps').hidden=isAdmin();
+  $('siteDialog').classList.toggle('admin-location-dialog',isAdmin());
+  $('adminSiteMapTools').hidden=!isAdmin();$('adminMapCanvas').hidden=!isAdmin();
+  $('siteMapPreview').classList.toggle('admin-picker',isAdmin());
+  if(isAdmin())requestAnimationFrame(()=>window.TIPONAdminSites?.openMap());
 };
 const oldRenderMembers=renderMembers,oldRenderSites=renderSites;
 renderMembers=function(){oldRenderMembers();document.querySelectorAll('[data-member-delete]').forEach(x=>{const m=state.members.find(v=>v.id===x.dataset.memberDelete);x.hidden=!isAdmin();});document.querySelectorAll('[data-member-edit]').forEach(x=>{const m=state.members.find(v=>v.id===x.dataset.memberEdit);x.disabled=!canEdit()||!(m?.createdBy===state.user?.id||(m?.importedWithoutFace===true||m?.importPending===true&&!m?.template)&&TIPONOrgCore.inScope(state.user,m));});};
