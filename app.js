@@ -757,7 +757,7 @@ function filteredTerminalLogRows(){
   siteId=$('terminalLogSite').value,admin=isAdmin();
  const coop=admin?$('terminalLogCoop').value:'',platform=admin?$('terminalLogPlatform').value:'';
  if(!validateAttendanceDateRange('terminalLogFrom','terminalLogTo','terminalLogDateError','terminalLogExport'))throw Error('To Date cannot be earlier than From Date.');
- return TIPONOrgCore.project(state.punches.filter(p=>!p.reviewStatus)).filter(r=>{
+ return TIPONOrgCore.project(state.punches.filter(p=>!p.deleted&&p.reviewStatus!=='rejected')).filter(r=>{
   const stamp=r.timeIn||r.timeOut,day=TIPONCore.phStamp(stamp).slice(0,10);
   // A hidden filter must never expand data beyond the authenticated User MPC/BP
   // or a Physical Kiosk's GPS-approved site list.
@@ -772,6 +772,13 @@ function attendanceMemberName(row,memberNames){
  const current=String(memberNames.get(String(row.memberId))||'').trim();
  const historical=String(row.memberName||'').trim();
  return current||historical||'Name unavailable';
+}
+function attendanceSyncLabel(row){
+ const ids=new Set(row.eventIds||[]);
+ const events=state.punches.filter(p=>ids.has(p.id));
+ if(events.some(p=>p.reviewStatus))return 'Needs Review';
+ if(events.some(p=>!p.cloudAck))return 'Pending Sync';
+ return 'Synced';
 }
 function renderTerminalLogs(){
  if(!$('terminalLogRows'))return;
@@ -801,18 +808,22 @@ function renderTerminalLogs(){
     row.timeIn?TIPONCore.phStamp(row.timeIn).slice(-8):'—',
     row.timeOut?TIPONCore.phStamp(row.timeOut).slice(-8):'—',
     row.timeOut?TIPONCore.phStamp(row.timeOut).slice(0,10):'—',
-    row.coop||'—',row.platform||'—',location
+    row.coop||'—',row.platform||'—',location,attendanceSyncLabel(row)
    ];
    return '<tr>'+data.map(value=>'<td>'+esc(value)+'</td>').join('')+'</tr>';
-  }).join(''):'<tr><td colspan="9">No attendance records match these filters or your approved account scope.</td></tr>';
+  }).join(''):'<tr><td colspan="10">No attendance records match these filters or your approved account scope.</td></tr>';
  }catch(err){
   setText('terminalLogCount',err.message);
-  $('terminalLogRows').innerHTML='<tr><td colspan="9">'+esc(err.message)+'</td></tr>';
+  $('terminalLogRows').innerHTML='<tr><td colspan="10">'+esc(err.message)+'</td></tr>';
  }
 }
 async function exportTerminalLogs(){
  const btn=$('terminalLogExport');try{
-  const rows=filteredTerminalLogRows();if(!rows.length){showToast('No attendance records to export.','error');return;}
+  const rows=filteredTerminalLogRows().filter(row=>(row.eventIds||[]).every(id=>{
+      const event=state.punches.find(p=>p.id===id);
+      return event&&!event.reviewStatus;
+    }));
+    if(!rows.length){showToast('No valid attendance records to export. Review rejected events first.','error');return;}
   btn.disabled=true;await new Promise(resolve=>setTimeout(resolve,0));
   const bytes=TIPONExport.xlsx(rows);downloadBlob('TIPON_Attendance_'+todayPH()+'.xlsx',new Blob([bytes],{type:TIPONExport.MIME}));
   showToast('Exported '+rows.length+' attendance session(s).','success');
