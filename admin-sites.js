@@ -102,6 +102,7 @@ window.TIPONAdminSites=(()=>{
     setPin(Number(lat),Number(lng),{zoom});
     updateSiteMap();
     setText('adminSiteMapHint','GPS selected: '+Number(lat).toFixed(7)+', '+Number(lng).toFixed(7)+'. Verify the location and radius before saving.');
+    setText('fullMapCoordinates',Number(lat).toFixed(7)+', '+Number(lng).toFixed(7));
   }
   function syncFromInputs(){
     if(!available()||!field('siteDialog')?.open)return;
@@ -142,12 +143,12 @@ window.TIPONAdminSites=(()=>{
   }
   async function findPlace(){
     if(!available()||!field('siteDialog')?.open)return;
-    const q=field('adminSitePlaceQuery').value.trim();
-    if(q.length<3){setText('adminSiteMapHint','Enter at least three characters to search for a location.');return;}
-    if(!navigator.onLine){setText('adminSiteMapHint','Connect to the internet to search places. Manual coordinates remain available.');return;}
+    const q=field('siteAddress').value.trim();
+    if(q.length<3){setText('adminSiteMapHint','Enter a complete address or recognizable landmark in Address / Site Description, then select Find on Map.');field('siteAddress').focus();return;}
+    if(!navigator.onLine){setText('adminSiteMapHint','Internet is needed to search the address. Exact GPS coordinates can still be entered manually.');return;}
     if(Date.now()-lastSearch<1200){setText('adminSiteMapHint','Search requests are limited. Try again shortly.');return;}
     lastSearch=Date.now();const button=field('adminSitePlaceFind');button.disabled=true;
-    setText('adminSiteMapHint','Searching for this location in the Philippines…');
+    setText('adminSiteMapHint','Searching for the address: '+q+'…');
     try{
       const response=await fetch('https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=ph&q='+encodeURIComponent(q),
        {method:'GET',headers:{Accept:'application/json'}});
@@ -161,6 +162,33 @@ window.TIPONAdminSites=(()=>{
     }catch(error){setText('adminSiteMapHint',error.message);showToast(error.message,'error');}
     finally{button.disabled=false;}
   }
+  function restoreMapCanvas(){
+    const canvas=field('adminMapCanvas'),preview=field('siteMapPreview');
+    if(!canvas||!preview)return;
+    if(canvas.parentElement!==preview)preview.insertBefore(canvas,preview.firstChild);
+    if(map)requestAnimationFrame(()=>map.invalidateSize());
+  }
+  function closeFullMap(){
+    const overlay=field('siteFullMapDialog');
+    if(overlay?.open)overlay.close();
+    restoreMapCanvas();
+  }
+  async function openFullMap(event){
+    if(!available()||!field('siteDialog')?.open)return;
+    event?.preventDefault();
+    try{
+      await openMap();
+      if(!map)throw Error('The interactive map is unavailable. Verify internet access or enter coordinates manually.');
+      const overlay=field('siteFullMapDialog');
+      const canvas=field('adminMapCanvas');
+      if(!overlay||!canvas)throw Error('The full-map panel is unavailable. Reload the latest app files.');
+      field('siteFullMapMount').appendChild(canvas);
+      const point=selectedCoordinates();
+      setText('fullMapCoordinates',point?point.lat.toFixed(7)+', '+point.lng.toFixed(7):'Click the map to select a GPS point.');
+      overlay.showModal();
+      requestAnimationFrame(()=>map.invalidateSize());
+    }catch(error){showToast(error.message,'error');restoreMapCanvas();}
+  }
   function bind(){
     attach('adminSiteAdd','click',()=>{if(available())openSiteForm(null);});
     attach('adminSiteSearch','input',render);
@@ -173,8 +201,16 @@ window.TIPONAdminSites=(()=>{
       if(del){const site=state.sites.find(s=>s.id===del.dataset.adminSiteDelete);if(site)await deleteSite(site);}
     });
     attach('adminSitePlaceFind','click',findPlace);
-    attach('adminSitePlaceQuery','keydown',e=>{if(e.key==='Enter'){e.preventDefault();findPlace();}});
+    attach('siteAddress','keydown',e=>{if(e.key==='Enter'&&available()){e.preventDefault();void findPlace();}});
     attach('siteLat','change',syncFromInputs);attach('siteLng','change',syncFromInputs);
+    attach('siteOpenMap','click',event=>{if(available()){event.preventDefault();void openFullMap(event);}});
+    attach('closeFullMap','click',closeFullMap);
+    attach('useSelectedMapLocation','click',()=>{
+      if(!selectedCoordinates()){showToast('Select a location by clicking the map first.','info');return;}
+      closeFullMap();
+    });
+    attach('siteFullMapDialog','cancel',event=>{event.preventDefault();closeFullMap();});
+    attach('siteDialog','close',closeFullMap);
   }
-  return {bind,render,openMap,selectedCoordinates,syncFromInputs,refresh};
+  return {bind,render,openMap,openFullMap,closeFullMap,selectedCoordinates,syncFromInputs,refresh};
 })();
