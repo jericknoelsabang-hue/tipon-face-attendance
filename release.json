@@ -1,5 +1,5 @@
 {
   "app": "TIPON Face Attendance",
-  "version": "5.5.28",
-  "label": "Attendance-first synchronization, overnight Time In/Out accounting and unverified absence flags. Structured member names, authorized face re-enrollment and interactive blink/turn challenges at every punch. Four concise voice prompts. Config.js and face AI cached for offline sessions, with persistent storage requested when available. Controlled pilot: anti-spoofing is not PAD-certified."
+  "version": "5.5.29",
+  "label": "Attendance uploads prioritized before pending site edits. Logs show Synced, Pending Sync, or Needs Review without hiding rejected local events; payroll export excludes rejected events. Overnight Time Out reconciliation, structured member identity, authorized re-enrollment, randomized live blink/pose challenges, four concise terminal voice prompts, and offline cached configuration and AI. PAD is pilot-only, not certified."
 }
