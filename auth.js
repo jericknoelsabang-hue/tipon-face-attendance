@@ -5,6 +5,33 @@
 'use strict';
 window.TIPONAuth=(()=>{
   let session=null,signing=false,registrationGpsAccuracy=null;
+  const INACTIVITY_MS=90*1000;
+  let idleSignoutRunning=false,lastActivityPersist=0,activityPersistTimer=null;
+  function inactivityExceeded(value,now=Date.now()){
+    const last=Number(value?.lastActivityAt||0);
+    return !last||!Number.isFinite(last)||last>now+300000||now-last>=INACTIVITY_MS;
+  }
+  function persistRecentActivity(){
+    if(activityPersistTimer||!session)return;
+    activityPersistTimer=setTimeout(async()=>{
+      activityPersistTimer=null;
+      if(session)await persistSession(session);
+    },1800);
+  }
+  function touchActivity(event){
+    if(!session||idleSignoutRunning)return;
+    if(event?.isTrusted===false)return;
+    const now=Date.now();
+    if(inactivityExceeded(session,now)){void checkIdleSession();return;}
+    session.lastActivityAt=now;
+    if(now-lastActivityPersist>=7000){lastActivityPersist=now;persistRecentActivity();}
+  }
+  async function checkIdleSession(){
+    if(!session||idleSignoutRunning||!inactivityExceeded(session))return false;
+    idleSignoutRunning=true;
+    try{await signOut('idle');return true;}
+    finally{idleSignoutRunning=false;}
+  }
   const enc=new TextEncoder(),dec=new TextDecoder();
   const hex=a=>Array.from(a,b=>b.toString(16).padStart(2,'0')).join('');
   const unhex=s=>new Uint8Array(s.match(/.{2}/g).map(v=>parseInt(v,16)));
@@ -43,15 +70,19 @@ window.TIPONAuth=(()=>{
       if(!saved||!keyRecord?.key)return null;
       const bytes=await crypto.subtle.decrypt({name:'AES-GCM',iv:fromB64(saved.iv)},keyRecord.key,fromB64(saved.data));
       const value=JSON.parse(dec.decode(bytes));
-      if(!value.account?.id||!value.orgId||!Number.isFinite(Number(value.offlineUntil))||Number(value.offlineUntil)<Date.now()||Date.now()<Number(value.verifiedAt||0)-300000){await clearPersistedSession();return null;}
+      if(!value.account?.id||!value.orgId||!Number.isFinite(Number(value.offlineUntil))||Number(value.offlineUntil)<Date.now()||Date.now()<Number(value.verifiedAt||0)-300000||inactivityExceeded(value)){await clearPersistedSession();return null;}
       return value;
     }catch(error){console.warn('Saved session could not be restored.',error);await clearPersistedSession();return null;}
   }
-  async function signedIn(value){
-    session=value;state.user=value.account;state.orgId=value.orgId;
+  async function signedIn(value,{freshLogin=false}={}){
+    // Restored sessions have already passed the persisted inactivity check.
+    // Freshly authenticated interaction begins a new 90-second activity window.
+    session={...value,lastActivityAt:Date.now()};
+    lastActivityPersist=Date.now();
+    state.user=session.account;state.orgId=session.orgId;
     const kioskOnly=value.account?.role==='kiosk';
     document.body.classList.toggle('kiosk-mode',kioskOnly);
-    await persistSession(value);$('loginPage').hidden=true;try{await enterApp();TIPONSync.start();}catch(e){session=null;state.user=null;await clearPersistedSession();document.body.dataset.terminalAccess='denied';document.body.classList.remove('kiosk-mode');$('appShell').hidden=true;$('mobileNav').hidden=true;$('loginPage').hidden=false;throw e;}
+    await persistSession(session);$('loginPage').hidden=true;try{await enterApp({freshLogin});TIPONSync.start();}catch(e){session=null;state.user=null;await clearPersistedSession();document.body.dataset.terminalAccess='denied';document.body.classList.remove('kiosk-mode');$('appShell').hidden=true;$('mobileNav').hidden=true;$('loginPage').hidden=false;throw e;}
   }
   function status(text,bad=false){setText('loginStatus',text);$('loginStatus').classList.toggle('danger',bad);}
   async function login(event){
@@ -77,7 +108,7 @@ window.TIPONAuth=(()=>{
         if(Date.now()<restored.verifiedAt-300000)throw Error('Device clock moved backwards. Correct the clock before signing in.');
         current={...restored,proof:derived,salt:cached.salt,token:null,onlineVerified:false};
       }
-      $('loginPassword').value='';await signedIn(current);status('');
+      $('loginPassword').value='';await signedIn(current,{freshLogin:true});status('');
     }catch(err){status(err.message,true);}finally{signing=false;$('loginSubmit').disabled=false;}
   }
   async function register(event){
@@ -100,13 +131,19 @@ window.TIPONAuth=(()=>{
     const reply=await TIPONAPI.raw({action:'login',username:session.account.username,proof:session.proof});
     session={...session,...reply,onlineVerified:true};state.user=session.account;state.orgId=session.orgId;applyRoles();await remember(session,session.salt);await persistSession(session);return session.token;
   }
-  async function signOut(){
-    const old=session;TIPONSync.stop();await stopScanner();await stopEnrollment();
+  async function signOut(reason='manual'){
+    if(!session)return;
+    const old=session;TIPONSync.stop();
+    if(activityPersistTimer){clearTimeout(activityPersistTimer);activityPersistTimer=null;}
+    await stopScanner();await stopEnrollment();
     session=null;await clearPersistedSession();state.user=null;document.body.dataset.terminalAccess='denied';state.platforms=[];state.members=[];state.sites=[];state.punches=[];state.accounts=[];state.devices=[];state.reviews=[];state.schedules=[];
     ['recordRows','mpcOverviewCards','mpcRows','presenceRows','summaryRows','accountRows','deviceRows','reviewRows','memberRows','siteCards'].forEach(id=>{if($(id))$(id).innerHTML='';});
     document.querySelectorAll('dialog[open]').forEach(d=>d.close());
     $('appShell').hidden=true;$('mobileNav').hidden=true;$('loginPage').hidden=false;document.body.classList.remove('kiosk-mode');
-    $('loginPassword').value='';status('Signed out. Local records and pending uploads were retained.');
+    $('loginPassword').value='';
+    status(reason==='idle'
+      ?'Signed out automatically after 90 seconds of inactivity. Local attendance and pending uploads were retained.'
+      :'Signed out. Local records and pending uploads were retained.');
     // Best-effort server revocation. No unencrypted session token is left in browser storage.
     if(old?.token&&navigator.onLine)TIPONAPI.raw({action:'logout',token:old.token}).catch(()=>{});
   }
@@ -136,9 +173,30 @@ window.TIPONAuth=(()=>{
     attach('registrationForm','submit',register);attach('registerAccountType','change',updateRegistrationFields);updateRegistrationFields();attach('registerUseGps','click',()=>{if(!navigator.geolocation){setText('registrationStatus','GPS is not available on this device.');return;}setText('registrationStatus','Getting current kiosk GPS...');navigator.geolocation.getCurrentPosition(p=>{$('registerOfficeLat').value=p.coords.latitude.toFixed(7);$('registerOfficeLng').value=p.coords.longitude.toFixed(7);registrationGpsAccuracy=p.coords.accuracy;setText('registrationStatus','Kiosk GPS captured. Accuracy '+Math.round(p.coords.accuracy)+' m.');},e=>setText('registrationStatus',e.message),{enableHighAccuracy:true,timeout:15000,maximumAge:0});});attach('logoutButton','click',signOut);attach('logoutMobile','click',signOut);attach('changePasswordForm','submit',changePassword);
     attach('showPassword','click',()=>{$('loginPassword').type=$('loginPassword').type==='password'?'text':'password';});
     attach('authDiagnostics','click',async()=>{status('Checking organization connection...');try{const r=await TIPONAPI.raw({action:'health'});status('Connected to TIPON Face');}catch(e){status(e.message,true);}});
-    const restored=await restoreSession();if(restored){try{await signedIn(restored);status('');return;}catch(error){console.warn('Could not resume the saved session.',error);}}
+    const restored=await restoreSession();if(restored){try{await signedIn(restored,{freshLogin:false});status('');return;}catch(error){console.warn('Could not resume the saved session.',error);}}
     $('appShell').hidden=true;$('mobileNav').hidden=true;$('loginPage').hidden=false;
   }
-  const originalInit=init;init=async function(){await originalInit();setInterval(()=>{if(session&&session.offlineUntil<Date.now())signOut().then(()=>status('Access lease expired. Sign in online again.',true));},30000);};
-  return {init,login,signOut,ensureOnline,current:()=>session,seal,unseal,randomSalt,proof};
+  const originalInit=init;init=async function(){
+    await originalInit();
+    // Only actual user interactions extend the login session.
+    // Camera frames, synchronization, and background refreshes do not extend it.
+    for(const type of ['pointerdown','keydown','touchstart','wheel','scroll']){
+      document.addEventListener(type,touchActivity,{capture:true,passive:true});
+    }
+    document.addEventListener('visibilitychange',()=>{
+      if(document.hidden){
+        if(session)void persistSession(session);
+      }else void checkIdleSession();
+    });
+    window.addEventListener('focus',()=>{void checkIdleSession();});
+    setInterval(()=>{
+      if(!session)return;
+      if(session.offlineUntil<Date.now()){
+        void signOut('expired').then(()=>status('Access lease expired. Sign in online again.',true));
+        return;
+      }
+      void checkIdleSession();
+    },2000);
+  };
+  return {init,login,signOut,ensureOnline,current:()=>session,seal,unseal,randomSalt,proof,touchActivity,checkIdleSession,inactivityExceeded};
 })();
