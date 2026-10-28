@@ -90,10 +90,10 @@ async function enterApp(){
 function applyRoles(){document.querySelectorAll('[data-roles]').forEach(el=>el.hidden=true);}
 function refreshClock(){const now=new Date();setText('liveDateTime',now.toLocaleString('en-PH',{timeZone:PH_TIMEZONE,weekday:'short',month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}));setText('bigDate',now.toLocaleDateString('en-PH',{timeZone:PH_TIMEZONE,weekday:'long',month:'short',day:'numeric',year:'numeric'}));const connected=navigator.onLine;setText('connectionText',connected?'Online / local storage':'Offline / local storage');setText('headerOnlineText',connected?'Network online':state.offlineReady?'Offline ready':'Offline / setup needed');$('onlineDot').className=`status-dot ${connected?'success':'offline'}`;$('headerOnlineDot').className=`status-dot ${connected?'success':'offline'}`;}
 
-const pageNames={dashboard:'Dashboard',scanner:'Face terminal',terminalLogs:'Attendance logs',members:'Member registry',sites:'Work locations',records:'Attendance logs',settings:'Settings & offline'};
+const pageNames={dashboard:'Dashboard',scanner:'Face terminal',terminalLogs:'Attendance logs',members:'Member registry',sites:'Work locations',records:'Attendance logs',settings:'Settings & offline',adminSites:'Work locations list'};
 async function showPage(page){
   if(!pageNames[page])return;
-  if((page==='members'&&!canEdit()&&!isAdmin())||(page==='sites'&&!canEdit()))return;
+  if((page==='members'&&!canEdit()&&!isAdmin())||(page==='sites'&&!canEdit())||(page==='adminSites'&&!isAdmin()))return;
   
   if(state.page==='scanner'&&page!=='scanner')await stopScanner();
   state.page=page;
