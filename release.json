@@ -1,5 +1,5 @@
 {
   "app": "TIPON Face Attendance",
-  "version": "5.5.30",
-  "label": "Fail-closed live-face proof required for attendance and face enrollment; attendance uploads prioritized, rejected/pending sync statuses visible, overnight shift reconciliation, structured names, authorized re-enrollment and offline AI cache. Basic blink/pose liveness is not PAD-certified."
+  "version": "5.5.31",
+  "label": "Attendance-first upload, independent polling despite failed Work Location edits, unverified attendance review and visible sync states. Fail-closed blink/head-turn checks for face enrollment and terminal punches, four short voice prompts, editable face with authorization, Last/First/Middle Initial form, and cached offline startup. Pilot liveness is not certified anti-spoofing."
 }
