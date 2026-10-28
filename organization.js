@@ -402,7 +402,7 @@ window.OrgUI=(()=>{
       // Clear both password inputs immediately after deriving the proof.
       $('adminAccountPassword').value='';$('adminAccountPasswordConfirm').value='';
       const health=await TIPONAPI.raw({action:'health'});
-      if(!String(health.version||'').startsWith('5.5.8')){
+      if(!/^5\.5\.(?:8|9|[1-9]\d+)(?:\D|$)/.test(String(health.version||''))){
         throw Error('Admin account edits require Apps Script backend v5.5.8. Deploy Code.gs and OrgCore.gs to the existing Web App first.');
       }
       const response=await TIPONAPI.call(payload);
