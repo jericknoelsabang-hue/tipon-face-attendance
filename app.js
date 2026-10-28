@@ -271,21 +271,97 @@ function openSiteForm(site){
  if(site){$('siteName').value=site.name;$('siteCoop').value=site.coop;$('siteAddress').value=site.address||'';$('siteLat').value=site.lat;$('siteLng').value=site.lng;$('siteRadius').value=150;}
  updateSiteMap();$('siteDialog').showModal();
 }
-function updateSiteMap(){const lat=Number($('siteLat').value),lng=Number($('siteLng').value);const hasLat=$('siteLat').value.trim()!==''&&Number.isFinite(lat)&&Math.abs(lat)<=90,hasLng=$('siteLng').value.trim()!==''&&Number.isFinite(lng)&&Math.abs(lng)<=180;const valid=hasLat&&hasLng;
- if(!valid){$('siteMapFrame').hidden=true;$('mapOffline').hidden=false;$('siteOpenMap').hidden=true;setText('mapCoordLabel','Enter coordinates or use current GPS.');return;}
- setText('mapCoordLabel',`${lat.toFixed(6)}, ${lng.toFixed(6)} · ${$('siteRadius').value||150} m radius`);
+function updateSiteMap(){
+ const latInput=$('siteLat').value.trim(),lngInput=$('siteLng').value.trim();
+ const lat=Number(latInput),lng=Number(lngInput);
+ const valid=!!latInput&&!!lngInput&&Number.isFinite(lat)&&Number.isFinite(lng)&&Math.abs(lat)<=90&&Math.abs(lng)<=180;
+ const adminPicker=isAdmin()&&$('siteDialog')?.open;
+ if(!valid){
+  $('siteOpenMap').hidden=true;
+  setText('mapCoordLabel',adminPicker?'Choose the exact location on the map or enter coordinates.':'Enter coordinates or use current GPS.');
+  if(adminPicker){$('siteMapFrame').hidden=true;window.TIPONAdminSites?.syncFromInputs();}
+  else{$('siteMapFrame').hidden=true;$('mapOffline').hidden=false;}
+  return;
+ }
+ setText('mapCoordLabel',lat.toFixed(7)+', '+lng.toFixed(7)+' · '+($('siteRadius').value||150)+' m radius');
+ $('siteOpenMap').href='https://www.openstreetmap.org/?mlat='+lat+'&mlon='+lng+'#map=16/'+lat+'/'+lng;
+ $('siteOpenMap').hidden=false;
+ if(adminPicker){
+  // The Admin's draggable Leaflet map owns the preview. The embedded OSM map
+  // remains a read-only preview for ordinary scoped Users.
+  $('siteMapFrame').hidden=true;
+  window.TIPONAdminSites?.syncFromInputs();
+  return;
+ }
  const zoomLat=.010,zoomLng=.015,box=[lng-zoomLng,lat-zoomLat,lng+zoomLng,lat+zoomLat].join(',');
- $('siteOpenMap').href=`https://www.openstreetmap.org/?mlat=${lat}&mlon=${lng}#map=16/${lat}/${lng}`;$('siteOpenMap').hidden=false;
- if(navigator.onLine){const src=`https://www.openstreetmap.org/export/embed.html?bbox=${encodeURIComponent(box)}&layer=mapnik&marker=${lat}%2C${lng}`;if($('siteMapFrame').src!==src)$('siteMapFrame').src=src;$('siteMapFrame').hidden=false;$('mapOffline').hidden=true;}
- else{$('siteMapFrame').hidden=true;$('mapOffline').hidden=false;}
+ if(navigator.onLine){
+  const src='https://www.openstreetmap.org/export/embed.html?bbox='+encodeURIComponent(box)+'&layer=mapnik&marker='+lat+'%2C'+lng;
+  if($('siteMapFrame').src!==src)$('siteMapFrame').src=src;
+  $('siteMapFrame').hidden=false;$('mapOffline').hidden=true;
+ }else{$('siteMapFrame').hidden=true;$('mapOffline').hidden=false;}
 }
 async function saveSiteForm(e){
- e.preventDefault();const lat=Number($('siteLat').value),lng=Number($('siteLng').value),radius=Number($('siteRadius').value);
- if(!$('siteLat').value.trim()||!$('siteLng').value.trim()||!Number.isFinite(lat)||!Number.isFinite(lng)||!Number.isFinite(radius)||Math.abs(lat)>90||Math.abs(lng)>180||radius<GPS_MIN_RADIUS||radius>2000){showToast('Invalid GPS coordinates or radius.','error');return;}
- if(state.editSite && state.members.filter(m=>m.siteId===state.editSite.id).some(m=>state.punches.find(p=>p.memberId===m.id)?.type==='IN')){showToast('Complete open Time Out records before changing this worksite.','error');return;}
- const site={id:state.editSite?.id||uuid(),name:$('siteName').value.trim(),coop:$('siteCoop').value,platform:$('sitePlatform').value.trim(),address:$('siteAddress').value.trim(),lat,lng,radius,createdAt:state.editSite?.createdAt||new Date().toISOString()};
- if(!site.name){showToast('Location name is required.','error');return;}
- try{await saveOne('sites',site);await loadCollections();$('siteDialog').close();renderSites();renderDashboard();showToast('Work location saved.','success');}catch(err){toastError(err,'Cannot save location');}
+ e.preventDefault();
+ if(!canEdit()&&!isAdmin())return;
+ const latValue=$('siteLat').value.trim(),lngValue=$('siteLng').value.trim();
+ const lat=Number(latValue),lng=Number(lngValue),radius=Number($('siteRadius').value);
+ const coop=$('siteCoop').value,platform=$('sitePlatform').value.trim(),name=$('siteName').value.trim();
+ if(!latValue||!lngValue||!Number.isFinite(lat)||!Number.isFinite(lng)||!Number.isFinite(radius)||
+   Math.abs(lat)>90||Math.abs(lng)>180||radius<GPS_MIN_RADIUS||radius>2000){
+  showToast('Select a work location on the map or enter valid latitude and longitude.','error');return;
+ }
+ if(!name||!TIPONOrgCore.COOPS.includes(coop)||!platform){
+  showToast('Enter Location name and select a listed Cooperative and Business Platform.','error');return;
+ }
+ if(!TIPONOrgCore.platformNames(TIPONPlatforms.names()).some(p=>TIPONOrgCore.platformKey(p)===TIPONOrgCore.platformKey(platform))){
+  showToast('Choose a registered Business Platform.','error');return;
+ }
+ const previous=state.editSite,changingScope=!!previous&&(
+   previous.coop!==coop||TIPONOrgCore.platformKey(previous.platform)!==TIPONOrgCore.platformKey(platform));
+ const movingGPS=!!previous&&(Number(previous.lat)!==lat||Number(previous.lng)!==lng||Number(previous.radius)!==radius);
+ const geofenceChanged=changingScope||movingGPS;
+ if(previous&&geofenceChanged){
+  const inProgress=TIPONOrgCore.project(state.punches.filter(p=>!p.reviewStatus)).filter(p=>
+   p.siteId===previous.id&&p.timeIn&&!p.timeOut);
+  if(inProgress.length){
+   const memberNames=[...new Set(inProgress.map(p=>p.memberName||p.memberId))].slice(0,3).join(', ');
+   showToast('Complete Time Out before moving this geofence or changing MPC/BP. Open session: '+memberNames+'. You can edit its name or description without changing GPS.','error',10000);
+   return;
+  }
+  if(changingScope&&state.members.some(m=>!m.deleted&&(m.siteId===previous.id||m.siteIds?.includes(previous.id)))){
+   showToast('Reassign members before changing this work location MPC/BP. GPS and attendance history remain unchanged.','error',8500);
+   return;
+  }
+ }
+ const site={
+  id:previous?.id||uuid(),name,coop,platform,address:$('siteAddress').value.trim(),
+  lat,lng,radius,createdAt:previous?.createdAt||new Date().toISOString()
+ };
+ if(previous&&!geofenceChanged&&name===previous.name&&
+    site.address===(previous.address||'')&&
+    JSON.stringify(OrgUI.readSiteSchedule())===JSON.stringify(previous.schedule||OrgUI.readSiteSchedule())){
+  $('siteDialog').close();showToast('No work-location changes to save.','info');return;
+ }
+ const submit=$('siteForm').querySelector('[type="submit"],.dialog-actions .btn.primary');
+ if(submit)submit.disabled=true;
+ try{
+  if(isAdmin()){
+   if(!navigator.onLine)throw Error('Administrator site changes require an online session.');
+   // Fail before staging an operation if the central deployment cannot accept it.
+   const health=await TIPONAPI.raw({action:'health'});
+   const version=String(health.version||'');
+   if(!/^5\.5\.(?:9|[1-9]\d+)(?:\D|$)/.test(version))
+    throw Error('Admin Work locations requires Apps Script v5.5.9. Deploy matching Code.gs and OrgCore.gs first; no changes were made.');
+  }
+  await saveOne('sites',site);
+  await loadCollections();
+  $('siteDialog').close();renderSites();
+  if(isAdmin())window.TIPONAdminSites?.render();
+  renderDashboard();
+  TIPONSync.kick();
+  showToast('Work location saved locally and queued for central synchronization.','success',6500);
+ }catch(err){toastError(err,'Could not save work location');}
+ finally{if(submit)submit.disabled=false;}
 }
 async function handleSiteCardsClick(e){const edit=e.target.closest('[data-site-edit]');const del=e.target.closest('[data-site-delete]');if(edit){const site=state.sites.find(s=>s.id===edit.dataset.siteEdit);if(site)openSiteForm(site);}
  if(del){const site=state.sites.find(s=>s.id===del.dataset.siteDelete);if(!site)return;if(state.members.some(m=>m.siteId===site.id||(m.siteIds||[]).includes(site.id))){showToast('Reassign or delete enrolled members before deleting their site.','error');return;}const ok=await confirmAction('Delete work location',`Delete ${site.name}? This change will sync to your organization.`);if(ok){await deleteOne('sites',site.id);await loadCollections();renderSites();showToast('Location removed.','success');}}}
