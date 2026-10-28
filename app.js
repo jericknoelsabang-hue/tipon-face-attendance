@@ -225,7 +225,10 @@ function fillMemberSites(preferred){
 function updateMemberSite(){
  const sites=[...$('memberSite').selectedOptions].map(o=>state.sites.find(s=>s.id===o.value)).filter(Boolean);
  setText('memberSiteSummary',sites.length?sites.length+' Location'+(sites.length===1?'':'s')+' Selected':'No Location Selected');
- setText('assignedSiteDetails',sites.length?sites.map(s=>s.name+' · '+Number(s.lat).toFixed(6)+', '+Number(s.lng).toFixed(6)+' ('+(s.radius||150)+' m GPS)').join(' | '):'You can assign a Work Location now or later. Time In requires an enrolled face and a confirmed GPS Work Location.');
+ setText('assignedSiteDetails',state.editMember&&!state.editMember.template?
+   'This member is NOT ENROLLED. Face Enrollment and Work Location can be saved together using the existing server. Location-only saving requires an updated central backend.':
+   sites.length?sites.map(s=>s.name+' · '+Number(s.lat).toFixed(6)+', '+Number(s.lng).toFixed(6)+' ('+(s.radius||150)+' m GPS)').join(' | '):
+   'You can assign a Work Location now or later. Time In requires an enrolled face and a confirmed GPS Work Location.');
 }
 function openMemberForm(member){if(!canEdit())return;
  state.editMember=member||null;state.pendingDescriptors=member?.descriptors?.map(a=>[...a])||[];state.consentAcknowledgedAt=member?.consentAt||null;
@@ -246,6 +249,53 @@ function openMemberForm(member){if(!canEdit())return;
  $('enrollFaceButton').textContent=alreadyEnrolled?'Already Enrolled':'Enroll Face';
  $('memberDialog').showModal();
 }
+/**
+ * Compatibility with the existing TIPON v5 API for ENROLLED members.
+ * Adding another approved site without removing an old site is safe even
+ * when the private memberLocationUpdate route has not been deployed.
+ *
+ * Use the original encrypted AES-GCM template as-is. No face re-enrollment,
+ * no biometric data in messages, and no optimistic local update.
+ */
+async function addExistingEnrolledMemberLocations(old,siteIds){
+ const stored=await getOne('members',old.id);
+ if(!stored||stored.deleted||stored._pendingOp)throw Object.assign(
+   Error('Member has an unconfirmed change. Refresh Member List before editing.'),{code:'CONFLICT'});
+ if(Number(stored.rev||0)!==Number(old.rev||0))throw Object.assign(
+   Error('This member changed on another device. Refresh Member List and retry.'),{code:'CONFLICT'});
+ if(!stored.template||stored.template.alg!=='AES-GCM'||!stored.template.iv||
+    typeof stored.template.data!=='string'||!stored.consentAt)
+   throw Object.assign(Error('Face enrollment and consent must be complete before saving with the existing server.'),{code:'ENROLLMENT_REQUIRED'});
+ if(stored.createdBy!==state.user?.id&&!stored.workLocationReassignmentRequired)
+   throw Object.assign(Error('This enrolled member is managed by another account. Ask the original enrollment User or an Administrator to authorize reassignment.'),{code:'FORBIDDEN'});
+ const beforeIds=Array.isArray(stored.siteIds)&&stored.siteIds.length?
+   stored.siteIds:[stored.siteId].filter(Boolean);
+ if(beforeIds.some(id=>!siteIds.includes(id))||!siteIds.length)
+   throw Object.assign(Error('Removing or replacing a Work Location requires central server assignment support.'),{code:'BACKEND_REQUIRED'});
+ const wire={...stored,siteId:siteIds[0],siteIds:[...siteIds],
+   updatedAt:new Date().toISOString()};
+ // Send only the existing encrypted face template, never the decrypted vector.
+ for(const key of ['descriptors','_row','_pendingOp','syncIssue','templateError'])
+   delete wire[key];
+ const opId=uuid(),baseRev=Number(stored.rev)||0;
+ const response=await TIPONAPI.call({action:'submit',
+   operations:[{id:opId,type:'members',value:wire,baseRev}],events:[]});
+ const failure=(response.operationErrors||[]).find(item=>item.id===opId);
+ if(failure)throw Object.assign(Error(failure.error||'The central organization rejected the assignment.'),
+   {code:failure.code||'SERVER'});
+ if(!Array.isArray(response.ackOps)||!response.ackOps.includes(opId))
+   throw Error('The central organization did not acknowledge this member update. Refresh before retrying.');
+ const receipt=(response.receipts||[]).find(x=>x.type==='members'&&x.id===old.id);
+ if(!receipt||Number(receipt.rev)!==baseRev+1)
+   throw Error('An incomplete server receipt was received. Refresh the member directory to verify the assignment.');
+ const latest=await getOne('members',old.id);
+ if(latest?._pendingOp)throw Error('A concurrent edit was detected after central confirmation. Refresh Member List.');
+ const record={...latest,...wire,orgId:state.orgId,rev:Number(receipt.rev)};
+ delete record._pendingOp;delete record.syncIssue;delete record.descriptors;
+ await OrgDB.rawSave('members',record);
+ return record;
+}
+
 async function saveMemberForm(e){
  e.preventDefault();if(!canEdit())return;
  const id=$('memberId').value.trim(),name=$('memberName').value.trim(),
@@ -284,33 +334,52 @@ async function saveMemberForm(e){
      !state.punches.some(q=>q.sessionId===p.sessionId&&q.type==='OUT'));
    if(open){showToast('Complete Time Out before changing the assigned GPS location.','error');return;}
    const submit=$('memberForm').querySelector('[type="submit"]');
+   const fullFace=!!old.template&&old.active!==false;
+   // Old Apps Script requires a face template for member writes. It can
+   // enroll an imported member and assign a location in one approved save,
+   // but it cannot store a NOT ENROLLED member's location by itself.
+   // Do not prevent NOT ENROLLED location-only updates when the private
+   // Member Location backend has been installed. If it is unavailable,
+   // show an actionable alternative after the server responds.
+
+   const addingOnly=fullFace&&siteIds.length>0&&oldIds.every(site=>siteIds.includes(site));
    if(submit)submit.disabled=true;
    try{
-     // The private backend must confirm even un-enrolled member assignments.
-     // Never silently call saveOne() because it requires a face template and
-     // could accidentally change biometric/enrollment status.
-     const response=await TIPONAPI.call({action:'memberLocationUpdate',
-       memberId:id,baseRev:Number(old.rev)||0,siteIds});
-     const confirmed=response.member;
-     const savedIds=Array.isArray(confirmed?.siteIds)&&confirmed.siteIds.length?
-       confirmed.siteIds:[confirmed?.siteId].filter(Boolean);
-     if(!confirmed||confirmed.id!==id||savedIds.length!==siteIds.length||
-       !savedIds.every(x=>siteIds.includes(x))){
-       throw Error('Central server did not acknowledge the selected Assigned Work Location.');
+     if(addingOnly){
+       // The existing authenticated submit route supports adding a site to
+       // an ENROLLED member without changing their current approved sites.
+       // It returns an explicit operation receipt before we change local data.
+       await addExistingEnrolledMemberLocations(old,siteIds);
+     }else{
+       // Remove/replace or NOT ENROLLED location-only writes require the
+       // new private, server-authorized endpoint with open-session checks.
+       const response=await TIPONAPI.call({action:'memberLocationUpdate',
+         memberId:id,baseRev:Number(old.rev)||0,siteIds});
+       const confirmed=response.member;
+       const savedIds=Array.isArray(confirmed?.siteIds)&&confirmed.siteIds.length?
+         confirmed.siteIds:[confirmed?.siteId].filter(Boolean);
+       if(!confirmed||confirmed.id!==id||savedIds.length!==siteIds.length||
+          !savedIds.every(x=>siteIds.includes(x)))
+         throw Error('Central organization did not acknowledge this assignment. Refresh before retrying.');
+       const local=await getOne('members',id);
+       if(local?._pendingOp)throw Error('Existing member change is pending sync. Retry after it completes.');
+       const record={...local,...confirmed,orgId:state.orgId};
+       delete record._pendingOp;
+       await OrgDB.rawSave('members',record);
      }
-     const local=await getOne('members',id);
-     if(local?._pendingOp)throw Error('Existing member change is pending sync. Retry after it completes.');
-     const record={...local,...confirmed,orgId:state.orgId};
-     delete record._pendingOp;
-     await OrgDB.rawSave('members',record);
      await loadCollections();$('memberDialog').close();
      renderMembers();renderDashboard();TIPONSync.kick();
-     showToast('Assigned Work Location updated centrally. Face enrollment status remains unchanged.','success',7500);
+     showToast('Assigned Work Location saved and confirmed centrally. Face enrollment is unchanged.','success',7500);
    }catch(error){
-     const message=error.code==='ACTION'||/unknown action|unsupported action|not implemented/i.test(error.message||'')
-       ?'Work Location edits for existing members require the matching private Apps Script backend patch. No assignment was changed.'
-       :String(error.message||'Could not update Assigned Work Location.');
-     showToast(message,'error',9000);
+     const unsupported=error.code==='ACTION'||/unknown action|unsupported action|not implemented/i.test(error.message||'');
+     const message=unsupported?
+       (!fullFace?'Location-only saving is not enabled on the organization server yet. Select Enroll Face, complete 3 samples, and Save Member to assign the location now; or ask the Administrator to deploy the Member Location update. No assignment was saved.':
+        'Removing or replacing a Work Location requires the TIPON Member Location backend update. Ask your Administrator to deploy it. No assignment was saved.') :
+       error.code==='TIMEOUT'?
+       'Server response timed out. Refresh the Member List to verify the latest central assignment before trying again.':
+       String(error.message||'Could not confirm the Work Location update.');
+     setText('assignedSiteDetails',message);
+     showToast(message,unsupported?'info':'error',9000);
    }finally{if(submit)submit.disabled=false;}
    return;
  }

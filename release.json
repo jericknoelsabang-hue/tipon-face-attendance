@@ -1,5 +1,5 @@
 {
   "app": "TIPON Face Attendance",
-  "version": "5.5.22",
-  "label": "Uniform 56px member enrollment controls; Absenteeism date/MPC filters with blank initial dates, filtered 14-day trends and improved sync status; simplified Attendance heading without duplicate filters; new member enrollment attempts immediate central sync and only reports success on server acknowledgement. Private Apps Script backend required for existing member location edits."
+  "version": "5.5.23",
+  "label": "Fix Member List Work Location update UX: existing enrolled members can add approved sites using the current authenticated submit API and central receipt without re-enrollment; backend-required removals and NOT ENROLLED location-only edits show actionable guidance and never claim an unconfirmed sync. New-member enrollment and attendance checks unchanged."
 }
