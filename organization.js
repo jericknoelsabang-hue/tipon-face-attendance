@@ -190,14 +190,29 @@ window.OrgUI=(()=>{
   }
   function renderMpc(){
     if(!isAdmin())return;
-    if(!$('dashboardDay').value)$('dashboardDay').value=todayPH();
+    const fromField=$('dashboardFrom'),toField=$('dashboardTo'),today=todayPH();
+    if(!fromField.value)fromField.value=today;
+    if(!toField.value)toField.value=today;
+    if(fromField.value>toField.value){
+      setText('orgSyncStamp','From date must not be later than To date. Correct the date range.');
+      $('dashboardSummary').innerHTML='';
+      $('dashboardRanking').innerHTML='';
+      return;
+    }
+    const from=fromField.value,to=toField.value;
+    // Compatibility: day-based legacy actions still read dashboardDay.
+    $('dashboardDay').value=to;
     renderDashboardPlatformFilter();
-    const day=$('dashboardDay').value, f=dashboardFilter();
+    const day=from===to?from:from+' to '+to, f=dashboardFilter();
     const all=state.members.filter(m=>!m.deleted&&m.active!==false);
     const coops=[...new Set([...TIPONOrgCore.COOPS,...all.map(m=>m.coop).filter(Boolean)])];
     $('coopDashboardCards').innerHTML=coops.map(coop=>'<article class="coop-summary" data-coop="'+esc(coop)+'"><span class="coop-monogram" aria-hidden="true">'+esc(coop.split(' ').map(w=>w[0]).join('').slice(0,3))+'</span><h3>'+esc(coop)+'</h3><strong>'+all.filter(m=>m.coop===coop).length+'</strong><small>Registered members</small></article>').join('');
     const members=filteredMembers().filter(m=>!m.deleted&&m.active!==false);
-    const events=state.punches.filter(p=>!p.reviewStatus&&!p.deleted&&TIPONCore.phStamp(p.timestamp).slice(0,10)===day);
+    const events=state.punches.filter(p=>{
+      if(p.reviewStatus||p.deleted||!p.timestamp)return false;
+      const punchDay=TIPONCore.phStamp(p.timestamp).slice(0,10);
+      return punchDay>=from&&punchDay<=to;
+    });
     const tally=items=>{
       let timedIn=0,timedOut=0,complete=0,missing=0;
       for(const m of items){
@@ -462,7 +477,16 @@ window.OrgUI=(()=>{
   function bind(){
     bindRegistryUploads();
     ['registerCoop','dashboardCoop','reportCoop'].forEach(id=>fillCoopSelect(id,['dashboardCoop','reportCoop'].includes(id)));
-    ['dashboardDay','dashboardCoop','presenceFilter'].forEach(id=>attach(id,'change',renderMpc));attach('dashboardRefresh','click',()=>TIPONSync.kick());attach('dashboardResetFilters','click',()=>{$('dashboardCoop').value='';$('presenceFilter').value='';renderMpc();});
+    ['dashboardFrom','dashboardTo','dashboardCoop','presenceFilter'].forEach(id=>attach(id,'change',renderMpc));
+    attach('dashboardRefresh','click',async()=>{
+      const result=await TIPONSync.run();
+      if(!result?.ok)showToast(result?.error||'Refresh is not available right now. Check synchronization status.','error');
+      else renderMpc();
+    });
+    attach('dashboardResetFilters','click',()=>{
+      $('dashboardCoop').value='';$('presenceFilter').value='';
+      $('dashboardFrom').value=todayPH();$('dashboardTo').value=todayPH();renderMpc();
+    });
     ['reportFrom','reportTo','reportCoop'].forEach(id=>attach(id,'change',renderReports));
     attach('refreshAccounts','click',renderAccounts);
     attach('accountRows','click',async e=>{
