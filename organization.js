@@ -157,7 +157,16 @@ showPage=async function(page){
   if(page==='accounts')await OrgUI.renderAccounts();if(page==='adminSites')window.TIPONAdminSites?.render();if(page==='settings')OrgUI.renderSettings();if(page==='scanner')TIPONCamera.render();if(page==='terminalLogs')renderTerminalLogs();
 };
 const originalOpenMember=openMemberForm,originalOpenSite=openSiteForm;
-openMemberForm=function(member){if(!canEdit())return;originalOpenMember(member);if(state.user.role==='registrar'){$('memberCoop').value=state.user.coop;$('memberCoop').disabled=true;fillMemberSites(member?.siteIds||member?.siteId);}else $('memberCoop').disabled=false;};
+openMemberForm=function(member){
+ if(!canEdit())return;
+ originalOpenMember(member);
+ if(state.user.role==='registrar'){
+  $('memberCoop').value=state.user.coop;$('memberCoop').disabled=true;
+  TIPONPlatforms.fill('memberPlatform',state.user.platform);
+  $('memberPlatform').disabled=true;
+  fillMemberSites(member?.siteIds||member?.siteId);
+ }else{$('memberCoop').disabled=false;$('memberPlatform').disabled=false;}
+};
 openSiteForm=function(site){
   if(!canEdit()&&!isAdmin())return;
   originalOpenSite(site);

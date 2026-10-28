@@ -1,5 +1,5 @@
 {
   "app": "TIPON Face Attendance",
-  "version": "5.5.14",
-  "label": "Original Picture 2 desktop login panel restored at native 996x917 resolution, with guided member enrollment for User-scoped Work Locations (refresh, create and return to draft), plus address-to-GPS lookup for User site setup."
+  "version": "5.5.15",
+  "label": "Member form shows approved Business Platform beside Cooperative, removes extra Work Location notice and buttons, checks Admin site backend acceptance rather than hardcoded version, and forces refreshed member templates after central enrollment reset."
 }

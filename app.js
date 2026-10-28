@@ -190,53 +190,6 @@ function renderMembers(){
  }).join(''):'<tr><td colspan="7"><div class="empty-state">'+pageIcon('users')+'No matching members found.</div></td></tr>';
 }
 
-let resumeMemberAfterSite=false;
-let newlyCreatedEnrollmentSiteId='';
-let memberSitePreviousSelection=[];
-function updateMemberSiteAvailability(){
- const count=$('memberSite')?.options.length||0;
- const help=$('memberSiteAssist');
- if(!help)return;
- help.hidden=count>0;
- if(!count){
-  const coop=state.user?.coop||$('memberCoop').value||'Unassigned Cooperative';
-  const platform=state.user?.platform||'Unassigned Business Platform';
-  setText('memberSiteAssistText','No Work Locations are available for your approved scope ('+coop+' / '+platform+'). Refresh the directory or create a Work Location for this scope before completing Face Enrollment.');
- }
-}
-function createSiteForEnrollment(){
- if(!canEdit()||!$('memberDialog').open)return;
- memberSitePreviousSelection=[...$('memberSite').selectedOptions].map(o=>o.value);
- newlyCreatedEnrollmentSiteId='';
- resumeMemberAfterSite=true;
- $('memberDialog').close();
- openSiteForm(null);
-}
-function resumeEnrollmentAfterSite(){
- if(!resumeMemberAfterSite)return;
- resumeMemberAfterSite=false;
- if(!canEdit()){newlyCreatedEnrollmentSiteId='';memberSitePreviousSelection=[];return;}
- const selection=newlyCreatedEnrollmentSiteId?[newlyCreatedEnrollmentSiteId]:memberSitePreviousSelection;
- newlyCreatedEnrollmentSiteId='';memberSitePreviousSelection=[];
- fillMemberSites(selection);
- if(!$('memberDialog').open)$('memberDialog').showModal();
- if(selection.length)showToast('Work Location selected. Continue Face Enrollment, then Save Member.','success');
-}
-async function refreshMemberEnrollmentSites(){
- if(!canEdit())return;
- if(!navigator.onLine){showToast('Internet is required to refresh Work Locations. You can still add a location using GPS.','info');return;}
- const button=$('memberRefreshSites');button.disabled=true;
- const selection=[...$('memberSite').selectedOptions].map(o=>o.value);
- try{
-  const outcome=await TIPONSync.run();
-  if(!outcome?.ok)throw Error(outcome?.error||'The directory refresh was incomplete.');
-  await loadCollections();
-  fillMemberSites(selection);
-  const count=$('memberSite').options.length;
-  showToast(count?count+' authorized Work Location(s) available.':'No Work Locations are assigned to this Cooperative / Business Platform. Add a Work Location or ask an Administrator to assign one.',count?'success':'info',7500);
- }catch(error){toastError(error,'Work Location refresh failed');}
- finally{button.disabled=false;}
-}
 let lastUserAddressSearch=0;
 async function findUserSiteAddress(){
  if(!canEdit()||!$('siteDialog')?.open)return;
@@ -262,13 +215,12 @@ async function findUserSiteAddress(){
 }
 
 function fillMemberSites(preferred){
- const coop=$('memberCoop').value,ids=(Array.isArray(preferred)?preferred:[preferred]).filter(Boolean),platform=state.editMember?.platform||state.user?.platform||'';
+ const coop=$('memberCoop').value,ids=(Array.isArray(preferred)?preferred:[preferred]).filter(Boolean),platform=$('memberPlatform')?.value||state.user?.platform||'';
  const sites=state.sites.filter(s=>!s.deleted&&s.coop===coop&&(!platform||TIPONOrgCore.platformKey(s.platform)===TIPONOrgCore.platformKey(platform)));
  $('memberSite').innerHTML=sites.map(s=>'<option value="'+esc(s.id)+'">'+esc(s.name)+' ('+esc(s.radius)+' m)</option>').join('');
  for(const option of $('memberSite').options)option.selected=ids.includes(option.value);
- $('memberSiteChoices').innerHTML=sites.map(s=>'<label class="multi-select-option"><input type="checkbox" data-member-site-option="'+esc(s.id)+'" '+(ids.includes(s.id)?'checked':'')+'/><span>'+esc(s.name)+' <small>'+esc(s.radius||150)+' m GPS</small></span></label>').join('')||'<span class="mini-info">No work locations configured for this cooperative and business platform. Create a work location first.</span>';
+ $('memberSiteChoices').innerHTML=sites.map(s=>'<label class="multi-select-option"><input type="checkbox" data-member-site-option="'+esc(s.id)+'" '+(ids.includes(s.id)?'checked':'')+'/><span>'+esc(s.name)+' <small>'+esc(s.radius||150)+' m GPS</small></span></label>').join('');
  updateMemberSite();
- updateMemberSiteAvailability();
 }
 function updateMemberSite(){
  const sites=[...$('memberSite').selectedOptions].map(o=>state.sites.find(s=>s.id===o.value)).filter(Boolean);
@@ -278,6 +230,8 @@ function updateMemberSite(){
 function openMemberForm(member){if(!canEdit())return;
  state.editMember=member||null;state.pendingDescriptors=member?.descriptors?.map(a=>[...a])||[];state.consentAcknowledgedAt=member?.consentAt||null;
  $('memberForm').reset();
+ TIPONPlatforms.fill('memberPlatform',member?.platform||state.user?.platform||'');
+ $('memberPlatform').disabled=state.user?.role==='registrar';
  const identityLocked=!!member&&(member.workLocationReassignmentRequired===true||
   ((member.importPending===true||member.importedWithoutFace===true)&&!member.template));
  $('memberName').readOnly=identityLocked;
@@ -288,8 +242,8 @@ function openMemberForm(member){if(!canEdit())return;
  fillMemberSites(member?.siteIds||member?.siteId);setText('enrollFaceLabel',state.pendingDescriptors.length>=3?'ENROLLED · select Enroll face to replace':'Not enrolled · select Enroll face');$('memberDialog').showModal();
 }
 async function saveMemberForm(e){e.preventDefault();if(!canEdit())return;
- const id=$('memberId').value.trim(),name=$('memberName').value.trim(),coop=$('memberCoop').value,siteIds=[...$('memberSite').selectedOptions].map(o=>o.value),sites=siteIds.map(id=>state.sites.find(x=>x.id===id)).filter(Boolean),site=sites[0];
- if(!id||!name||!siteIds.length||sites.length!==siteIds.length||sites.some(s=>s.coop!==coop||TIPONOrgCore.platformKey(s.platform)!==TIPONOrgCore.platformKey(state.editMember?.platform||state.user?.platform))){showToast('Choose an approved Work Location for this Cooperative and Business Platform. Use Add Work Location if none is available.','error');updateMemberSiteAvailability();return;}
+ const id=$('memberId').value.trim(),name=$('memberName').value.trim(),coop=$('memberCoop').value,platform=$('memberPlatform').value.trim(),siteIds=[...$('memberSite').selectedOptions].map(o=>o.value),sites=siteIds.map(id=>state.sites.find(x=>x.id===id)).filter(Boolean),site=sites[0];
+ if(!id||!name||!platform||!TIPONOrgCore.inScope(state.user,{coop,platform})||!siteIds.length||sites.length!==siteIds.length||sites.some(s=>s.coop!==coop||TIPONOrgCore.platformKey(s.platform)!==TIPONOrgCore.platformKey(platform))){showToast('Select an assigned Work Location matching your approved Cooperative and Business Platform.','error');return;}
  if(!state.editMember&&state.members.some(m=>m.id.toLowerCase()===id.toLowerCase())){showToast('Member ID is already registered.','error');return;}
  if(!state.pendingDescriptors.length||state.pendingDescriptors.length<3){showToast('Complete face enrollment before saving.','error');return;}
  const latestMembers=await getAll('members');
@@ -301,7 +255,7 @@ async function saveMemberForm(e){e.preventDefault();if(!canEdit())return;
  if(!state.consentAcknowledgedAt&&!state.editMember?.consentAt){showToast('Click Enroll face after the member reviews the biometric notice.','error');return;}
  const last=state.punches.find(p=>p.memberId===id);
  if(last?.type==='IN'&&(state.editMember?.siteIds||[state.editMember?.siteId]).some(x=>!siteIds.includes(x))){showToast('Complete Time Out before removing an assigned work location.','error');return;}
- const record={id,name,coop,siteId:siteIds[0],siteIds,descriptors:state.pendingDescriptors,consentAt:state.editMember?.consentAt||new Date(state.consentAcknowledgedAt||Date.now()).toISOString(),enrolledBy:state.editMember?.enrolledBy||state.deviceId,enrolledByUsername:state.editMember?.enrolledByUsername||state.user.username||'',createdAt:state.editMember?.createdAt||new Date().toISOString(),updatedAt:new Date().toISOString()};
+ const record={id,name,coop,platform,siteId:siteIds[0],siteIds,descriptors:state.pendingDescriptors,consentAt:state.editMember?.consentAt||new Date(state.consentAcknowledgedAt||Date.now()).toISOString(),enrolledBy:state.editMember?.enrolledBy||state.deviceId,enrolledByUsername:state.editMember?.enrolledByUsername||state.user.username||'',createdAt:state.editMember?.createdAt||new Date().toISOString(),updatedAt:new Date().toISOString()};
  try{await saveOne('members',record);await loadCollections();$('memberDialog').close();renderMembers();renderDashboard();showToast(`${name} enrolled successfully.`,'success');}catch(err){toastError(err,'Unable to save member');}
 }
 async function handleMemberTableClick(e){
@@ -442,22 +396,32 @@ async function saveSiteForm(e){
  const submit=$('siteForm').querySelector('[type="submit"],.dialog-actions .btn.primary');
  if(submit)submit.disabled=true;
  try{
-  if(isAdmin()){
-   if(!navigator.onLine)throw Error('Administrator site changes require an online session.');
-   // Fail before staging an operation if the central deployment cannot accept it.
+  const admin=isAdmin();
+  if(admin){
+   if(!navigator.onLine)throw Error('Administrator Work Location changes require an online session.');
+   if(TIPONSync.isBusy())throw Error('Organization synchronization is running. Try saving again when it finishes.');
    const health=await TIPONAPI.raw({action:'health'});
-   const version=String(health.version||'');
-   if(!/^5\.5\.(?:9|[1-9]\d+)(?:\D|$)/.test(version))
-    throw Error('Admin Work locations requires Apps Script v5.5.9. Deploy matching Code.gs and OrgCore.gs first; no changes were made.');
+   if(!health||health.ok===false)throw Error('The central organization backend is not ready. No changes were staged.');
   }
   await saveOne('sites',site);
   await loadCollections();
-  if(resumeMemberAfterSite)newlyCreatedEnrollmentSiteId=site.id;
+  if(admin){
+   // Do not report success until the server acknowledges this specific site.
+   const result=await TIPONSync.run();
+   const stored=await getOne('sites',site.id);
+   const pending=stored?._pendingOp?await getOne('outbox',stored._pendingOp):null;
+   if(!result?.ok||stored?._pendingOp){
+    $('siteDialog').close();renderSites();window.TIPONAdminSites?.render();
+    const reason=pending?.error||result?.error||'Central server has not acknowledged this location.';
+    showToast('Work Location is saved on this device only; central sync is not confirmed. '+reason,'error',12000);
+    return;
+   }
+  }
   $('siteDialog').close();renderSites();
-  if(isAdmin())window.TIPONAdminSites?.render();
+  if(admin)window.TIPONAdminSites?.render();
   renderDashboard();
-  TIPONSync.kick();
-  showToast('Work location saved locally and queued for central synchronization.','success',6500);
+  if(admin)showToast('Work Location saved and confirmed by the central organization database.','success',7000);
+  else{TIPONSync.kick();showToast('Work Location saved locally and queued for central synchronization.','success',6500);}
  }catch(err){toastError(err,'Could not save work location');}
  finally{if(submit)submit.disabled=false;}
 }
@@ -946,11 +910,8 @@ function bindEvents(){
  document.addEventListener('fullscreenchange',()=>document.body.classList.toggle('terminal-fullscreen',!!document.fullscreenElement&&state.page==='scanner'));
  attach('addMember','click',()=>openMemberForm(null));attach('memberRows','click',handleMemberTableClick);
  attach('memberForm','submit',saveMemberForm);
- attach('memberCoop','change',()=>fillMemberSites());attach('memberSiteChoices','change',e=>{const cb=e.target.closest('[data-member-site-option]');if(!cb)return;const option=[...$('memberSite').options].find(o=>o.value===cb.dataset.memberSiteOption);if(option)option.selected=cb.checked;updateMemberSite();});
+ attach('memberCoop','change',()=>fillMemberSites());attach('memberPlatform','change',()=>fillMemberSites());attach('memberSiteChoices','change',e=>{const cb=e.target.closest('[data-member-site-option]');if(!cb)return;const option=[...$('memberSite').options].find(o=>o.value===cb.dataset.memberSiteOption);if(option)option.selected=cb.checked;updateMemberSite();});
  attach('enrollFaceButton','click',beginEnrollment);
- attach('memberCreateSite','click',createSiteForEnrollment);
- attach('memberRefreshSites','click',refreshMemberEnrollmentSites);
- attach('siteDialog','close',resumeEnrollmentAfterSite);
  attach('adminSitePlaceFind','click',findUserSiteAddress);
  attach('siteAddress','keydown',event=>{if(event.key==='Enter'&&canEdit()&&$('siteDialog')?.open){event.preventDefault();void findUserSiteAddress();}});
   attach('retryEnrollment','click',async()=>{await stopEnrollment(true);if($('enrollDialog').open)$('enrollDialog').close();if(!$('memberDialog').open)$('memberDialog').showModal();await beginEnrollment();});

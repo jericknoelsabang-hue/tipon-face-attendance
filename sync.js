@@ -98,7 +98,7 @@ window.TIPONSync=(()=>{
     const errs=(reply.operationErrors||[]).concat(reply.rejected||[]);if(errs.length)message='Some records remain local: '+errs[0].error;
   }
   async function pullCatalog(version){
-    const cfgId='tp5-catalog:'+state.orgId+':'+state.user.id+':'+state.user.role+':v5.2-scope:'+String(state.user.version||1)+':'+(state.user.siteIds||[]).join(',');
+    const cfgId='tp5-catalog:'+state.orgId+':'+state.user.id+':'+state.user.role+':v5.5.15-scope:'+String(state.user.version||1)+':'+(state.user.siteIds||[]).join(',');
     const known=await getOne('meta',cfgId),localMembers=await getAll('members');
     const scoped=localMembers.filter(m=>m.orgId===state.orgId&&TIPONOrgCore.inScope(state.user,m));
     const faceCount=scoped.filter(m=>!m.deleted&&m.active!==false&&m.template).length;

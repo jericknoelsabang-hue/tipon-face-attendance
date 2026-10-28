@@ -11,7 +11,7 @@ window.TIPONPlatforms=(()=>{
   function fill(id,preferred){
     const el=$(id);if(!el)return;
     const value=preferred===undefined?el.value:String(preferred||'');
-    const scoped=state.user?.role==='registrar'&&['sitePlatform'].includes(id);
+    const scoped=state.user?.role==='registrar'&&['sitePlatform','memberPlatform'].includes(id);
     const options=scoped?[state.user.platform]:TIPONOrgCore.platformNames([...names(),value]);
     const html='<option value="">Select business platform</option>'+options.filter(Boolean).map(n=>`<option value="${esc(n)}">${esc(n)}</option>`).join('');
     if(el.innerHTML!==html)el.innerHTML=html;el.disabled=scoped;
