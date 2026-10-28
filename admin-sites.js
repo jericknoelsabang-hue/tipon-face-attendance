@@ -70,116 +70,158 @@ window.TIPONAdminSites=(()=>{
     finally{refreshing=false;btn.disabled=false;}
   }
   const deletingSites=new Set();
-  function memberUsesSite(siteId){
-    return state.members.some(member=>!member.deleted&&
-      (member.siteId===siteId||Array.isArray(member.siteIds)&&member.siteIds.includes(siteId)));
+  const assignedMembers=(members,siteId)=>(members||[]).some(member=>!member.deleted&&
+    (String(member.siteId||'')===String(siteId)||
+      Array.isArray(member.siteIds)&&member.siteIds.some(x=>String(x)===String(siteId))));
+
+  function describeSiteError(error){
+    const code=String(error?.code||'').toUpperCase();
+    const message=String(error?.message||error||'The central server did not confirm this request.');
+    if(code==='DEPENDENCY'||code==='OPEN_SESSION'||/reassign members|complete time out|open time in/i.test(message))
+      return 'This Work Location is assigned to a member or has an open attendance session. Reassign members and complete Time Out before deleting.';
+    if(code==='CONFLICT'||/record changed|revision conflict/i.test(message))
+      return 'This location changed on the server. Refresh Work Locations and retry. No local deletion was made.';
+    if(code==='AUTH'||code==='FORBIDDEN'||code==='ACCOUNT'||code==='DEVICE_DISABLED')
+      return 'Only an approved Administrator with an active organization session can delete Work Locations.';
+    if(code==='NETWORK'||!navigator.onLine)
+      return 'Internet connection to the organization is unavailable. Your Work Locations have not been deleted.';
+    if(code==='TIMEOUT'||/timeout|did not respond/i.test(message))
+      return 'The server response timed out. The app will check the authoritative directory before another deletion is attempted.';
+    return message;
   }
-  function deleteErrorText(error){
-    const code=String(error?.code||'').toUpperCase(),detail=String(error?.message||error||'Unknown error');
-    if(code==='CONFLICT'||/record changed|revision conflict/i.test(detail))
-      return 'The Work Location changed on another device. Refresh the list, then try again.';
-    if(code==='DEPENDENCY'||/reassign members|assigned to members|open Time Out|open time in/i.test(detail))
-      return 'Cannot delete this Work Location while members or open attendance sessions depend on it. Reassign members and complete Time Out first.';
-    if(code==='TIMEOUT'||/did not respond|timed out/i.test(detail))
-      return 'The server reply timed out. No local deletion was made. Refresh Work Locations to check whether the server processed it before retrying.';
-    if(code==='NETWORK'||code==='SETUP'||!navigator.onLine)
-      return 'The central server is unavailable. No deletion was made. Connect to the internet and try again.';
-    if(code==='FORBIDDEN'||code==='AUTH'||code==='AUTHZ')
-      return 'Your session or account is not authorized to delete this Work Location. Sign in again with an approved Administrator account.';
-    return detail;
-  }
+
   /**
-   * The older deleteOne('sites') marks a site locally as deleted before the
-   * outbox gets an ACK; repeating it while _pendingOp.everSent is true fails.
-   * For Admin deletion use the already-deployed, authenticated submit API
-   * directly, and update the local cache ONLY after the exact operation ACK.
+   * Admin catalog includes ALL authorized sites on cursor zero, and members in
+   * pages of 50. Check all pages so inactive/imported members also count as
+   * dependents; the older backend checked only enrolled members.
    */
+  async function centralSiteSnapshot(siteId){
+    let cursor=0,version=null,remote=null,dependents=0,pages=0;
+    do{
+      const reply=await TIPONAPI.call({action:'catalog',cursor});
+      if(!Array.isArray(reply.sites)||!Array.isArray(reply.members))
+        throw Error('Central directory returned an incomplete catalog. Deletion was not attempted.');
+      if(version===null)version=reply.catalogVersion;
+      if(reply.catalogVersion!==version)
+        throw Object.assign(Error('The central member directory changed during verification. Refresh and try again.'),{code:'CONFLICT'});
+      if(cursor===0)remote=reply.sites.find(x=>x.id===siteId)||null;
+      dependents+=(reply.members||[]).filter(m=>!m.deleted&&
+        (m.siteId===siteId||Array.isArray(m.siteIds)&&m.siteIds.includes(siteId))).length;
+      cursor=reply.nextCursor;
+      pages++;
+      if(cursor!==null&&(pages>=100||!Number.isFinite(Number(cursor))))
+        throw Error('The central member directory is too large to verify safely in this operation.');
+    }while(cursor!==null);
+    return {remote,dependents,version};
+  }
+
+  /**
+   * Commit the confirmed tombstone and remove only THIS site operation from
+   * IndexedDB in one atomic transaction. Never purge a different User's edits.
+   */
+  async function finishSiteDeletion(site,server,oldOp){
+    const record={...site,...server,orgId:state.orgId,deleted:true,active:false};
+    delete record._pendingOp;delete record.syncIssue;
+    await new Promise((resolve,reject)=>{
+      const tx=db.transaction(['sites','outbox'],'readwrite');
+      tx.objectStore('sites').put(record);
+      if(oldOp&&oldOp.type==='sites'&&oldOp.value?.id===site.id&&oldOp.ownerId===state.user?.id)
+        tx.objectStore('outbox').delete(oldOp.id);
+      tx.oncomplete=resolve;
+      tx.onerror=()=>reject(tx.error||Error('Could not update the local directory.'));
+      tx.onabort=()=>reject(tx.error||Error('Local deletion transaction was aborted.'));
+    });
+    await loadCollections();
+    render();
+    TIPONSync.kick();
+  }
+
   async function deleteSite(site){
     if(!available()||!site||deletingSites.has(site.id))return;
     deletingSites.add(site.id);
+    let releasePause=null;
     try{
-      if(!navigator.onLine){
-        showToast('Internet connection is required to delete Work Locations centrally. No records were changed.','error',7500);
-        return;
-      }
-      let current=await getOne('sites',site.id);
-      if(!current||current.deleted){
+      if(!navigator.onLine)throw Object.assign(Error('Connect to the internet to delete Work Locations.'),{code:'NETWORK'});
+      if(assignedMembers(state.members,site.id))
+        throw Object.assign(Error('This Work Location still has assigned members. Reassign them before deletion.'),{code:'DEPENDENCY'});
+
+      const approve=await confirmAction('Delete Work Location?',
+        'Delete '+String(site.name||'this Work Location')+' from the central organization? The app will verify and remove any matching pending site change, and keep all historical attendance. Assigned members or open Time In sessions block deletion.');
+      if(!approve)return;
+
+      // Pausing this site's outbox is essential: unrelated rejected member
+      // changes must not block deletion or cause a second in-flight create.
+      releasePause=TIPONSync.pauseSite(site.id);
+      await TIPONSync.waitUntilIdle();
+
+      const local=await getOne('sites',site.id);
+      if(local?.orgId&&local.orgId!==state.orgId)
+        throw Object.assign(Error('This Work Location belongs to a different organization. It was not changed.'),{code:'ORG'});
+      if(!local||local.deleted&&!local._pendingOp){
         await loadCollections();render();
-        showToast('This Work Location is no longer in the active directory.','info',6500);
+        showToast('This Work Location is already removed from the local directory.','info',6500);
         return;
       }
-      // Resolve previously queued edits before creating another revision.
-      if(current._pendingOp){
-        const queued=await getOne('outbox',current._pendingOp);
-        if(queued&&queued.ownerId!==state.user?.id){
-          showToast('This Work Location has a pending edit owned by another account. Its owner must synchronize that edit first.','info',8500);
-          return;
-        }
-        const syncResult=await TIPONSync.submitPendingNow();
-        current=await getOne('sites',site.id);
-        if(!current||current.deleted&&!current._pendingOp){
-          await loadCollections();render();
-          showToast('The previously queued Work Location deletion is now reflected in the directory.','success',7500);
-          return;
-        }
-        if(current._pendingOp){
-          const pending=await getOne('outbox',current._pendingOp);
-          const reason=pending?.error||current.syncIssue||syncResult?.error;
-          showToast(reason?
-            'Cannot delete while a prior Work Location change is unconfirmed: '+String(reason).slice(0,190)+'. Resolve it in Settings & Offline.':
-            'The previous Work Location change is still awaiting central confirmation. Sync it before deleting.','info',10000);
-          return;
-        }
-        if(!syncResult?.ok){
-          showToast('Could not verify the latest Work Location record. Refresh and try again.','info',8500);
-          return;
-        }
-      }
-      if(memberUsesSite(site.id)){
-        showToast('This Work Location is assigned to members. Reassign those members before deleting it.','error',8500);
+      const oldOp=local._pendingOp?await getOne('outbox',local._pendingOp):null;
+      if(local._pendingOp&&(!oldOp||oldOp.type!=='sites'||oldOp.value?.id!==site.id))
+        throw Error('This Work Location has an inconsistent pending edit. No deletion was attempted. Use Settings & Offline to review the queued record.');
+      if(oldOp&&oldOp.ownerId!==state.user?.id)
+        throw Error('A different account owns a pending change to this Work Location. That account must synchronize or review its draft before deletion.');
+
+      const snapshot=await centralSiteSnapshot(site.id);
+      if(snapshot.dependents||assignedMembers(state.members,site.id))
+        throw Object.assign(Error('This Work Location still has assigned members. Reassign members first.'),{code:'DEPENDENCY'});
+      if(snapshot.remote?.deleted){
+        // The deletion already reached the server on an earlier request.
+        await finishSiteDeletion(local,snapshot.remote,oldOp);
+        showToast('Work Location deletion confirmed in the central directory.','success',7000);
         return;
       }
-      const ok=await confirmAction('Delete Work Location?',
-        'Permanently remove '+current.name+' from the active organization directory? Existing attendance history is retained. This cannot proceed while members or open attendance sessions depend on the location.');
-      if(!ok)return;
-      // Reread the exact record and revision AFTER confirmation to prevent
-      // using a stale selection or overwriting a concurrent local edit.
-      current=await getOne('sites',site.id);
-      if(!current||current.deleted||current._pendingOp)
-        throw Object.assign(Error('This location changed while the confirmation was open. Refresh before deleting.'),{code:'CONFLICT'});
-      if(memberUsesSite(site.id))
-        throw Object.assign(Error('The site is still assigned to members.'),{code:'DEPENDENCY'});
-      const opId=uuid(),baseRev=Number(current.rev)||0;
-      const wire={...current,deleted:true,active:false,updatedAt:new Date().toISOString()};
-      for(const key of ['_row','_pendingOp','syncIssue','descriptors','templateError'])
-        delete wire[key];
-      // No optimistic tombstone; the server checks active dependents,
-      // admin authorization and base revision, then writes its audit log.
-      const response=await TIPONAPI.call({action:'submit',
-        operations:[{id:opId,type:'sites',value:wire,baseRev}],events:[]});
-      const failure=(response.operationErrors||[]).find(x=>x.id===opId);
-      if(failure)throw Object.assign(Error(failure.error||'Central deletion rejected.'),{code:failure.code||'SERVER'});
-      if(!Array.isArray(response.ackOps)||!response.ackOps.includes(opId))
-        throw Error('The central server did not acknowledge this deletion. Refresh to verify the latest state.');
-      const receipt=(response.receipts||[]).find(x=>x.type==='sites'&&x.id===site.id);
-      if(!receipt||Number(receipt.rev)!==baseRev+1)
-        throw Error('The deletion receipt was incomplete. Refresh Work Locations before trying again.');
-      const latest=await getOne('sites',site.id);
-      if(latest?._pendingOp)
-        throw Error('A concurrent pending edit appeared after server confirmation. Refresh Work Locations to reconcile it.');
-      const tombstone={...latest,...wire,rev:Number(receipt.rev),deleted:true,active:false,orgId:state.orgId};
-      delete tombstone._pendingOp;delete tombstone.syncIssue;
-      await OrgDB.rawSave('sites',tombstone);
-      await loadCollections();render();
-      TIPONSync.kick();
-      showToast('Work Location deleted and confirmed by the central organization. Attendance history was retained.','success',7500);
+
+      // If a local create was never accepted, a deleted:true tombstone with
+      // baseRev 0 makes the server reject any delayed create for the same ID.
+      // Otherwise, delete the authoritative server revision (not stale local).
+      const authoritative=snapshot.remote||local;
+      const baseRev=snapshot.remote?Number(snapshot.remote.rev)||0:0;
+      const opId=uuid();
+      const value={...authoritative,id:site.id,deleted:true,active:false,updatedAt:new Date().toISOString()};
+      for(const fieldName of ['_row','_pendingOp','syncIssue','descriptors','templateError'])
+        delete value[fieldName];
+
+      let reply;
+      try{
+        reply=await TIPONAPI.call({action:'submit',
+          operations:[{id:opId,type:'sites',baseRev,value}],events:[]});
+      }catch(error){
+        // The server may have applied the write while the acknowledgement
+        // was lost. Verify by lastOpId rather than assuming success.
+        if(['TIMEOUT','NETWORK'].includes(String(error.code||''))){
+          const check=await centralSiteSnapshot(site.id);
+          if(check.remote?.deleted&&check.remote.lastOpId===opId){
+            await finishSiteDeletion(local,check.remote,oldOp);
+            showToast('Work Location deletion verified centrally after a delayed server reply.','success',8000);
+            return;
+          }
+        }
+        throw error;
+      }
+      const rejected=(reply.operationErrors||[]).find(x=>x.id===opId);
+      if(rejected)throw Object.assign(Error(rejected.error||'Server rejected the Work Location deletion.'),{code:rejected.code||'SERVER'});
+      const acknowledged=Array.isArray(reply.ackOps)&&reply.ackOps.includes(opId);
+      const receipt=(reply.receipts||[]).find(x=>x.type==='sites'&&x.id===site.id);
+      if(!acknowledged||!receipt||Number(receipt.rev)!==baseRev+1){
+        const check=await centralSiteSnapshot(site.id);
+        if(!check.remote?.deleted||check.remote.lastOpId!==opId)
+          throw Error('The server did not provide a matching deletion receipt. No local deletion was made. Refresh Work Locations before retrying.');
+        await finishSiteDeletion(local,check.remote,oldOp);
+      }else{
+        await finishSiteDeletion(local,{...value,rev:Number(receipt.rev),lastOpId:opId},oldOp);
+      }
+      showToast('Work Location deleted centrally. Unconfirmed edits for this location were reconciled; attendance history is retained.','success',8000);
     }catch(error){
-      const detail=deleteErrorText(error);
-      showToast(detail,'error',9000);
-      // A timeout may have occurred after a successful server write; refresh
-      // the authoritative catalog rather than submitting another delete.
-      if(error?.code==='TIMEOUT'||error?.code==='CONFLICT')TIPONSync.kick();
+      showToast(describeSiteError(error),'error',9500);
     }finally{
+      if(releasePause)releasePause();
       deletingSites.delete(site.id);
     }
   }

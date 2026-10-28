@@ -343,6 +343,22 @@ async function saveMemberForm(e){
    // show an actionable alternative after the server responds.
 
    const addingOnly=fullFace&&siteIds.length>0&&oldIds.every(site=>siteIds.includes(site));
+   if(!addingOnly){
+     try{
+       const available=await window.TIPONMemberLocationSupport.check();
+       if(!available){
+         const explanation=!fullFace?
+           'This organization is still using an older backend. Assigned Location without Face Enrollment requires the Member Location backend update. You can enroll the face and assign its location together now, or ask the Administrator to activate location-only editing. No changes were made.':
+           'Removing or replacing a Work Location requires the Member Location backend update. Existing assignments were not changed.';
+         setText('assignedSiteDetails',explanation);
+         showToast('The central server needs the Member Location upgrade before this edit can be saved. No data changed.','info',8500);
+         return;
+       }
+     }catch(error){
+       showToast('Could not check the central Member Location service: '+String(error.message||error)+'. No data changed.','error',9000);
+       return;
+     }
+   }
    if(submit)submit.disabled=true;
    try{
      if(addingOnly){

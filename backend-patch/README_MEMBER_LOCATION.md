@@ -4,6 +4,9 @@ This patch enables **Admin Member Details → Assigned Location**, **User editin
 
 **Important:** GitHub Pages updates ONLY the public frontend; private Google Apps Script is separately deployed. Do not publish Code.gs, Script Properties, keys, tokens, or member/face data. This guide uses the earlier TIPON_Code_v5_5_9.gs provided by the user. Review the actual current Code.gs before merging. Never replace a newer deployed Code.gs with the older backup.
 
+
+**Live version check (October 28, 2026):** The Apps Script editor currently open in the owner's browser displays a `TIPON v5.5.2` Code.gs header, while GitHub Pages has moved to v5.5.25. These new backend actions cannot work until that older private deployment is updated. The server patch was reviewed against a separately supplied v5.5.9 reference, **not** against the entire live 5.5.2 source. Verify the current project helper signatures and the Apps Script **V8 runtime** in Project Settings before deploying; test any required runtime migration in a copy before changing production.
+
 ## 1. Install the server file
 
 Open the approved TIPON Attendance Google Sheet → Extensions → Apps Script. Back up Code.gs, OrgCore.gs, manifest and Script Properties. Add a file named **MemberLocationEdit.gs** containing [MemberLocationEdit.gs](./MemberLocationEdit.gs) from this repository.

@@ -47,7 +47,9 @@
   setText('adminMemberFaceStatus',member.template&&member.active!==false
     ?'ENROLLED — existing encrypted face template will be preserved.'
     :'NOT ENROLLED — location assignment can be saved independently; face enrollment is completed by an authorized User.');
-  setText('adminMemberEditStatus','');$('adminMemberDialog').showModal();
+  setText('adminMemberEditStatus','');
+  const help=$('adminMemberBackendGuide');if(help)help.hidden=true;
+  $('adminMemberDialog').showModal();
  }
  async function save(event){
   event.preventDefault();if(!isAdmin()||!current)return;
@@ -76,6 +78,15 @@
    // New endpoint is mandatory for explicit location edits; old server
    // only permits name/coop/platform and must never discard the siteIds.
    const extended=locationChanged||(scopeChanged&&siteIds.length>0);
+   if(extended){
+     const available=await window.TIPONMemberLocationSupport.check();
+     if(!available){
+       setText('adminMemberEditStatus',
+         'The connected server does not yet support Assigned Location editing. The existing member record has not changed. An Administrator must activate the Member Location backend extension.');
+       const help=$('adminMemberBackendGuide');if(help)help.hidden=false;
+       return;
+     }
+   }
    const reply=await TIPONAPI.call({action:extended?'adminMemberUpdateV2':'adminMemberUpdate',
     memberId:member.id,baseRev:Number(member.rev)||0,
     changes:extended?{name,coop,platform,siteIds}:{name,coop,platform}});
@@ -94,7 +105,11 @@
    const message=error.code==='ACTION'||/unknown action|unsupported action|not implemented/i.test(error.message||'')
     ?'Assigned Location editing requires the new private Apps Script backend. No assignment was changed.'
     :error.message||'Member edit not confirmed.';
-   setText('adminMemberEditStatus',message);showToast(message,'error',8500);
+   setText('adminMemberEditStatus',message);
+   const help=$('adminMemberBackendGuide');if(help&&/backend|Apps Script|not implemented/i.test(message))help.hidden=false;
+   // Keep the modal open for correction. Do not display a frightening red
+   // toast when the server is merely missing a documented upgrade.
+   if(!/backend|Apps Script/i.test(message))showToast(message,'error',8500);
   }finally{button.disabled=false;}
  }
  document.addEventListener('DOMContentLoaded',()=>{

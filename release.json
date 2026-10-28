@@ -1,5 +1,5 @@
 {
   "app": "TIPON Face Attendance",
-  "version": "5.5.24",
-  "label": "Admin Work Locations: delete directly with the authenticated existing submit API, verify exact operation receipt before local removal, automatically reconcile previous pending edits, block linked members and preserve attendance. Display specific server error and retain local records on timeout/rejection."
+  "version": "5.5.25",
+  "label": "Resolve Admin Work Location deletions against authoritative central catalog, including stale pending operations, with targeted sync pause and atomic cleanup. Show correct server compatibility status for User/Admin member location editors; include backend upgrade instructions without claiming unsaved changes. All writes remain server-acknowledged and historical attendance is preserved."
 }

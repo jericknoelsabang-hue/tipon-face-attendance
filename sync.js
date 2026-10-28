@@ -15,6 +15,20 @@ window.TIPONAPI=(()=>{
 })();
 window.TIPONSync=(()=>{
   let busy=false,timer=null,attempt=0,message='Sign in to enable organization sync.',lastSync='',stopped=true,activeRun=null,siteFastRetry=0;
+  // Pause a single Work Location while an Administrator resolves a stale outbox
+  // operation against an authoritative central snapshot. Other locations and
+  // attendance events continue to synchronize normally.
+  const suspendedSiteIds=new Set();
+  function pauseSite(id){
+    const key=String(id||'');if(!key)throw Error('Work Location ID is required.');
+    suspendedSiteIds.add(key);
+    let released=false;
+    return ()=>{if(released)return;released=true;suspendedSiteIds.delete(key);};
+  }
+  async function waitUntilIdle(){
+    const running=activeRun;
+    if(running){try{await running;}catch(_){/* Next read checks server state. */}}
+  }
   function render(){
     const s=TIPONAuth.current();const pending=state.punches.filter(p=>p.orgId===state.orgId&&!p.cloudAck&&!p.reviewStatus).length;
     const review=state.punches.filter(p=>p.reviewStatus).length;
@@ -114,7 +128,8 @@ window.TIPONSync=(()=>{
     }
     const eligible=outbox.filter(op=>
       !['NEEDS_REVIEW','CONFLICT','FORBIDDEN','NOT_FOUND'].includes(op.errorCode)&&
-      !(actor.role==='admin'&&op.type==='members'));
+      !(actor.role==='admin'&&op.type==='members')&&
+      !(op.type==='sites'&&suspendedSiteIds.has(String(op.value?.id||''))));
     const siteQueue=eligible.filter(op=>op.type==='sites');
     const operations=actor.role==='kiosk'?[]:
       (siteQueue.length?siteQueue.slice(0,3):eligible.slice(0,5));
@@ -293,5 +308,5 @@ window.TIPONSync=(()=>{
     attach('syncNow','click',kick);attach('syncRecordsNow','click',kick);
     window.addEventListener('online',kick);window.addEventListener('offline',render);document.addEventListener('visibilitychange',()=>{if(!document.hidden)kick();});render();
   }
-  return {init,start,stop,kick,render,run,submitPendingNow,isBusy:()=>busy};
+  return {init,start,stop,kick,render,run,submitPendingNow,pauseSite,waitUntilIdle,isBusy:()=>busy};
 })();
