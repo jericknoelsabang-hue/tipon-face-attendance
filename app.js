@@ -438,7 +438,17 @@ function filteredTerminalLogRows(){
  });
 }
 function canCorrectAttendance(){const u=state.user,a=window.TIPONAuth?.current();return !!u&&!!a&&a.account?.id===u.id&&a.orgId===state.orgId&&a.offlineUntil>Date.now()&&(isAdmin()||(u.role==='registrar'&&['supervisor','member supervisor'].includes(String(u.position||'').trim().toLowerCase())));}
-function attendanceAccountLabel(row){const ids=row.eventIds||[],uuidPattern=/^[0-9a-f]{8}-[0-9a-f-]{27,}$/i;const names=state.punches.filter(p=>ids.includes(p.id)).map(p=>{const id=p.recordedById;const known=[state.user,...(state.users||[])].find(u=>u&&u.id===id);const value=p.recordedByUsername||known?.username||p.performedBy;return value&&!uuidPattern.test(String(value))?String(value):'Username unavailable';});return [...new Set(names)].join(' / ')||'—';}
+function attendanceAccountLabel(row){
+ const ids=row.eventIds||[],uuidPattern=/^[0-9a-f]{8}-[0-9a-f-]{27,}$/i;
+ const knownAccounts=[state.user,...(state.users||[]),...(state.accounts||[])];
+ const names=state.punches.filter(p=>ids.includes(p.id)).map(p=>{
+  const id=p.recordedById||p.performedBy||'';
+  const known=knownAccounts.find(u=>u&&u.id===id);
+  const label=p.recordedByUsername||known?.username||p.performedBy||'';
+  return label&&!uuidPattern.test(String(label))?String(label):'';
+ }).filter(Boolean);
+ return [...new Set(names)].join(' / ')||'—';
+}
 function renderTerminalLogs(){
  if(!$('terminalLogRows'))return;
  if(state.page==='terminalLogs')$('page-terminalLogs').appendChild($('terminalLogPanel'));
@@ -769,11 +779,31 @@ async function restoreEncryptedBackup(event){if(!isAdmin())return;if(window.TIPO
  }catch(err){toastError(err,'Backup restore failed');}
 }
 
+let directoryRefreshBusy=false;
+async function refreshDirectoryView(kind){
+ if(directoryRefreshBusy)return;
+ if(!navigator.onLine){showToast('Offline: saved records are still available. Connect to the internet to refresh from Google Sheets.','info');return;}
+ directoryRefreshBusy=true;
+ const button=$(kind==='members'?'memberRefresh':'terminalLogRefresh');
+ if(button)button.disabled=true;
+ try{
+  const sync=await TIPONSync.run();
+  if(!sync?.ok)throw Error(sync?.error||'Central synchronization has not completed. Try Refresh again.');
+  await loadCollections();
+  if(kind==='members')renderMembers();
+  else renderTerminalLogs();
+  if(sync.pending)showToast('Latest central records loaded. '+sync.pending+' record(s) still need synchronization or review.','info',6500);
+  else showToast('Latest central '+(kind==='members'?'member directory':'attendance logs')+' loaded.','success');
+ }catch(error){toastError(error,'Refresh failed');}
+ finally{directoryRefreshBusy=false;if(button)button.disabled=false;}
+}
 function bindEvents(){
  document.querySelectorAll('[data-page]').forEach(el=>el.addEventListener('click',()=>showPage(el.dataset.page)));
  document.querySelectorAll('[data-jump]').forEach(el=>el.addEventListener('click',()=>showPage(el.dataset.jump)));
  attach('topStartScan','click',()=>showPage('scanner'));
  attach('memberSearch','input',renderMembers);
+ attach('memberRefresh','click',()=>refreshDirectoryView('members'));
+ attach('terminalLogRefresh','click',()=>refreshDirectoryView('logs'));
  attach('memberFilterFace','change',renderMembers);
  attach('memberResetFilters','click',()=>{
   $('memberSearch').value='';
