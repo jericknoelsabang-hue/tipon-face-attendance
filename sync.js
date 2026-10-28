@@ -279,12 +279,26 @@ window.TIPONSync=(()=>{
     busy=true;message='Connecting to organization database...';render();
     let result={ok:false,error:'Synchronization did not complete.'};
     try{
-      await TIPONAuth.ensureOnline();await loadCollections();await reconcileLegacyAdminDeletes();await flush();await pull();await loadCollections();
+      await TIPONAuth.ensureOnline();
+       await loadCollections();
+       let uploadFailure=null;
+       try{await reconcileLegacyAdminDeletes();await flush();}
+       catch(error){
+         // A rejected site/member operation must not prevent polling already
+         // accepted attendance from other authorized devices. Preserve the error.
+         if(['AUTH','ACCOUNT','DEVICE_DISABLED'].includes(String(error?.code||'')))throw error;
+         uploadFailure=error;
+       }
+       await pull();await loadCollections();
+       if(uploadFailure)console.warn('Upload needs review; central attendance read succeeded:',uploadFailure);
       lastSync=TIPONCore.phStamp(new Date().toISOString());
       const unsent=state.punches.filter(p=>p.orgId===state.orgId&&!p.cloudAck&&!p.reviewStatus&&p.deviceId===state.deviceId).length;
       const waiting=(await getAll('outbox')).filter(o=>o.orgId===state.orgId&&o.error).length+
-        state.punches.filter(p=>p.reviewStatus).length+unsent;message=waiting?'Central data updated; '+waiting+' record(s) still need review. See Settings / Accounts.':'Central data updated; records are acknowledged, not assumed sent.';attempt=0;
-      result={ok:true,pending:waiting};
+        state.punches.filter(p=>p.reviewStatus).length+unsent;
+       message=uploadFailure?'Central attendance received; an upload failed: '+String(uploadFailure.message||uploadFailure).slice(0,180):
+         waiting?'Central data updated; '+waiting+' record(s) still need review. See Settings / Accounts.':
+         'Central attendance updated.';attempt=uploadFailure?Math.min(attempt+1,4):0;
+      result={ok:!uploadFailure,pending:waiting,error:uploadFailure?String(uploadFailure.message||uploadFailure):undefined,readOk:true};
       const remainingSites=(await getAll('outbox')).filter(op=>op.orgId===state.orgId&&
         op.ownerId===state.user?.id&&op.type==='sites'&&
         !['NEEDS_REVIEW','FORBIDDEN','CONFLICT'].includes(op.errorCode));
