@@ -140,7 +140,7 @@ window.TIPONSync=(()=>{
     }
     await OrgDB.rawSave('meta',{id:cfgId,version:startVersion,memberCount,enrolledCount,complete:true});
   }
-  function cursorId(){return 'tp5-events:'+state.orgId+':'+state.user.id+':'+state.user.role+':v5.2-scope:'+String(state.user.version||1)+':'+(state.user.siteIds||[]).join(',');}
+  function cursorId(){return 'tp5-events:'+state.orgId+':'+state.user.id+':'+state.user.role+':v5.5.9-username-backfill:'+String(state.user.version||1)+':'+(state.user.siteIds||[]).join(',');}
   async function pull(){
     const id=cursorId();let saved=await getOne('meta',id),cursor=saved?.cursor||0;
     for(let pages=0;pages<8;pages++){
@@ -153,15 +153,18 @@ window.TIPONSync=(()=>{
     }
   }
   async function run(){
-    if(stopped||busy||!state.user||document.hidden){schedule();return;}
-    if(!navigator.onLine){message='Offline: saved locally. Automatic sync resumes when internet is available and this app is open.';render();schedule();return;}
+    if(stopped||busy||!state.user||document.hidden){schedule();return {ok:false,error:'The app is busy, signed out, or in a hidden browser tab.'};}
+    if(!navigator.onLine){message='Offline: saved locally. Automatic sync resumes when internet is available and this app is open.';render();schedule();return {ok:false,error:message};}
     busy=true;message='Connecting to organization database...';render();
+    let result={ok:false,error:'Synchronization did not complete.'};
     try{
       await TIPONAuth.ensureOnline();await loadCollections();await reconcileLegacyAdminDeletes();await flush();await pull();await loadCollections();
       lastSync=TIPONCore.phStamp(new Date().toISOString());const waiting=(await getAll('outbox')).filter(o=>o.orgId===state.orgId&&o.error).length+state.punches.filter(p=>p.reviewStatus).length;message=waiting?'Central data updated; '+waiting+' record(s) still need review. See Settings / Accounts.':'Central data updated; records are acknowledged, not assumed sent.';attempt=0;
-      if(state.page==='dashboard')renderDashboard();if(state.page==='records')renderRecords();if(state.page==='members')renderMembers();if(state.page==='accounts'&&isAdmin())await OrgUI.renderAccounts();if(state.page==='sites')renderSites();if(state.page==='scanner'){renderTerminal();renderTerminalLogs();const ready=state.members.filter(m=>m.active!==false&&!m.deleted&&m.descriptors?.length>=3).length;if(ready)updateScanResult('Member directory ready',ready+' enrolled face template(s) loaded on this terminal. Face matches are checked against assigned office GPS.','success');}TIPONPlatforms.render();
-    }catch(e){message=e.message;attempt=Math.min(attempt+1,4);if(['AUTH','ACCOUNT','DEVICE_DISABLED'].includes(e.code))message+=' Sign out and sign in online.';}
+      result={ok:true,pending:waiting};
+      if(state.page==='dashboard')renderDashboard();if(state.page==='records')renderRecords();if(state.page==='members')renderMembers();if(state.page==='adminSites')window.TIPONAdminSites?.render();if(state.page==='accounts'&&isAdmin())await OrgUI.renderAccounts();if(state.page==='sites')renderSites();if(state.page==='scanner'){renderTerminal();renderTerminalLogs();const ready=state.members.filter(m=>m.active!==false&&!m.deleted&&m.descriptors?.length>=3).length;if(ready)updateScanResult('Member directory ready',ready+' enrolled face template(s) loaded on this terminal. Face matches are checked against assigned office GPS.','success');}TIPONPlatforms.render();
+    }catch(e){message=e.message;attempt=Math.min(attempt+1,4);if(['AUTH','ACCOUNT','DEVICE_DISABLED'].includes(e.code))message+=' Sign out and sign in online.';result={ok:false,error:message};}
     finally{busy=false;render();schedule();}
+    return result;
   }
   async function init(){
     attach('syncNow','click',kick);attach('syncRecordsNow','click',kick);
