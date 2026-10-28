@@ -1,5 +1,5 @@
 {
   "app": "TIPON Face Attendance",
-  "version": "5.5.8",
-  "label": "GPS-only kiosk registration/edit; editable Admin member MPC/BP; scoped member/log visibility; attendance MPC/BP/work location columns; spoken Time In/Out and errors"
+  "version": "5.5.9",
+  "label": "Admin Work locations list with remote GPS map picker; editable cooperative dropdowns; username attendance records; face blink calibration; dashboard date range and refresh controls"
 }
