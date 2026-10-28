@@ -736,15 +736,10 @@ function filteredTerminalLogRows(){
  });
 }
 function canCorrectAttendance(){const u=state.user,a=window.TIPONAuth?.current();return !!u&&!!a&&a.account?.id===u.id&&a.orgId===state.orgId&&a.offlineUntil>Date.now()&&(isAdmin()||(u.role==='registrar'&&['supervisor','member supervisor'].includes(String(u.position||'').trim().toLowerCase())));}
-function attendanceAccountLabel(row){
- const ids=row.eventIds||[];
- const idsToEvents=state.punches.filter(p=>ids.includes(p.id));
- const knownAccounts=[state.user,...(state.users||[]),...(state.accounts||[])].filter(Boolean);
- const usernames=idsToEvents.map(p=>{
-  const account=knownAccounts.find(u=>u.id===p.recordedById);
-  return String(p.recordedByUsername||account?.username||p.performedBy||'').trim();
- }).filter(v=>v&&!/^[0-9a-f]{8}-[0-9a-f-]{27,}$/i.test(v));
- return [...new Set(usernames)].join(' / ')||'Username unavailable';
+function attendanceMemberName(row,memberNames){
+ const current=String(memberNames.get(String(row.memberId))||'').trim();
+ const historical=String(row.memberName||'').trim();
+ return current||historical||'Name unavailable';
 }
 function renderTerminalLogs(){
  if(!$('terminalLogRows'))return;
@@ -763,16 +758,18 @@ function renderTerminalLogs(){
  if(sitesById.has(selected))selector.value=selected;
  try{
   const rows=filteredTerminalLogRows();
+  const memberNames=new Map((state.members||[]).filter(m=>m&&m.id).map(m=>[String(m.id),String(m.name||'').trim()]));
   $('terminalLogRows').innerHTML=rows.length?rows.map(row=>{
    const location=row.location||sitesById.get(row.siteId)||'—';
    const stamp=row.timeIn||row.timeOut;
    const data=[
+    attendanceMemberName(row,memberNames),
     row.memberId,
     stamp?TIPONCore.phStamp(stamp).slice(0,10):'—',
     row.timeIn?TIPONCore.phStamp(row.timeIn).slice(-8):'—',
     row.timeOut?TIPONCore.phStamp(row.timeOut).slice(-8):'—',
     row.timeOut?TIPONCore.phStamp(row.timeOut).slice(0,10):'—',
-    row.coop||'—',row.platform||'—',location,attendanceAccountLabel(row)
+    row.coop||'—',row.platform||'—',location
    ];
    return '<tr>'+data.map(value=>'<td>'+esc(value)+'</td>').join('')+'</tr>';
   }).join(''):'<tr><td colspan="9">No attendance records match these filters or your approved account scope.</td></tr>';
