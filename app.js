@@ -91,6 +91,19 @@ function applyRoles(){document.querySelectorAll('[data-roles]').forEach(el=>el.h
 function refreshClock(){const now=new Date();setText('liveDateTime',now.toLocaleString('en-PH',{timeZone:PH_TIMEZONE,weekday:'short',month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}));setText('bigDate',now.toLocaleDateString('en-PH',{timeZone:PH_TIMEZONE,weekday:'long',month:'short',day:'numeric',year:'numeric'}));const connected=navigator.onLine;setText('connectionText',connected?'Online / local storage':'Offline / local storage');setText('headerOnlineText',connected?'Network online':state.offlineReady?'Offline ready':'Offline / setup needed');$('onlineDot').className=`status-dot ${connected?'success':'offline'}`;$('headerOnlineDot').className=`status-dot ${connected?'success':'offline'}`;}
 
 const pageNames={dashboard:'Dashboard',scanner:'Face Terminal',terminalLogs:'Attendance Logs',members:'Member List',sites:'Work Locations',records:'Attendance Logs',settings:'Settings & Offline',adminSites:'Work Locations List'};
+
+function validateAttendanceDateRange(fromId,toId,errorId,actionId=''){
+ const fromField=$(fromId),toField=$(toId),error=$(errorId);
+ if(!fromField||!toField)return true;
+ const invalid=!!(fromField.value&&toField.value&&toField.value<fromField.value);
+ toField.min=fromField.value||'';
+ fromField.setAttribute('aria-invalid',String(invalid));
+ toField.setAttribute('aria-invalid',String(invalid));
+ if(error){error.hidden=!invalid;error.textContent=invalid?'To Date cannot be earlier than From Date. Select a valid date range to apply filters.':'';}
+ if(actionId&&$(actionId))$(actionId).disabled=invalid;
+ return !invalid;
+}
+
 async function showPage(page){
   if(!pageNames[page])return;
   if((page==='members'&&!canEdit()&&!isAdmin())||(page==='sites'&&!canEdit())||(page==='adminSites'&&!isAdmin()))return;
@@ -398,10 +411,12 @@ async function useGpsForSite(){if(isAdmin()){showToast('Administrators select th
 // Worksite coordinates are captured from device GPS; address geocoding has been removed.
 // Time logs and Excel export.
 function filteredAttendanceRows(){
+ if(!validateAttendanceDateRange('recordFrom','recordTo','recordDateError','exportExcel'))throw Error('To Date cannot be earlier than From Date.');
  const data=TIPONCore.rows(state.punches,state.deviceId);
  return TIPONCore.filterRows(data,$('recordFrom').value,$('recordTo').value,$('recordSite').value);
 }
 function renderRecords(){
+ validateAttendanceDateRange('recordFrom','recordTo','recordDateError','exportExcel');
  if(isAdmin()){
   const page=$('page-records');
   [...page.children].forEach(el=>{if(el.id!=='terminalLogPanel')el.hidden=true;});
@@ -426,7 +441,7 @@ function filteredTerminalLogRows(){
  const from=$('terminalLogFrom').value,to=$('terminalLogTo').value,
   siteId=$('terminalLogSite').value,admin=isAdmin();
  const coop=admin?$('terminalLogCoop').value:'',platform=admin?$('terminalLogPlatform').value:'';
- if(from&&to&&from>to)throw Error('From date must not be after To date.');
+ if(!validateAttendanceDateRange('terminalLogFrom','terminalLogTo','terminalLogDateError','terminalLogExport'))throw Error('To Date cannot be earlier than From Date.');
  return TIPONOrgCore.project(state.punches.filter(p=>!p.reviewStatus)).filter(r=>{
   const stamp=r.timeIn||r.timeOut,day=TIPONCore.phStamp(stamp).slice(0,10);
   // A hidden filter must never expand data beyond the authenticated User MPC/BP
@@ -494,7 +509,7 @@ async function exportTerminalLogs(){
 async function editAttendanceFromLog(e){const b=e.target.closest('[data-attendance-edit]');if(!b||!canCorrectAttendance())return;const row=TIPONOrgCore.project(state.punches.filter(p=>!p.reviewStatus)).find(x=>x.key===b.dataset.attendanceEdit);if(!row)return;const events=state.punches.filter(p=>row.eventIds.includes(p.id));if(events.some(p=>p.cloudAck||p._pendingOp||p.uploadPayload))return showToast('Synced or queued attendance is read-only. Use the approved server correction process.','error',8500);const reason=prompt('Correction reason (required):');if(!reason?.trim())return;const nextIn=prompt('Time In (local YYYY-MM-DDTHH:MM)',b.dataset.in),nextOut=prompt('Time Out (local YYYY-MM-DDTHH:MM)',b.dataset.out),valid=x=>!x||/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(x);if(nextIn===null||nextOut===null)return;if(!nextIn)return showToast('Time In is required.','error');if(!valid(nextIn)||!valid(nextOut))return showToast('Use YYYY-MM-DDTHH:MM format.','error');const iso=x=>x?new Date(x+':00+08:00').toISOString():'';const ti=iso(nextIn),to=iso(nextOut);if(ti&&to&&Date.parse(to)<Date.parse(ti))return showToast('Time Out must be after Time In.','error');if(!await confirmAction('Save attendance correction?',row.memberName+' · '+reason.trim()+' · This updates local unsynced punches and saves correction details.'))return;for(const p of events){const stamp=p.type==='IN'?ti:to;if(!stamp){await deleteOne('punches',p.id);continue;}p.timestamp=stamp;p.day=todayPH(new Date(stamp));delete p.uploadPayload;p.correctionReason=reason.trim();p.correctedAt=new Date().toISOString();p.correctedBy=state.user.username||state.user.id;await saveOne('punches',p);}await loadCollections();renderTerminalLogs();renderDashboard();TIPONSync.kick();showToast('Unsynced attendance correction saved.','success');}
 function loadScript(url,check){if(check())return Promise.resolve();return new Promise((resolve,reject)=>{const old=document.querySelector(`script[data-remote="${url}"]`);if(old)old.remove();const el=document.createElement('script');el.src=url;el.crossOrigin='anonymous';el.dataset.remote=url;el.onload=()=>resolve();el.onerror=()=>reject(Error(`Could not load ${url.split('/').pop()}. Download offline resources while connected.`));document.body.appendChild(el);});}
 async function exportExcel(){
- let data;try{data=filteredAttendanceRows();}catch(err){toastError(err,'Export');return;}
+ let data;try{if(!validateAttendanceDateRange('recordFrom','recordTo','recordDateError','exportExcel'))throw Error('To Date cannot be earlier than From Date.');data=filteredAttendanceRows();}catch(err){toastError(err,'Export');return;}
  if(!data.length){showToast('No attendance records to export.','error');return;}
  const button=$('exportExcel');button.disabled=true;
  try{

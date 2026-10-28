@@ -159,6 +159,7 @@ window.TIPONAdminSites=(()=>{
       if(!map)await openMap();
       setCoordinates(Number(lat),Number(lon),true);
       setText('adminSiteMapHint','Found '+String(display_name).slice(0,180)+'. Drag the pin or click the exact site position, then save.');
+       await openFullMap();
     }catch(error){setText('adminSiteMapHint',error.message);showToast(error.message,'error');}
     finally{button.disabled=false;}
   }
@@ -201,6 +202,11 @@ window.TIPONAdminSites=(()=>{
       if(del){const site=state.sites.find(s=>s.id===del.dataset.adminSiteDelete);if(site)await deleteSite(site);}
     });
     attach('adminSitePlaceFind','click',findPlace);
+     attach('siteMapPreview','click',event=>{
+       if(!available()||!field('siteDialog')?.open||field('siteFullMapDialog')?.open)return;
+       if(event.target.closest('button,a,input,select'))return;
+       void openFullMap();
+     });
     attach('siteAddress','keydown',e=>{if(e.key==='Enter'&&available()){e.preventDefault();void findPlace();}});
     attach('siteLat','change',syncFromInputs);attach('siteLng','change',syncFromInputs);
     attach('siteOpenMap','click',event=>{if(available()){event.preventDefault();void openFullMap(event);}});

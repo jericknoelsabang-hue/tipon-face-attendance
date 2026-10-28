@@ -1,5 +1,5 @@
 {
   "app": "TIPON Face Attendance",
-  "version": "5.5.10",
-  "label": "Settings cleanup and wider Security card; 90-second inactivity logout; Admin Dashboard and User Face Terminal on fresh login; address-based Work Location GPS search with interactive full map; uniform Refresh buttons; valid attendance date ranges; consistent Title Case headings"
+  "version": "5.5.11",
+  "label": "Expanded security information, cleaner admin controls, automatic 90-second inactivity logout, role-based login, interactive address-based full map, aligned Refresh actions, strict date-range validation and consistent Title Case labels"
 }

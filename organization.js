@@ -176,6 +176,7 @@ renderMembers=function(){oldRenderMembers();document.querySelectorAll('[data-mem
 renderSites=function(){oldRenderSites();document.querySelectorAll('[data-site-delete],[data-site-edit]').forEach(x=>{const site=state.sites.find(v=>v.id===(x.dataset.siteDelete||x.dataset.siteEdit));x.hidden=false;x.disabled=!(site&&canEdit()&&TIPONOrgCore.inScope(state.user,site));});};
 filteredAttendanceRows=function(){
   if(!isAdmin())throw Error('Only the administrator can export attendance.');
+  if(!validateAttendanceDateRange('recordFrom','recordTo','recordDateError','exportExcel'))throw Error('To Date cannot be earlier than From Date.');
   return TIPONCore.filterRows(TIPONOrgCore.project(state.punches.filter(p=>!p.reviewStatus)),$('recordFrom').value,$('recordTo').value,$('recordSite').value);
 };
 const originalDashboard=renderDashboard;
@@ -203,12 +204,11 @@ window.OrgUI=(()=>{
     const fromField=$('dashboardFrom'),toField=$('dashboardTo'),today=todayPH();
     if(!fromField.value)fromField.value=today;
     if(!toField.value)toField.value=today;
-    // A reversed range is not a valid filter. Clamp the To Date automatically
-    // and constrain the date picker; never blank the dashboard when it happens.
-    toField.min=fromField.value;
-    if(fromField.value&&toField.value&&toField.value<fromField.value){
-      toField.value=fromField.value;
-      showToast('To Date cannot be earlier than From Date. The range was corrected.','info',5500);
+    // Invalid ranges must never be applied or silently corrected.
+    if(!validateAttendanceDateRange('dashboardFrom','dashboardTo','dashboardDateError','dashboardRefresh')){
+      $('dashboardSummary').innerHTML='';
+      $('dashboardRanking').innerHTML='<tr><td colspan="6">Choose a valid date range before filtering attendance.</td></tr>';
+      return;
     }
     const from=fromField.value,to=toField.value;
     // Compatibility: day-based legacy actions still read dashboardDay.
@@ -488,17 +488,10 @@ window.OrgUI=(()=>{
   function bind(){
     bindRegistryUploads();
     ['registerCoop','dashboardCoop','reportCoop'].forEach(id=>fillCoopSelect(id,['dashboardCoop','reportCoop'].includes(id)));
-    ['dashboardFrom','dashboardTo'].forEach(id=>attach(id,'change',()=>{
-      const from=$('dashboardFrom'),to=$('dashboardTo');
-      to.min=from.value||'';
-      if(from.value&&to.value&&to.value<from.value){
-        to.value=from.value;
-        showToast('To Date must be on or after From Date. Adjusted to match From Date.','info',5200);
-      }
-      renderMpc();
-    }));
+    ['dashboardFrom','dashboardTo'].forEach(id=>attach(id,'change',renderMpc));
     ['dashboardCoop','presenceFilter'].forEach(id=>attach(id,'change',renderMpc));
     attach('dashboardRefresh','click',async()=>{
+      if(!validateAttendanceDateRange('dashboardFrom','dashboardTo','dashboardDateError','dashboardRefresh'))return;
       const result=await TIPONSync.run();
       if(!result?.ok)showToast(result?.error||'Refresh is not available right now. Check synchronization status.','error');
       else renderMpc();
