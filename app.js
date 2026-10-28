@@ -255,7 +255,7 @@ function memberNameFromFields(){
 function openMemberForm(member){
  if(!canEdit())return;
  state.editMember=member||null;
- state.faceReplacementPending=false;
+ state.faceReplacementPending=false;state.enrollmentProof=null;state.livenessProof=null;
  state.memberNameSeed=parseMemberIdentity(member?.name);
  state.pendingDescriptors=member?.descriptors?.map(a=>[...a])||[];
  state.consentAcknowledgedAt=member?.consentAt||null;
@@ -429,6 +429,13 @@ async function saveMemberForm(e){
      setText('assignedSiteDetails',message);
      showToast(message,unsupported?'info':'error',9000);
    }finally{if(submit)submit.disabled=false;}
+   return;
+ }
+ // Fail closed when the live-face module was not loaded or verified.
+ const liveProof=state.enrollmentProof;
+ if(!liveProof||liveProof.memberId!==id||!Number.isFinite(liveProof.at)||
+    liveProof.at>Date.now()||Date.now()-liveProof.at>20*60*1000){
+   showToast('Complete live blink and head-turn verification before saving Face Enrollment.','error');
    return;
  }
  // New facial enrollment can be completed without a GPS assignment.
@@ -937,6 +944,13 @@ async function scanTick(){if(!state.scanning)return;if(!hasTerminalSession()){aw
  finally{if(state.scanning&&state.scanRun===run)state.scanTimer=setTimeout(scanTick,SCAN_DELAY_MS);}
 }
 async function recordRecognizedFace(member,faceDistance){
+ const proof=state.livenessProof;
+ state.livenessProof=null;
+ if(!proof||proof.memberId!==member.id||proof.scanRun!==state.scanRun||
+    !Number.isFinite(proof.at)||Date.now()-proof.at>10000||proof.at>Date.now()){
+   updateScanResult('Live Verification Required','Follow the blink and head-turn instructions.','error');
+   return;
+ }
  if(member.active===false||member.deleted){playTerminalSound('error');speakTerminal('Attendance error. This member is inactive.','error','inactive');showToast('This member is inactive.','error');return;}
  if(!hasTerminalSession()){speakTerminal('Attendance error. Sign in or authorize this kiosk again.','error','session');showToast('Sign in or authorize this kiosk again.','error');return;}
  if(state.scanBusy)return;state.scanBusy=true;const mode=state.scanMode,run=state.scanRun,actorId=state.user.id;
