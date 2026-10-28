@@ -224,8 +224,8 @@ function fillMemberSites(preferred){
 }
 function updateMemberSite(){
  const sites=[...$('memberSite').selectedOptions].map(o=>state.sites.find(s=>s.id===o.value)).filter(Boolean);
- setText('memberSiteSummary',sites.length?sites.length+' work location(s) selected':'Select work location(s)');
- setText('assignedSiteDetails',sites.length?sites.map(s=>s.name+' · '+Number(s.lat).toFixed(6)+', '+Number(s.lng).toFixed(6)+' ('+(s.radius||150)+' m GPS)').join(' | '):'Authorized User selects the assigned GPS location during enrollment.');
+ setText('memberSiteSummary',sites.length?sites.length+' Work Location'+(sites.length===1?'':'s')+' selected':'No Assigned Work Location (Optional)');
+ setText('assignedSiteDetails',sites.length?sites.map(s=>s.name+' · '+Number(s.lat).toFixed(6)+', '+Number(s.lng).toFixed(6)+' ('+(s.radius||150)+' m GPS)').join(' | '):'You can assign a Work Location now or later. Time In requires an enrolled face and a confirmed GPS Work Location.');
 }
 function openMemberForm(member){if(!canEdit())return;
  state.editMember=member||null;state.pendingDescriptors=member?.descriptors?.map(a=>[...a])||[];state.consentAcknowledgedAt=member?.consentAt||null;
@@ -246,24 +246,118 @@ function openMemberForm(member){if(!canEdit())return;
  $('enrollFaceButton').textContent=alreadyEnrolled?'Already Enrolled':'Enroll Face';
  $('memberDialog').showModal();
 }
-async function saveMemberForm(e){e.preventDefault();if(!canEdit())return;
- const id=$('memberId').value.trim(),name=$('memberName').value.trim(),coop=$('memberCoop').value,platform=$('memberPlatform').value.trim(),siteIds=[...$('memberSite').selectedOptions].map(o=>o.value),sites=siteIds.map(id=>state.sites.find(x=>x.id===id)).filter(Boolean),site=sites[0];
- if(!id||!name||!platform||!TIPONOrgCore.inScope(state.user,{coop,platform})||!siteIds.length||sites.length!==siteIds.length||sites.some(s=>s.coop!==coop||TIPONOrgCore.platformKey(s.platform)!==TIPONOrgCore.platformKey(platform))){showToast('Select an assigned Work Location matching your approved Cooperative and Business Platform.','error');return;}
- if(!state.editMember&&state.members.some(m=>m.id.toLowerCase()===id.toLowerCase())){showToast('Member ID is already registered.','error');return;}
- if(!state.pendingDescriptors.length||state.pendingDescriptors.length<3){showToast('Complete face enrollment before saving.','error');return;}
- const latestMembers=await getAll('members');
- // Local encrypted records intentionally omit plaintext descriptors. Keep the
- // decrypted in-memory copy when merging so duplicate checks cover enrolled faces.
- const allMembers=[...new Map([...latestMembers,...state.members].filter(Boolean).map(m=>[String(m.id),m])).values()];
- if(findEnrolledFaceConflict(state.pendingDescriptors,id,allMembers)){
-  state.pendingDescriptors=[];setText('enrollFaceLabel','Duplicate face enrollment blocked.');
-  showToast('This face is already registered under another Member ID. Enrollment blocked.','error',8500);return;
+async function saveMemberForm(e){
+ e.preventDefault();if(!canEdit())return;
+ const id=$('memberId').value.trim(),name=$('memberName').value.trim(),
+   coop=$('memberCoop').value,platform=$('memberPlatform').value.trim(),
+   siteIds=[...$('memberSite').selectedOptions].map(o=>o.value),
+   sites=siteIds.map(id=>state.sites.find(x=>x.id===id&&!x.deleted));
+ if(!id||!name||!platform||!TIPONOrgCore.inScope(state.user,{coop,platform})){
+   showToast('Enter a valid Member ID, Full Name, Cooperative and Business Platform.','error');return;
  }
- if(!state.consentAcknowledgedAt&&!state.editMember?.consentAt){showToast('Click Enroll face after the member reviews the biometric notice.','error');return;}
+ if(siteIds.length>40||sites.some(s=>!s||s.coop!==coop||
+   TIPONOrgCore.platformKey(s.platform)!==TIPONOrgCore.platformKey(platform))){
+   showToast('Choose only approved Work Locations matching your Cooperative and Business Platform.','error');return;
+ }
+ if(sites.some(s=>s._pendingOp)){
+   showToast('A selected Work Location is still awaiting central confirmation. Refresh Work Locations and retry, or leave the location unassigned for now.','info',8500);return;
+ }
+ if(!state.editMember&&state.members.some(m=>m.id.toLowerCase()===id.toLowerCase())){
+   showToast('Member ID is already registered.','error');return;
+ }
+ const old=state.editMember;
+ const oldIds=old?(Array.isArray(old.siteIds)&&old.siteIds.length?old.siteIds:[old.siteId].filter(Boolean)):[];
+ const sameSites=old&&oldIds.length===siteIds.length&&oldIds.every(site=>siteIds.includes(site));
+ // Editing GPS assignment must not force another facial enrollment.
+ // A member without an enrolled face remains NOT ENROLLED until later.
+ const locationOnly=!!old&&!state.pendingDescriptors?.length&&!old.template||
+   !!old&&!!old.template&&name===old.name&&coop===old.coop&&
+     TIPONOrgCore.platformKey(platform)===TIPONOrgCore.platformKey(old.platform);
+ if(locationOnly){
+   if(name!==old.name||coop!==old.coop||
+     TIPONOrgCore.platformKey(platform)!==TIPONOrgCore.platformKey(old.platform)){
+     showToast('Only the Assigned Work Location can be changed here. Ask an Administrator to edit identity or MPC/BP.','info');return;
+   }
+   if(sameSites){$('memberDialog').close();showToast('No Assigned Work Location changes to save.','info');return;}
+   if(!navigator.onLine){showToast('Internet access is required to update an existing member assignment.','error');return;}
+   const open=state.punches.some(p=>p.memberId===id&&p.type==='IN'&&
+     !state.punches.some(q=>q.sessionId===p.sessionId&&q.type==='OUT'));
+   if(open){showToast('Complete Time Out before changing the assigned GPS location.','error');return;}
+   const submit=$('memberForm').querySelector('[type="submit"]');
+   if(submit)submit.disabled=true;
+   try{
+     // The private backend must confirm even un-enrolled member assignments.
+     // Never silently call saveOne() because it requires a face template and
+     // could accidentally change biometric/enrollment status.
+     const response=await TIPONAPI.call({action:'memberLocationUpdate',
+       memberId:id,baseRev:Number(old.rev)||0,siteIds});
+     const confirmed=response.member;
+     const savedIds=Array.isArray(confirmed?.siteIds)&&confirmed.siteIds.length?
+       confirmed.siteIds:[confirmed?.siteId].filter(Boolean);
+     if(!confirmed||confirmed.id!==id||savedIds.length!==siteIds.length||
+       !savedIds.every(x=>siteIds.includes(x))){
+       throw Error('Central server did not acknowledge the selected Assigned Work Location.');
+     }
+     const local=await getOne('members',id);
+     if(local?._pendingOp)throw Error('Existing member change is pending sync. Retry after it completes.');
+     const record={...local,...confirmed,orgId:state.orgId};
+     delete record._pendingOp;
+     await OrgDB.rawSave('members',record);
+     await loadCollections();$('memberDialog').close();
+     renderMembers();renderDashboard();TIPONSync.kick();
+     showToast('Assigned Work Location updated centrally. Face enrollment status remains unchanged.','success',7500);
+   }catch(error){
+     const message=error.code==='ACTION'||/unknown action|unsupported action|not implemented/i.test(error.message||'')
+       ?'Work Location edits for existing members require the matching private Apps Script backend patch. No assignment was changed.'
+       :String(error.message||'Could not update Assigned Work Location.');
+     showToast(message,'error',9000);
+   }finally{if(submit)submit.disabled=false;}
+   return;
+ }
+ // New facial enrollment can be completed without a GPS assignment.
+ // The private backend must accept an empty siteIds array; a member with no
+ // assigned location cannot use Time In or Time Out.
+ if(!state.pendingDescriptors?.length||state.pendingDescriptors.length<3){
+   showToast('Complete Face Enrollment before creating a new enrolled member.','error');return;
+ }
+ const latest=await getAll('members');
+ const all=[...new Map([...latest,...state.members].filter(Boolean).map(m=>[String(m.id),m])).values()];
+ if(findEnrolledFaceConflict(state.pendingDescriptors,id,all)){
+   state.pendingDescriptors=[];setText('enrollFaceLabel','Duplicate face enrollment blocked.');
+   showToast('This face is registered under a different Member ID. Enrollment blocked.','error',8500);return;
+ }
+ if(!state.consentAcknowledgedAt&&!old?.consentAt){
+   showToast('Complete the biometric consent and live Face Enrollment first.','error');return;
+ }
  const last=state.punches.find(p=>p.memberId===id);
- if(last?.type==='IN'&&(state.editMember?.siteIds||[state.editMember?.siteId]).some(x=>!siteIds.includes(x))){showToast('Complete Time Out before removing an assigned work location.','error');return;}
- const record={id,name,coop,platform,siteId:siteIds[0],siteIds,descriptors:state.pendingDescriptors,consentAt:state.editMember?.consentAt||new Date(state.consentAcknowledgedAt||Date.now()).toISOString(),enrolledBy:state.editMember?.enrolledBy||state.deviceId,enrolledByUsername:state.editMember?.enrolledByUsername||state.user.username||'',createdAt:state.editMember?.createdAt||new Date().toISOString(),updatedAt:new Date().toISOString()};
- try{await saveOne('members',record);await loadCollections();$('memberDialog').close();renderMembers();renderDashboard();showToast(`${name} enrolled successfully.`,'success');}catch(err){toastError(err,'Unable to save member');}
+ if(last?.type==='IN'&&oldIds.some(x=>!siteIds.includes(x))){
+   showToast('Complete Time Out before removing an assigned Work Location.','error');return;
+ }
+ const record={id,name,coop,platform,siteId:siteIds[0]||'',siteIds,
+   descriptors:state.pendingDescriptors,
+   consentAt:old?.consentAt||new Date(state.consentAcknowledgedAt||Date.now()).toISOString(),
+   enrolledBy:old?.enrolledBy||state.deviceId,
+   enrolledByUsername:old?.enrolledByUsername||state.user.username||'',
+   createdAt:old?.createdAt||new Date().toISOString(),updatedAt:new Date().toISOString()};
+ try{
+   if(!siteIds.length){
+     // Fail closed: the previous private Apps Script backend still required
+     // one Work Location. Without a server capability check, an offline-only
+     // save would become an indefinitely rejected record.
+     if(!navigator.onLine)throw Error('Connect to the internet before enrolling a member without a Work Location.');
+     const feature=await TIPONAPI.raw({action:'memberLocationCapabilities'});
+     if(feature?.allowUnassignedFace!==true)throw Error('Private Apps Script must be updated before face enrollment without a Work Location is supported.');
+   }
+   await saveOne('members',record);await loadCollections();$('memberDialog').close();
+   renderMembers();renderDashboard();
+   showToast(siteIds.length?name+' enrolled; central sync pending.':
+     name+' enrolled without a GPS Work Location. Assign a location before attendance. Central sync pending.','success',8500);
+ }catch(error){
+   const message=error.code==='ACTION'||/unknown action|unsupported action|not implemented/i.test(error.message||'')
+     ?'Face enrollment without an Assigned Work Location requires the updated private Apps Script. No enrollment was saved.'
+     :String(error.message||'Unable to save member.');
+   showToast(message,'error',8500);
+ }
 }
 async function handleMemberTableClick(e){
  const edit=e.target.closest('[data-member-edit]'),del=e.target.closest('[data-member-delete]');
@@ -463,11 +557,11 @@ function confirmAction(title,body){
   state.confirmResolver=resolve;
   setText('confirmTitle',title);
   setText('confirmBody',body);
-  const destructive=/^(?:delete|remove|replace|revoke)\b/i.test(String(title||''));
   const confirmButton=$('confirmYes');
-  // Ordinary confirms (including member CSV upload) are green; destructive actions remain red.
-  confirmButton.classList.toggle('confirm-success',!destructive);
-  confirmButton.classList.toggle('danger-button',destructive);
+  // All Confirm actions use the approved green theme. Destructive actions
+  // still require this explicit confirmation and retain their warning text.
+  confirmButton.classList.add('confirm-success');
+  confirmButton.classList.remove('danger-button');
   $('confirmDialog').showModal();
  });
 }
@@ -788,7 +882,6 @@ async function beginEnrollment(){
   showToast('This member already has an enrolled face. A second enrollment is not allowed.','error',7500);return;
  }
  if(!$('memberName').value.trim()||!$('memberId').value.trim()){showToast('Enter member ID and full name before enrolling the face.','error');return;}
- if(![...$('memberSite').selectedOptions].length){showToast('Select or create an approved Work Location before starting Face Enrollment.','error');updateMemberSiteAvailability();return;}
  // Clicking Enroll face is the explicit acknowledgement shown beside the approved biometric privacy notice.
  state.consentAcknowledgedAt=state.editMember?.consentAt||new Date().toISOString();
  if($('memberDialog').open)$('memberDialog').close();if(!$('enrollDialog').open)$('enrollDialog').showModal();state.enrollActive=true;state.enrollCollected=[];state.enrollBlinkClosed=false;state.enrollBlinkSeen=false;state.enrollBlinkOpen=0;state.enrollBlinkBaselineFrames=0;state.enrollBlinkClosedAt=0;

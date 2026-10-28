@@ -1,5 +1,5 @@
 {
   "app": "TIPON Face Attendance",
-  "version": "5.5.19",
-  "label": "Work Locations show no inline pending-sync text (sync queue remains intact). Business Platforms table now uses nine approved full names and existing codes; secure Admin BP Edit and Delete via separately deployed Apps Script extension."
+  "version": "5.5.20",
+  "label": "Consistent black dropdown values and chevron arrows; all Confirm dialog buttons green. Admin can edit optional Assigned Location. User can edit member Work Location without a new face enrollment; optional site enrollment requires the corresponding private Apps Script backend deployment."
 }

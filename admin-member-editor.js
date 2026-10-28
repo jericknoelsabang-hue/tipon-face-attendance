@@ -1,109 +1,107 @@
-/* TIPON Administrator member metadata editor.
- * MPC/BP may be reassigned by Admin; GPS locations and encrypted face
- * biometrics remain governed by the server and authorized User enrollment.
+/* TIPON 5.5.20 — Admin member metadata and optional Assigned Location.
+ * Work Location mutations require server acknowledgement, never local-only.
  */
 'use strict';
 (()=>{
- const field=id=>document.getElementById(id);
- let editingId=null;
- const oldRender=renderMembers;
+ const $=id=>document.getElementById(id),key=x=>TIPONOrgCore.platformKey(x||'');
+ const ids=m=>[...new Set((Array.isArray(m?.siteIds)&&m.siteIds.length?m.siteIds:[m?.siteId]).filter(Boolean).map(String))];
+ let current=null;
+ const beforeRender=renderMembers;
  renderMembers=function(){
-  oldRender();
-  if(isAdmin())document.querySelectorAll('#memberRows [data-member-edit]').forEach(b=>b.disabled=false);
+  beforeRender();
+  if(isAdmin())document.querySelectorAll('#memberRows [data-member-edit]').forEach(x=>x.disabled=false);
  };
- const oldOpen=openMemberForm;
- openMemberForm=function(member){
-  if(isAdmin()&&member){openAdmin(member);return;}
-  return oldOpen(member);
- };
- function fillScopeOptions(member){
-  const cooperative=field('adminMemberCoop'),platform=field('adminMemberPlatform');
-  const coops=[...TIPONOrgCore.COOPS];
-  if(member.coop&&!coops.includes(member.coop))coops.push(member.coop);
-  cooperative.innerHTML='<option value="">Select cooperative</option>'+
-    coops.map(c=>'<option value="'+esc(c)+'">'+esc(c)+'</option>').join('');
-  cooperative.value=member.coop||'';
-  const platforms=TIPONOrgCore.platformNames([...(TIPONPlatforms.names()||[]),member.platform||'']);
-  platform.innerHTML='<option value="">Select business platform</option>'+
-    platforms.map(p=>'<option value="'+esc(p)+'">'+esc(p)+'</option>').join('');
-  platform.value=member.platform||'';
+ const beforeOpen=openMemberForm;
+ openMemberForm=function(member){return isAdmin()&&member?openAdmin(member):beforeOpen(member);};
+ function selected(){return [...$('adminMemberSiteChoices').querySelectorAll('input[data-admin-member-site]:checked')].map(x=>x.dataset.adminMemberSite);}
+ const same=(a,b)=>a.length===b.length&&a.every(x=>b.includes(x));
+ function choices(previous=[]){
+  const coop=$('adminMemberCoop').value,platform=$('adminMemberPlatform').value;
+  const valid=state.sites.filter(s=>!s.deleted&&!s._pendingOp&&s.coop===coop&&key(s.platform)===key(platform));
+  const p=new Set(previous.map(String));
+  $('adminMemberSiteChoices').innerHTML=valid.length?valid
+    .sort((a,b)=>a.name.localeCompare(b.name)).map(s=>
+     '<label class="multi-select-option"><input type="checkbox" data-admin-member-site="'+esc(s.id)+'"'+(p.has(String(s.id))?' checked':'')+'/><span>'+esc(s.name)+'<small>'+esc((s.radius||150)+' m GPS')+'</small></span></label>'
+    ).join(''):'<p class="mini-info">No centrally confirmed Work Locations for this MPC/BP. You can leave this member unassigned.</p>';
+  setText('adminMemberSiteHelp',state.sites.some(s=>s._pendingOp&&s.coop===coop&&key(s.platform)===key(platform))
+    ?'Some Work Locations are awaiting central confirmation and cannot yet be assigned.'
+    :'Work Location is optional. Attendance requires an enrolled face and an approved location.');
+  updateSummary();
+ }
+ function updateSummary(){
+  const count=selected().length;
+  setText('adminMemberSiteSummary',count?count+' Assigned Location'+(count===1?'':'s')+' selected':'No Assigned Location (Optional)');
  }
  function openAdmin(member){
-  if(!isAdmin()||!member)return;
-  if(member._pendingOp){
-   showToast('Sync pending member changes before editing.','error');return;
-  }
-  editingId=member.id;
-  field('adminMemberForm').reset();
-  field('adminMemberId').value=member.id;
-  field('adminMemberName').value=member.name||'';
-  fillScopeOptions(member);
-  setText('adminMemberFaceStatus',
-   member.active!==false&&member.template
-    ?'ENROLLED — encrypted face template remains unchanged.'
-    :'NOT ENROLLED — a User must select a work location and enroll the face.');
-  setText('adminMemberEditStatus',
-   'You may edit Full name, Cooperative and Business Platform. Changing MPC/BP removes old work-location assignments so a User can assign locations in the new scope. Attendance history is retained.');
-  field('adminMemberDialog').showModal();
+  if(member._pendingOp){showToast('Sync pending member changes before editing.','error');return;}
+  current=member.id;$('adminMemberForm').reset();
+  $('adminMemberId').value=member.id;$('adminMemberName').value=member.name||'';
+  const coop=$('adminMemberCoop'),platform=$('adminMemberPlatform');
+  coop.innerHTML='<option value="">Select cooperative</option>'+
+    [...new Set([...TIPONOrgCore.COOPS,member.coop])].filter(Boolean).map(s=>'<option value="'+esc(s)+'">'+esc(s)+'</option>').join('');
+  coop.value=member.coop;
+  platform.innerHTML='<option value="">Select business platform</option>'+
+    TIPONOrgCore.platformNames([...TIPONPlatforms.names(),member.platform]).map(s=>'<option value="'+esc(s)+'">'+esc(s)+'</option>').join('');
+  platform.value=member.platform;choices(ids(member));
+  $('adminMemberSitePicker').open=false;
+  setText('adminMemberFaceStatus',member.template&&member.active!==false
+    ?'ENROLLED — existing encrypted face template will be preserved.'
+    :'NOT ENROLLED — location assignment can be saved independently; face enrollment is completed by an authorized User.');
+  setText('adminMemberEditStatus','');$('adminMemberDialog').showModal();
  }
- async function saveEdit(event){
-  event.preventDefault();
-  if(!isAdmin()||!editingId)return;
-  const member=state.members.find(m=>m.id===editingId);
-  if(!member||member._pendingOp){
-   setText('adminMemberEditStatus','Sync pending changes, then reopen Edit.');return;
+ async function save(event){
+  event.preventDefault();if(!isAdmin()||!current)return;
+  const member=state.members.find(x=>x.id===current);
+  if(!member||member._pendingOp){setText('adminMemberEditStatus','Sync changes first, then reopen Edit.');return;}
+  const name=$('adminMemberName').value.trim(),coop=$('adminMemberCoop').value,platform=$('adminMemberPlatform').value,siteIds=selected();
+  if(!name||name.length>120||!TIPONOrgCore.COOPS.includes(coop)||!TIPONPlatforms.names().some(x=>key(x)===key(platform))){
+   setText('adminMemberEditStatus','Enter a valid Full Name, Cooperative and Business Platform.');return;
   }
-  const name=field('adminMemberName').value.trim(),
-    coop=field('adminMemberCoop').value,
-    platform=field('adminMemberPlatform').value;
-  if(!name||name.length>120||!TIPONOrgCore.COOPS.includes(coop)||
-     !platform||!TIPONPlatforms.names().some(p=>TIPONOrgCore.platformKey(p)===TIPONOrgCore.platformKey(platform))){
-   setText('adminMemberEditStatus','Enter a full name and select a valid Cooperative and Business Platform.');return;
+  if(siteIds.length>40||siteIds.some(id=>{
+   const s=state.sites.find(x=>x.id===id&&!x.deleted&&!x._pendingOp);
+   return !s||s.coop!==coop||key(s.platform)!==key(platform);
+  })){setText('adminMemberEditStatus','Select only approved, centrally confirmed locations matching the MPC/BP.');return;}
+  if(!navigator.onLine){setText('adminMemberEditStatus','Connect to the internet to save centrally.');return;}
+  const scopeChanged=coop!==member.coop||key(platform)!==key(member.platform);
+  const locationChanged=!same(ids(member),siteIds),nameChanged=name!==member.name;
+  if(!scopeChanged&&!locationChanged&&!nameChanged){$('adminMemberDialog').close();return;}
+  if(scopeChanged||locationChanged){
+   const confirmed=await confirmAction('Confirm Member Assignment',
+     'Update the assigned location for '+member.name+'? An open Time In must be completed first. Facial biometrics and attendance history will remain intact.');
+   if(!confirmed)return;
   }
-  if(!navigator.onLine){
-   setText('adminMemberEditStatus','Online connection is required to save a central member update.');return;
-  }
-  const scopeChanged=coop!==member.coop||
-    TIPONOrgCore.platformKey(platform)!==TIPONOrgCore.platformKey(member.platform);
-  if(scopeChanged&&(member.siteId||member.siteIds?.length)){
-   const yes=await confirmAction('Change member MPC/BP?',
-    'Current GPS work-location assignments will be removed. The member cannot record attendance until an authorized User assigns a location in the new scope. Open Time In sessions must be completed first. Existing biometric and attendance records remain intact.');
-   if(!yes)return;
-  }
-  const button=field('adminMemberSave');
-  button.disabled=true;
+  const button=$('adminMemberSave');button.disabled=true;
   setText('adminMemberEditStatus','Saving to TIPON central database...');
   try{
-   const health=await TIPONAPI.raw({action:'health'});
-   if(!/^5\.5\.(?:8|9|[1-9]\d+)(?:\D|$)/.test(String(health.version||'')))
-    throw Error('Member MPC/BP editing requires Apps Script backend v5.5.8. Deploy Code.gs and OrgCore.gs to the existing Web App first.');
-   const reply=await TIPONAPI.call({
-    action:'adminMemberUpdate',memberId:editingId,baseRev:Number(member.rev)||0,
-    changes:{name,coop,platform}
-   });
-   if(!reply.member||reply.member.id!==editingId)
-    throw Error('Server did not confirm member update.');
-   const old=await getOne('members',editingId);
-   if(old?._pendingOp)throw Error('Local changes are pending sync. Retry after syncing.');
-   await OrgDB.rawSave('members',{...old,...reply.member,orgId:state.orgId});
-   await loadCollections();
-   field('adminMemberDialog').close();
-   editingId=null;
-   renderMembers();renderDashboard();
-   TIPONSync.kick();
-   showToast(scopeChanged
-    ?'Member MPC/BP updated. Authorized User must reassign GPS work location.'
-    :'Member details updated. Existing biometric and attendance history retained.','success',7000);
+   // New endpoint is mandatory for explicit location edits; old server
+   // only permits name/coop/platform and must never discard the siteIds.
+   const extended=locationChanged||(scopeChanged&&siteIds.length>0);
+   const reply=await TIPONAPI.call({action:extended?'adminMemberUpdateV2':'adminMemberUpdate',
+    memberId:member.id,baseRev:Number(member.rev)||0,
+    changes:extended?{name,coop,platform,siteIds}:{name,coop,platform}});
+   if(!reply.member||reply.member.id!==member.id)throw Error('Central server did not confirm the member edit.');
+   if(extended&&(!same(ids(reply.member),siteIds)||reply.member.coop!==coop||key(reply.member.platform)!==key(platform))){
+    throw Error('Central assignment mismatch. No local changes applied.');
+   }
+   const old=await getOne('members',member.id);
+   if(old?._pendingOp)throw Error('A local member edit appeared during the server update; sync before retrying.');
+   const updated={...old,...reply.member,orgId:state.orgId};
+   delete updated._pendingOp;
+   await OrgDB.rawSave('members',updated);
+   await loadCollections();$('adminMemberDialog').close();renderMembers();renderDashboard();
+   TIPONSync.kick();showToast('Member details and Assigned Location saved centrally.','success',7000);
   }catch(error){
-   const message=error.code==='ACTION'||/Unknown action/i.test(error.message||'')
-    ?'Deploy matching TIPON Apps Script backend v5.5.8. Changes were not saved.'
-    :error.message||'Unable to save member.';
-   setText('adminMemberEditStatus',message);
-   showToast(message,'error',8500);
+   const message=error.code==='ACTION'||/unknown action|unsupported action|not implemented/i.test(error.message||'')
+    ?'Assigned Location editing requires the new private Apps Script backend. No assignment was changed.'
+    :error.message||'Member edit not confirmed.';
+   setText('adminMemberEditStatus',message);showToast(message,'error',8500);
   }finally{button.disabled=false;}
  }
  document.addEventListener('DOMContentLoaded',()=>{
-  field('adminMemberForm')?.addEventListener('submit',saveEdit);
-  field('adminMemberDialog')?.addEventListener('close',()=>editingId=null);
+  $('adminMemberForm')?.addEventListener('submit',save);
+  $('adminMemberDialog')?.addEventListener('close',()=>current=null);
+  $('adminMemberCoop')?.addEventListener('change',()=>choices(selected()));
+  $('adminMemberPlatform')?.addEventListener('change',()=>choices(selected()));
+  $('adminMemberSiteChoices')?.addEventListener('change',updateSummary);
  });
 })();
