@@ -6,7 +6,7 @@
 window.TIPONAdminSites=(()=>{
   const PH_CENTER=[12.8797,121.7740],PH_ZOOM=6;
   const CDN_BASE='https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/';
-  let map=null,marker=null,loader=null,lastSearch=0,refreshing=false;
+  let map=null,marker=null,loader=null,lastSearch=0,refreshing=false,suggestTimer=null,suggestSeq=0;
   const field=id=>document.getElementById(id);
   function available(){return isAdmin()&&state.user?.role==='admin';}
   function selectedCoordinates(){
@@ -31,7 +31,7 @@ window.TIPONAdminSites=(()=>{
       const coords=Number.isFinite(lat)&&Number.isFinite(lng)
         ?lat.toFixed(6)+', '+lng.toFixed(6):'Not configured';
       return '<tr>'+
-        '<td><b>'+esc(site.name||'—')+'</b>'+(site._pendingOp?'<small class="mini-info" style="display:block;color:#a75c28">Pending Sync</small>':'')+'</td>'+
+        '<td><b>'+esc(site.name||'—')+'</b></td>'+
         '<td>'+esc(site.coop||'—')+'</td><td>'+esc(site.platform||'—')+'</td>'+
         '<td>'+esc(site.address||'—')+'</td><td><small>'+esc(coords)+'</small></td>'+
         '<td><div class="site-actions">'+
@@ -153,7 +153,7 @@ window.TIPONAdminSites=(()=>{
     const q=field('siteAddress').value.trim();
     if(q.length<3){setText('adminSiteMapHint','Enter a complete address or recognizable landmark in Address / Site Description, then select Find on Map.');field('siteAddress').focus();return;}
     if(!navigator.onLine){setText('adminSiteMapHint','Internet is needed to search the address. Exact GPS coordinates can still be entered manually.');return;}
-    if(Date.now()-lastSearch<1200){setText('adminSiteMapHint','Search requests are limited. Try again shortly.');return;}
+    if(Date.now()-lastSearch<1100){setText('adminSiteMapHint','Search requests are limited. Try again shortly.');return;}
     lastSearch=Date.now();const button=field('adminSitePlaceFind');button.disabled=true;
     setText('adminSiteMapHint','Searching for the address: '+q+'…');
     try{
@@ -169,6 +169,38 @@ window.TIPONAdminSites=(()=>{
       showToast('Address located. GPS coordinates have been filled.','success');
     }catch(error){setText('adminSiteMapHint',error.message);showToast(error.message,'error');}
     finally{button.disabled=false;}
+  }
+  function closeSuggestions(){const box=field('siteAddressSuggestions');if(box){box.hidden=true;box.replaceChildren();}}
+  function showSuggestions(items){
+    const box=field('siteAddressSuggestions');if(!box)return;
+    box.replaceChildren();
+    for(const item of items){
+      const button=document.createElement('button');button.type='button';button.className='site-address-suggestion';
+      button.textContent=String(item.display_name||'').slice(0,220);
+      button.addEventListener('click',async()=>{
+        field('siteAddress').value=item.display_name||'';closeSuggestions();
+        setCoordinates(Number(item.lat),Number(item.lon),true);
+        if(!map)await openMap();
+        setText('adminSiteMapHint','Location selected. Confirm the pin and save the work location.');
+      });
+      box.append(button);
+    }
+    box.hidden=!items.length;
+  }
+  function suggestPlaces(){
+    clearTimeout(suggestTimer);const query=field('siteAddress').value.trim(),seq=++suggestSeq;
+    if(!available()||query.length<3||!navigator.onLine){closeSuggestions();return;}
+    suggestTimer=setTimeout(async()=>{
+      try{
+        if(Date.now()-lastSearch<1100){suggestPlaces();return;}
+        lastSearch=Date.now();
+        const url='https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&limit=5&countrycodes=ph&q='+encodeURIComponent(query);
+        const response=await fetch(url,{headers:{Accept:'application/json'}});
+        if(!response.ok)throw Error('Place suggestions are temporarily unavailable.');
+        const hits=await response.json();if(seq!==suggestSeq)return;
+        showSuggestions(Array.isArray(hits)?hits:[]);
+      }catch{if(seq===suggestSeq)closeSuggestions();}
+    },1100);
   }
   function restoreMapCanvas(){
     const canvas=field('adminMapCanvas'),preview=field('siteMapPreview');
@@ -209,12 +241,15 @@ window.TIPONAdminSites=(()=>{
       if(del){const site=state.sites.find(s=>s.id===del.dataset.adminSiteDelete);if(site)await deleteSite(site);}
     });
     attach('adminSitePlaceFind','click',findPlace);
+    attach('siteAddress','input',suggestPlaces);
+    attach('siteAddress','blur',()=>setTimeout(closeSuggestions,180));
+    attach('siteAddressSuggestions','mousedown',event=>event.preventDefault());
      attach('siteMapPreview','click',event=>{
        if(!available()||!field('siteDialog')?.open||field('siteFullMapDialog')?.open)return;
        if(event.target.closest('button,a,input,select'))return;
        void openFullMap();
      });
-    attach('siteAddress','keydown',e=>{if(e.key==='Enter'&&available()){e.preventDefault();void findPlace();}});
+    attach('siteAddress','keydown',e=>{if(e.key==='Enter'&&available()){e.preventDefault();const first=field('siteAddressSuggestions')?.querySelector('button');if(first)first.click();else void findPlace();}if(e.key==='Escape')closeSuggestions();});
     attach('siteLat','change',syncFromInputs);attach('siteLng','change',syncFromInputs);
     attach('siteOpenMap','click',event=>{
        if(!available())return;

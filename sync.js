@@ -85,7 +85,9 @@ window.TIPONSync=(()=>{
   }
   async function flush(){
     const actor=state.user;
-    const outbox=(await getAll('outbox')).filter(o=>o.orgId===state.orgId&&o.ownerId===actor.id&&(!o.errorCode||['DEPENDENCY','BUSY','SERVER','NETWORK'].includes(o.errorCode))).sort((a,b)=>a.createdAt.localeCompare(b.createdAt));
+    // Retry queued changes automatically unless the server explicitly marked
+    // them for human review (for example a revision conflict or permission denial).
+    const outbox=(await getAll('outbox')).filter(o=>o.orgId===state.orgId&&o.ownerId===actor.id&&!['NEEDS_REVIEW','CONFLICT','FORBIDDEN','NOT_FOUND'].includes(o.errorCode)).sort((a,b)=>a.createdAt.localeCompare(b.createdAt));
     const weights={sites:0,members:1,schedules:2};outbox.sort((a,b)=>weights[a.type]-weights[b.type]||a.createdAt.localeCompare(b.createdAt));
     const operations=actor.role==='kiosk'?[]:outbox.slice(0,5);
     const events=state.punches.filter(p=>p.orgId===state.orgId&&!p.cloudAck&&!p.reviewStatus&&p.deviceId===state.deviceId).sort((a,b)=>Date.parse(a.timestamp)-Date.parse(b.timestamp)).slice(0,20);
