@@ -83,14 +83,14 @@ async function deriveBytes(password,salt,iterations=190000,bits=256){
 
 
 
-async function enterApp(){
+async function enterApp(options={}){
   if(typeof TIPONWorkspaceEnter!=='function')throw Error('Workspace module is unavailable. Reload the app files.');
-  return TIPONWorkspaceEnter();
+  return TIPONWorkspaceEnter(options);
 }
 function applyRoles(){document.querySelectorAll('[data-roles]').forEach(el=>el.hidden=true);}
 function refreshClock(){const now=new Date();setText('liveDateTime',now.toLocaleString('en-PH',{timeZone:PH_TIMEZONE,weekday:'short',month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}));setText('bigDate',now.toLocaleDateString('en-PH',{timeZone:PH_TIMEZONE,weekday:'long',month:'short',day:'numeric',year:'numeric'}));const connected=navigator.onLine;setText('connectionText',connected?'Online / local storage':'Offline / local storage');setText('headerOnlineText',connected?'Network online':state.offlineReady?'Offline ready':'Offline / setup needed');$('onlineDot').className=`status-dot ${connected?'success':'offline'}`;$('headerOnlineDot').className=`status-dot ${connected?'success':'offline'}`;}
 
-const pageNames={dashboard:'Dashboard',scanner:'Face terminal',terminalLogs:'Attendance logs',members:'Member registry',sites:'Work locations',records:'Attendance logs',settings:'Settings & offline',adminSites:'Work locations list'};
+const pageNames={dashboard:'Dashboard',scanner:'Face Terminal',terminalLogs:'Attendance Logs',members:'Member List',sites:'Work Locations',records:'Attendance Logs',settings:'Settings & Offline',adminSites:'Work Locations List'};
 async function showPage(page){
   if(!pageNames[page])return;
   if((page==='members'&&!canEdit()&&!isAdmin())||(page==='sites'&&!canEdit())||(page==='adminSites'&&!isAdmin()))return;
@@ -277,7 +277,7 @@ function updateSiteMap(){
  const valid=!!latInput&&!!lngInput&&Number.isFinite(lat)&&Number.isFinite(lng)&&Math.abs(lat)<=90&&Math.abs(lng)<=180;
  const adminPicker=isAdmin()&&$('siteDialog')?.open;
  if(!valid){
-  $('siteOpenMap').hidden=true;
+  $('siteOpenMap').hidden=!adminPicker;
   setText('mapCoordLabel',adminPicker?'Choose the exact location on the map or enter coordinates.':'Enter coordinates or use current GPS.');
   if(adminPicker){$('siteMapFrame').hidden=true;window.TIPONAdminSites?.syncFromInputs();}
   else{$('siteMapFrame').hidden=true;$('mapOffline').hidden=false;}
@@ -604,7 +604,7 @@ async function recordRecognizedFace(member,faceDistance){
     memberId:member.id,memberName:member.name,coop:member.coop,platform:site.platform,recordedById:state.user.id,siteId:site.id,siteName:site.name,
     siteLat:site.lat,siteLng:site.lng,radius:150,lat:gps.latitude,lng:gps.longitude,
     accuracy:gps.accuracy,distance,faceDistance,performedBy:state.user.username||state.user.name};
-  await commitPunch(punch,mode);await loadCollections();renderTerminal();renderTerminalLogs();renderDashboard();
+  await commitPunch(punch,mode);TIPONAuth?.touchActivity?.();await loadCollections();renderTerminal();renderTerminalLogs();renderDashboard();
   updateScanResult(`TIME ${punch.type} saved`,`${member.name} | ${member.id} | ${site.name} | ${displayTime(stamp)}. Saved on this phone.`,'success');
   playTerminalSound('success');speakTerminal('Time '+(punch.type==='IN'?'in':'out')+' recorded for '+member.name+'.','success','punch:'+punch.id);showToast(`${member.name}: TIME ${punch.type} recorded.`,'success');
   if(navigator.vibrate){try{navigator.vibrate(80);}catch{}}
@@ -853,4 +853,4 @@ async function initializeLocal(){
 }
 window.addEventListener('DOMContentLoaded',boot);
 
-window.TIPONWorkspaceEnter=()=>enterApp();
+window.TIPONWorkspaceEnter=(options={})=>enterApp(options);
