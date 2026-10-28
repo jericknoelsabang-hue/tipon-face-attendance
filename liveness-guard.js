@@ -235,5 +235,5 @@
     if(state.enrollActive&&state.enrollRun===run)
       state.enrollTimer=setTimeout(enrollTick,220);
   };
-  window.TIPONLiveness={version:'5.5.30',challenge,advance};
+  window.TIPONLiveness={version:'5.5.31',challenge,advance};
 })();
