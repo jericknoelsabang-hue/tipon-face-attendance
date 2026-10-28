@@ -637,18 +637,18 @@ function blinkRatio(face){
 // slower computers. Calibrate per face and sample quickly without removing the
 // live blink requirement. This is a basic liveness check, not spoof-proof.
 function advanceEnrollmentBlink(ratio,now=Date.now()){
- if(!Number.isFinite(ratio)||ratio<0.07||ratio>0.60)
+ if(!Number.isFinite(ratio)||ratio<0.045||ratio>0.60)
   return 'Eye landmarks unclear. Move closer and face the camera in good lighting.';
  const sample=state.enrollBlinkOpen||0;
  if(!state.enrollBlinkClosed){
-  if(ratio>=0.115&&ratio<=0.48){
+  if(ratio>=0.10&&ratio<=0.50){
    state.enrollBlinkOpen=Math.max(sample*0.995,ratio);
    state.enrollBlinkBaselineFrames=(state.enrollBlinkBaselineFrames||0)+1;
   }
   if((state.enrollBlinkBaselineFrames||0)<2)
    return 'Keep both eyes open and centered briefly to calibrate blink detection.';
   const baseline=state.enrollBlinkOpen;
-  if(ratio<Math.max(0.085,baseline*0.73)&&ratio<baseline*0.82){
+  if(ratio<Math.max(0.07,baseline*0.80)&&ratio<baseline*0.85){
    state.enrollBlinkClosed=true;state.enrollBlinkClosedAt=now;
    return 'Closed eyes detected. Open your eyes to confirm the live blink.';
   }
@@ -660,7 +660,7 @@ function advanceEnrollmentBlink(ratio,now=Date.now()){
   return 'Blink timed out. Keep your face centered and blink slowly again.';
  }
  const open=state.enrollBlinkOpen||0.23;
- if(elapsed>80&&ratio>Math.max(0.115,open*0.85)){
+ if(elapsed>80&&ratio>Math.max(0.10,open*0.84)){
   state.enrollBlinkSeen=true;
   return 'Live blink verified. Turn slightly left and right for three face samples.';
  }
