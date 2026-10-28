@@ -1,5 +1,5 @@
 {
   "app": "TIPON Face Attendance",
-  "version": "5.5.12",
-  "label": "KABILANG login design with Welcome!, accessible role-preserving Settings parity, and clickable live organization connection check. All existing attendance, authentication, and synchronization functions retained."
+  "version": "5.5.13",
+  "label": "Reference workers restored to login; address search now fills GPS/map preview using permitted Leaflet CDN with OSM iframe fallback; existing enrolled faces cannot be reused under different local Member IDs."
 }

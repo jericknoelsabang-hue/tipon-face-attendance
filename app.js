@@ -219,6 +219,12 @@ async function saveMemberForm(e){e.preventDefault();if(!canEdit())return;
  if(!id||!name||!siteIds.length||sites.length!==siteIds.length||sites.some(s=>s.coop!==coop||TIPONOrgCore.platformKey(s.platform)!==TIPONOrgCore.platformKey(state.editMember?.platform||state.user?.platform))){showToast('Choose one or more matching approved work locations.','error');return;}
  if(!state.editMember&&state.members.some(m=>m.id.toLowerCase()===id.toLowerCase())){showToast('Member ID is already registered.','error');return;}
  if(!state.pendingDescriptors.length||state.pendingDescriptors.length<3){showToast('Complete face enrollment before saving.','error');return;}
+ const latestMembers=await getAll('members');
+ const allMembers=[...new Map([...state.members,...latestMembers].filter(Boolean).map(m=>[String(m.id),m])).values()];
+ if(findEnrolledFaceConflict(state.pendingDescriptors,id,allMembers)){
+  state.pendingDescriptors=[];setText('enrollFaceLabel','Duplicate face enrollment blocked.');
+  showToast('This face is already registered under another Member ID. Enrollment blocked.','error',8500);return;
+ }
  if(!state.consentAcknowledgedAt&&!state.editMember?.consentAt){showToast('Click Enroll face after the member reviews the biometric notice.','error');return;}
  const last=state.punches.find(p=>p.memberId===id);
  if(last?.type==='IN'&&(state.editMember?.siteIds||[state.editMember?.siteId]).some(x=>!siteIds.includes(x))){showToast('Complete Time Out before removing an assigned work location.','error');return;}
@@ -300,10 +306,15 @@ function updateSiteMap(){
  $('siteOpenMap').href='https://www.openstreetmap.org/?mlat='+lat+'&mlon='+lng+'#map=16/'+lat+'/'+lng;
  $('siteOpenMap').hidden=false;
  if(adminPicker){
-  // The Admin's draggable Leaflet map owns the preview. The embedded OSM map
-  // remains a read-only preview for ordinary scoped Users.
-  $('siteMapFrame').hidden=true;
-  window.TIPONAdminSites?.syncFromInputs();
+  if($('siteMapPreview').classList.contains('map-fallback')){
+   const box=[lng-.015,lat-.010,lng+.015,lat+.010].join(',');
+   const target='https://www.openstreetmap.org/export/embed.html?bbox='+encodeURIComponent(box)+'&layer=mapnik&marker='+lat+'%2C'+lng;
+   if($('siteMapFrame').src!==target)$('siteMapFrame').src=target;
+   $('siteMapFrame').hidden=false;$('mapOffline').hidden=true;
+  }else{
+   $('siteMapFrame').hidden=true;
+   window.TIPONAdminSites?.syncFromInputs();
+  }
   return;
  }
  const zoomLat=.010,zoomLng=.015,box=[lng-zoomLng,lat-zoomLat,lng+zoomLng,lat+zoomLat].join(',');
@@ -541,6 +552,29 @@ function optionsFace(){return new faceapi.TinyFaceDetectorOptions({inputSize:320
 async function detectFaces(video){return await faceapi.detectAllFaces(video,optionsFace()).withFaceLandmarks(true).withFaceDescriptors();}
 function euclidean(a,b){let sum=0;for(let i=0;i<a.length;i++)sum+=(a[i]-b[i])**2;return Math.sqrt(sum);}
 function nearestMember(descriptor){const matches=state.members.filter(m=>m.active!==false&&!m.deleted&&m.descriptors?.length>=3).map(m=>({member:m,distance:Math.min(...m.descriptors.map(arr=>euclidean(arr,descriptor)))})).sort((a,b)=>a.distance-b.distance);return {best:matches[0],second:matches[1]};}
+
+/* Duplicate checks for enrollment use available synced templates; attendance matching is unchanged. */
+const ENROLLMENT_DUPLICATE_FACE_DISTANCE=0.45;
+function findEnrolledFaceConflict(samples,excludeId='',catalog=state.members){
+ const vectors=(Array.isArray(samples?.[0])?samples:[samples]).filter(v=>v&&v.length===128);
+ if(!vectors.length)return null;
+ let match=null;
+ for(const member of catalog||[]){
+  if(!member||member.deleted||String(member.id||'').toLowerCase()===String(excludeId||'').toLowerCase())continue;
+  if(!Array.isArray(member.descriptors))continue;
+  for(const reference of member.descriptors){
+   if(!reference||reference.length!==128)continue;
+   for(const sample of vectors){
+    const distance=euclidean(reference,sample);
+    if(Number.isFinite(distance)&&distance<ENROLLMENT_DUPLICATE_FACE_DISTANCE&&(!match||distance<match.distance)){
+     match={member,distance};
+    }
+   }
+  }
+ }
+ return match;
+}
+
 async function startScanner(){if(!hasTerminalSession()){showToast('Face Terminal is available to approved user accounts and authorized kiosks, not the administrator screen.','error');return;}if(state.scanning||state.scanBusy)return;const run=(state.scanRun||0)+1;state.scanRun=run;const enrolled=state.members.filter(m=>m.active!==false&&!m.deleted&&m.descriptors?.length>=3).length;
  startGPSWatch();state.scanBusy=true;$('startCamera').disabled=true;updateScanResult('Preparing camera…','Loading available cameras and automatic GPS verification.','neutral');
  try{
@@ -699,14 +733,17 @@ async function enrollTick(){if(!state.enrollActive)return;const run=state.enroll
    if(!state.enrollActive||state.enrollRun!==run)return;
    if(faces.length!==1){setText('enrollStatus',faces.length?'Only one face may be in view.':'Center one face inside the frame.');}
    else{
+     const descriptor=Array.from(faces[0].descriptor);
+     if(findEnrolledFaceConflict([descriptor],$('memberId').value.trim())){
+       setText('enrollStatus','Face is already enrolled under another Member ID. Enrollment blocked.');
+       showToast('This face cannot be enrolled under another name.','error',8000);
+       $('retryEnrollment').hidden=false;await stopEnrollment(true);return;
+     }
      const ratio=blinkRatio(faces[0]);
      if(!state.enrollBlinkSeen){
        setText('enrollStatus',advanceEnrollmentBlink(ratio));
      }else{
-       const descriptor=Array.from(faces[0].descriptor),match=nearestMember(descriptor);
-       if(match.best&&match.best.member.id!==state.editMember?.id&&match.best.distance<.40){
-         setText('enrollStatus',`Face may already belong to ${match.best.member.name}. Enrollment blocked.`);$('retryEnrollment').hidden=false;await stopEnrollment(true);return;
-       }
+       // Every frame was already checked for collisions before the blink test.
        const previous=state.enrollCollected.at(-1);
        if(previous&&euclidean(previous,descriptor)<.023){
          setText('enrollStatus',state.enrollCollected.length===1?'Turn slightly left for a distinct sample.':'Turn slightly right for a distinct sample.');
@@ -715,6 +752,10 @@ async function enrollTick(){if(!state.enrollActive)return;const run=state.enroll
          setText('enrollStatus',state.enrollCollected.length===1?'Sample 1 saved. Turn slightly right.':state.enrollCollected.length===2?'Sample 2 saved. Look toward the camera again.':'3 samples collected.');
          $('enrollProgress').style.width=`${state.enrollCollected.length/3*100}%`;
          if(state.enrollCollected.length===3){
+           if(findEnrolledFaceConflict(state.enrollCollected,$('memberId').value.trim())){
+             setText('enrollStatus','Duplicate face detected. Enrollment blocked.');
+             $('retryEnrollment').hidden=false;await stopEnrollment(true);return;
+           }
            state.pendingDescriptors=state.enrollCollected;setText('enrollFaceLabel','ENROLLED · 3 live samples ready to save');
            playTerminalSound('success');showToast('Live face enrollment complete. Save the member record next.','success');await finishEnrollment(false);return;
          }

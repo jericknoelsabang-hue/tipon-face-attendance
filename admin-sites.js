@@ -5,7 +5,7 @@
 'use strict';
 window.TIPONAdminSites=(()=>{
   const PH_CENTER=[12.8797,121.7740],PH_ZOOM=6;
-  const CDN_BASE='https://unpkg.com/leaflet@1.9.4/dist/';
+  const CDN_BASE='https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/';
   let map=null,marker=null,loader=null,lastSearch=0,refreshing=false;
   const field=id=>document.getElementById(id);
   function available(){return isAdmin()&&state.user?.role==='admin';}
@@ -116,10 +116,13 @@ window.TIPONAdminSites=(()=>{
     field('adminSiteMapTools').hidden=false;
     field('adminMapCanvas').hidden=false;
     field('siteMapPreview').classList.add('admin-picker');
-    field('mapOffline').hidden=true;field('siteMapFrame').hidden=true;
+    if(!field('siteMapPreview').classList.contains('map-fallback')){
+      field('mapOffline').hidden=true;field('siteMapFrame').hidden=true;
+    }
     setText('adminSiteMapHint','Click the map to select a GPS point or drag its pin. Map searching requires internet; coordinates can also be entered manually.');
     try{
       const L=await loadLeaflet();
+      field('siteMapPreview').classList.remove('map-fallback');
       if(!available()||!field('siteDialog')?.open)return;
       if(!map){
         map=L.map('adminMapCanvas',{zoomControl:true,scrollWheelZoom:false});
@@ -137,8 +140,10 @@ window.TIPONAdminSites=(()=>{
       // Never silently use the Admin's actual location as a fallback.
       setText('adminSiteMapHint',error.message+' Enter latitude and longitude manually instead.');
       field('adminMapCanvas').hidden=true;
-      field('siteMapPreview').classList.remove('admin-picker');
-      field('mapOffline').hidden=false;
+      field('siteMapPreview').classList.add('map-fallback');
+      const hasPoint=!!selectedCoordinates();
+      field('mapOffline').hidden=hasPoint;
+      if(hasPoint)updateSiteMap();
     }
   }
   async function findPlace(){
@@ -156,10 +161,10 @@ window.TIPONAdminSites=(()=>{
       const hits=await response.json();
       if(!Array.isArray(hits)||!hits.length)throw Error('No matching Philippine location was found. Zoom and choose a point manually.');
       const {lat,lon,display_name}=hits[0];
-      if(!map)await openMap();
       setCoordinates(Number(lat),Number(lon),true);
-      setText('adminSiteMapHint','Found '+String(display_name).slice(0,180)+'. Drag the pin or click the exact site position, then save.');
-       await openFullMap();
+      if(!map)await openMap();
+      setText('adminSiteMapHint','Found '+String(display_name).slice(0,180)+'. Latitude and Longitude are filled. Check the map preview, adjust if necessary, and Save Location.');
+      showToast('Address located. GPS coordinates have been filled.','success');
     }catch(error){setText('adminSiteMapHint',error.message);showToast(error.message,'error');}
     finally{button.disabled=false;}
   }
@@ -209,7 +214,11 @@ window.TIPONAdminSites=(()=>{
      });
     attach('siteAddress','keydown',e=>{if(e.key==='Enter'&&available()){e.preventDefault();void findPlace();}});
     attach('siteLat','change',syncFromInputs);attach('siteLng','change',syncFromInputs);
-    attach('siteOpenMap','click',event=>{if(available()){event.preventDefault();void openFullMap(event);}});
+    attach('siteOpenMap','click',event=>{
+       if(!available())return;
+       if(field('siteMapPreview')?.classList.contains('map-fallback'))return;
+       event.preventDefault();void openFullMap(event);
+     });
     attach('closeFullMap','click',closeFullMap);
     attach('useSelectedMapLocation','click',()=>{
       if(!selectedCoordinates()){showToast('Select a location by clicking the map first.','info');return;}
