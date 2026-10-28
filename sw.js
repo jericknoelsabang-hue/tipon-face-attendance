@@ -1,8 +1,8 @@
-/* TIPON 5.5.27 GitHub Pages shell. Application/AI caches only; server bridge posts are never intercepted. */
+/* TIPON 5.5.28 GitHub Pages shell. Application/AI caches only; server bridge posts are never intercepted. */
 'use strict';
-const VERSION='5.5.27';
-const SHELL='tipon-face-shell-v5.5.27-github-only',AI='tipon-face-remote-v1';
-const FILES=['./','./index.html','./liveness-guard.js','./style.css','./organization.css','./gas-bridge.js','./core.js','./org-core.js','./exporter.js','./app.js','./auth.js','./sync.js','./organization.js','./absenteeism.js','./absenteeism.css','./admin-member-editor.js','./member-location-capability.js','./admin-sites.js','./site-scope.js','./camera.js','./platforms.js','./login-workers.webp','./tipon-login-reference-hd.webp','./logo.png','./icon-192.png','./icon-512.png','./apple-touch-icon.png','./manifest.webmanifest'];
+const VERSION='5.5.28';
+const SHELL='tipon-face-shell-v5.5.28-github-only',AI='tipon-face-remote-v1';
+const FILES=['./','./index.html','./config.js','./liveness-guard.js','./style.css','./organization.css','./gas-bridge.js','./core.js','./org-core.js','./exporter.js','./app.js','./auth.js','./sync.js','./organization.js','./absenteeism.js','./absenteeism.css','./admin-member-editor.js','./member-location-capability.js','./admin-sites.js','./site-scope.js','./camera.js','./platforms.js','./login-workers.webp','./tipon-login-reference-hd.webp','./logo.png','./icon-192.png','./icon-512.png','./apple-touch-icon.png','./manifest.webmanifest'];
 self.addEventListener('install',event=>event.waitUntil((async()=>{
   const cache=await caches.open(SHELL);
   // Atomic precache: a missing file fails installation, keeping the old worker usable.
@@ -22,7 +22,22 @@ self.addEventListener('message',event=>{
 self.addEventListener('fetch',event=>{
   const request=event.request,url=new URL(request.url);
   if(request.method!=='GET')return;
-  if(url.origin===self.location.origin&&/\/config\.js$/.test(url.pathname))return;
+  // The public Apps Script endpoint is needed even when restoring a cached offline
+  // session. Network-first keeps configuration current; the shell is the fallback.
+  if(url.origin===self.location.origin&&/\/config\.js$/.test(url.pathname)){
+    event.respondWith((async()=>{
+      const cache=await caches.open(SHELL);
+      try{
+        const response=await fetch(request,{cache:'no-store'});
+        if(response.ok){await cache.put(request,response.clone());return response;}
+        return (await cache.match(request,{ignoreSearch:true}))||response;
+      }catch{
+        return (await cache.match(request,{ignoreSearch:true}))||
+          new Response('Offline configuration unavailable.',{status:503,headers:{'Content-Type':'text/plain'}});
+      }
+    })());
+    return;
+  }
   if(url.origin===self.location.origin&&/\/(?:sw\.js|release\.json|update\.html|update\.js)$/.test(url.pathname))return;
   if(url.origin!==self.location.origin){
     if(url.origin==='https://cdn.jsdelivr.net'&&(url.pathname.startsWith('/npm/face-api.js@0.22.2/')||url.pathname.startsWith('/gh/justadudewhohacks/face-api.js@0.22.2/weights/'))){
