@@ -258,17 +258,27 @@ window.OrgUI=(()=>{
   }
   function renderMpc(){
     if(!isAdmin())return;
+    // The filter controls live under Absenteeism. Empty native date fields
+    // must remain blank (mm/dd/yyyy), not silently filled with today's date.
     const fromField=$('dashboardFrom'),toField=$('dashboardTo'),today=todayPH();
-    if(!fromField.value)fromField.value=today;
-    if(!toField.value)toField.value=today;
-    // Invalid ranges must never be applied or silently corrected.
-    if(!validateAttendanceDateRange('dashboardFrom','dashboardTo','dashboardDateError','dashboardRefresh')){
+    const selectedFrom=fromField.value,selectedTo=toField.value;
+    const from=selectedFrom||selectedTo||today,to=selectedTo||today;
+    // Until the user sets filters, both dashboards show today's snapshot.
+    // Date filters are only UI state; no server-side record is modified.
+    const valid=validateAttendanceDateRange('dashboardFrom','dashboardTo','dashboardDateError');
+    const futureFrom=selectedFrom&&!selectedTo&&selectedFrom>today;
+    if(!valid||futureFrom){
+      if(futureFrom&&valid){
+        const error=$('dashboardDateError');
+        error.hidden=false;
+        error.textContent='From Date cannot be later than today when To Date is blank.';
+        fromField.setAttribute('aria-invalid','true');
+      }
       $('dashboardSummary').innerHTML='';
       $('dashboardRanking').innerHTML='<tr><td colspan="6">Choose a valid date range before filtering attendance.</td></tr>';
       window.TIPONAbsenteeism?.invalid();
       return;
     }
-    const from=fromField.value,to=toField.value;
     // Compatibility: day-based legacy actions still read dashboardDay.
     $('dashboardDay').value=to;
     renderDashboardPlatformFilter();
@@ -295,7 +305,7 @@ window.OrgUI=(()=>{
     $('dashboardSummary').innerHTML=[['Registered / enrolled',total.members],['With In and Out',total.complete],['No Time In / Out',total.missing]].map(([label,n])=>'<article class="kpi-card"><span>'+label+'</span><strong>'+n+'</strong><small>'+esc(day)+'</small></article>').join('');
     const ranked=coops.filter(c=>!f.coop||c===f.coop).map(coop=>({coop,...tally(members.filter(m=>m.coop===coop))})).sort((a,b)=>a.missing-b.missing||a.coop.localeCompare(b.coop));
     $('dashboardRanking').innerHTML=ranked.map((r,i)=>{const rate=r.members?100*r.missing/r.members:0;return '<tr><td>'+(i+1)+'</td><td><b>'+esc(r.coop)+'</b></td><td>'+r.members+'</td><td>'+r.complete+'</td><td>'+r.missing+'</td><td><div class="attendance-rate"><span style="width:'+rate+'%"></span></div><small>'+(r.members?rate.toFixed(1)+'%':'No members')+'</small></td></tr>';}).join('');
-    window.TIPONAbsenteeism?.render({to,coop:f.coop,valid:true});
+    window.TIPONAbsenteeism?.render({from:selectedFrom,to,coop:f.coop,valid:true});
     const legacy=state.members.some(m=>!m.orgId)||state.sites.some(s=>!s.orgId)||state.punches.some(p=>!p.orgId);
     if($('legacyNotice'))$('legacyNotice').hidden=!legacy;
   }
@@ -557,8 +567,10 @@ window.OrgUI=(()=>{
     });
     attach('dashboardResetFilters','click',()=>{
       $('dashboardCoop').value='';$('presenceFilter').value='';
-      $('dashboardFrom').value=todayPH();$('dashboardTo').value=todayPH();
-      $('dashboardTo').min=todayPH();renderMpc();
+      $('dashboardFrom').value='';$('dashboardTo').value='';
+      $('dashboardTo').min='';
+      validateAttendanceDateRange('dashboardFrom','dashboardTo','dashboardDateError');
+      renderMpc();
     });
     ['reportFrom','reportTo','reportCoop'].forEach(id=>attach(id,'change',renderReports));
     attach('refreshAccounts','click',renderAccounts);

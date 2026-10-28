@@ -7,7 +7,7 @@ window.TIPONAbsenteeism=(()=>{
  const ph=v=>{const t=Date.parse(v||'');return Number.isFinite(t)?new Date(t+28800000).toISOString().slice(0,10):'';};
  const pct=(a,b)=>b?Math.round(1000*a/b)/10:0;
  const dates=last=>{const end=Date.parse(last+'T00:00:00Z');return Number.isFinite(end)?Array.from({length:14},(_,i)=>new Date(end-(13-i)*86400000).toISOString().slice(0,10)):[];};
- function compute(members=[],sites=[],events=[],schedules=[],to='',coop='',now=Date.now()){
+ function compute(members=[],sites=[],events=[],schedules=[],to='',coop='',now=Date.now(),from=''){
   const eligible=(members||[]).filter(m=>m&&!m.deleted&&m.active!==false&&(m.template||m.descriptors?.length>=3)&&(!coop||m.coop===coop));
   const all=(members||[]).filter(m=>m&&!m.deleted&&(!coop||m.coop===coop));
   const ids=new Set(eligible.map(m=>String(m.id))),loc=new Map((sites||[]).map(s=>[String(s.id),s]));
@@ -30,7 +30,7 @@ window.TIPONAbsenteeism=(()=>{
    else if(s.end===null)n.open++;
    shifts.set(day,n);
   }
-  const rows=dates(to).map(day=>{
+  const rows=dates(to).filter(day=>!from||day>=from).map(day=>{
    const roster=eligible.filter(m=>!ph(m.createdAt)||ph(m.createdAt)<=day);
    const presentSet=ins.get(day)||new Set(),present=roster.filter(m=>presentSet.has(String(m.id))).length;
    const missing=[],leave=[];let provisional=0;
@@ -75,13 +75,13 @@ window.TIPONAbsenteeism=(()=>{
   });
   return svg+'</svg>';
  }
- function render({to='',coop='',valid=true}={}){
+ function render({from='',to='',coop='',valid=true}={}){
   if(!valid){invalid();return;}
   if(!state.user||state.user.role!=='admin'||!$('absPanel'))return;
-  const d=compute(state.members,state.sites,state.punches,state.schedules,to,coop);
+  const d=compute(state.members,state.sites,state.punches,state.schedules,to,coop,Date.now(),from);
   const a=d.focus;if(!a)return;
-  $('absPeriod').textContent='Snapshot: '+a.day+' · trend: previous 14 days · '+(coop||'All MPCs');
-  $('absConnection').textContent=navigator.onLine?'Online · refreshed after successful organization sync':'Offline · last received data';
+  $('absPeriod').textContent='Snapshot: '+a.day+' · trend: '+(from?(from+' to '+to+' (up to 14 days)'):'previous 14 days')+' · '+(coop||'All MPCs');
+  $('absConnection').textContent=navigator.onLine?'Online · showing last synchronized central data':'Offline · showing last received data';
   $('absKPIs').innerHTML=[
    kpi('No Time In Rate',fmt(d.noInRate)+'%',a.noIn+' flagged for review','red'),
    kpi('Headcount Coverage',fmt(d.coverage)+'%',a.present+' of '+a.eligible+' enrolled members','blue'),
@@ -111,7 +111,7 @@ window.TIPONAbsenteeism=(()=>{
   if(!navigator.onLine){showToast('Internet is required to refresh organization attendance.','error');return;}
   btn.disabled=true;btn.textContent='Syncing...';
   try{const r=await TIPONSync.submitPendingNow();if(!r?.ok)throw Error(r?.error||'Sync failed.');
-   await loadCollections();renderDashboard();showToast('Absenteeism Dashboard updated from the organization.','success');
+   await loadCollections();renderDashboard();if(r.pending)showToast('Absenteeism refreshed, but '+r.pending+' record(s) still require synchronization review.','info',9000);else showToast('Absenteeism refreshed from the organization.','success');
   }catch(e){showToast('Sync was not completed: '+(e.message||e),'error',9000);}
   finally{btn.disabled=false;btn.textContent='Sync Now';}
  }

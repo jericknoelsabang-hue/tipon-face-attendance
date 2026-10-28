@@ -1,5 +1,5 @@
 {
   "app": "TIPON Face Attendance",
-  "version": "5.5.21",
-  "label": "Uniform 44px Member List header buttons. User Delete button enabled for approved MPC/BP members with server-confirmed soft deletion, rev checks, and attendance retention. Admin/User Assigned Location edits require a separately deployed private Apps Script patch."
+  "version": "5.5.22",
+  "label": "Uniform 56px member enrollment controls; Absenteeism date/MPC filters with blank initial dates, filtered 14-day trends and improved sync status; simplified Attendance heading without duplicate filters; new member enrollment attempts immediate central sync and only reports success on server acknowledgement. Private Apps Script backend required for existing member location edits."
 }

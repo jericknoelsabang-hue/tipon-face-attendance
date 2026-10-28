@@ -224,7 +224,7 @@ function fillMemberSites(preferred){
 }
 function updateMemberSite(){
  const sites=[...$('memberSite').selectedOptions].map(o=>state.sites.find(s=>s.id===o.value)).filter(Boolean);
- setText('memberSiteSummary',sites.length?sites.length+' Work Location'+(sites.length===1?'':'s')+' selected':'No Assigned Work Location (Optional)');
+ setText('memberSiteSummary',sites.length?sites.length+' Location'+(sites.length===1?'':'s')+' Selected':'No Location Selected');
  setText('assignedSiteDetails',sites.length?sites.map(s=>s.name+' · '+Number(s.lat).toFixed(6)+', '+Number(s.lng).toFixed(6)+' ('+(s.radius||150)+' m GPS)').join(' | '):'You can assign a Work Location now or later. Time In requires an enrolled face and a confirmed GPS Work Location.');
 }
 function openMemberForm(member){if(!canEdit())return;
@@ -348,10 +348,27 @@ async function saveMemberForm(e){
      const feature=await TIPONAPI.raw({action:'memberLocationCapabilities'});
      if(feature?.allowUnassignedFace!==true)throw Error('Private Apps Script must be updated before face enrollment without a Work Location is supported.');
    }
-   await saveOne('members',record);await loadCollections();$('memberDialog').close();
+   // Save with an outbox receipt, then immediately attempt central sync.
+   // Never claim a central save until the matching outbox operation is ACKed.
+   await saveOne('members',record);
+   await loadCollections();$('memberDialog').close();
+   let syncOutcome={ok:false,error:'Offline: automatic synchronization resumes when connected.'};
+   if(navigator.onLine){
+     try{syncOutcome=await TIPONSync.submitPendingNow();}
+     catch(syncError){syncOutcome={ok:false,error:String(syncError?.message||syncError)};}
+   }
+   await loadCollections();
+   const persisted=await getOne('members',record.id);
+   const confirmed=!!syncOutcome?.ok&&!persisted?._pendingOp&&
+     persisted?.orgId===state.orgId;
    renderMembers();renderDashboard();
-   showToast(siteIds.length?name+' enrolled; central sync pending.':
-     name+' enrolled without a GPS Work Location. Assign a location before attendance. Central sync pending.','success',8500);
+   if(confirmed){
+     showToast(name+' enrolled and confirmed in the central organization.'+
+       (siteIds.length?'':' Assign a GPS Work Location before attendance.'),'success',8000);
+   }else{
+     showToast(name+' was saved on this device but is NOT YET confirmed in the central organization. '+
+       'Automatic sync will retry. Check Settings & Offline for details.','info',10000);
+   }
  }catch(error){
    const message=error.code==='ACTION'||/unknown action|unsupported action|not implemented/i.test(error.message||'')
      ?'Face enrollment without an Assigned Work Location requires the updated private Apps Script. No enrollment was saved.'
