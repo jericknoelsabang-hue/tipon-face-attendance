@@ -196,7 +196,7 @@ function openMemberForm(member){if(!canEdit())return;if(!state.sites.length){sho
   ((member.importPending===true||member.importedWithoutFace===true)&&!member.template));
  $('memberName').readOnly=identityLocked;
  $('memberCoop').disabled=identityLocked;
- setText('memberFormTitle',identityLocked?'Assign GPS work location / enroll face':member?'Edit member':'Enroll new member');
+ setText('memberFormTitle',identityLocked?'Assign GPS Work Location / Enroll Face':member?'Edit Member':'Enroll New Member');
  $('memberId').disabled=!!member;
  if(member){$('memberId').value=member.id;$('memberName').value=member.name;$('memberCoop').value=member.coop;}
  fillMemberSites(member?.siteIds||member?.siteId);setText('enrollFaceLabel',state.pendingDescriptors.length>=3?'ENROLLED · select Enroll face to replace':'Not enrolled · select Enroll face');$('memberDialog').showModal();
@@ -264,10 +264,10 @@ async function handleMemberTableClick(e){
  }finally{del.disabled=false;}
 }
 function renderSites(){
- $('siteCards').innerHTML=state.sites.length?state.sites.map(s=>`<tr><td><b>${esc(s.name)}</b></td><td>${esc(s.coop)}</td><td>${esc(s.platform||'—')}</td><td><div class="site-actions"><button class="tiny-button" data-site-edit="${esc(s.id)}">Edit</button><button class="tiny-button delete" data-site-delete="${esc(s.id)}">Delete</button></div></td></tr>`).join(''):`<tr><td colspan="4"><div class="empty-state">${pageIcon('pin')}No work locations yet. Select “Add work location” to create your first geofence.</div></td></tr>`;
+ $('siteCards').innerHTML=state.sites.length?state.sites.map(s=>`<tr><td><b>${esc(s.name)}</b></td><td>${esc(s.coop)}</td><td>${esc(s.platform||'—')}</td><td><div class="site-actions"><button class="tiny-button" data-site-edit="${esc(s.id)}">Edit</button><button class="tiny-button delete" data-site-delete="${esc(s.id)}">Delete</button></div></td></tr>`).join(''):`<tr><td colspan="4"><div class="empty-state">${pageIcon('pin')}No work locations yet. Select “Add Work Location” to create your first geofence.</div></td></tr>`;
 }
 function openSiteForm(site){
- state.editSite=site||null;$('siteForm').reset();setText('siteFormTitle',site?'Edit work location':'Add work location');$('siteRadius').value='150';
+ state.editSite=site||null;$('siteForm').reset();setText('siteFormTitle',site?'Edit Work Location':'Add Work Location');$('siteRadius').value='150';
  if(site){$('siteName').value=site.name;$('siteCoop').value=site.coop;$('siteAddress').value=site.address||'';$('siteLat').value=site.lat;$('siteLng').value=site.lng;$('siteRadius').value=150;}
  updateSiteMap();$('siteDialog').showModal();
 }
