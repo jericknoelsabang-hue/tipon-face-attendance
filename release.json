@@ -1,5 +1,5 @@
 {
   "app": "TIPON Face Attendance",
-  "version": "5.5.26",
-  "label": "Show Member Name before Member ID in shared Admin and User Attendance Logs, replacing the Username column. Resolve names from the current member registry with recorded attendance-name fallback; preserve attendance records, permissions and five-column payroll export."
+  "version": "5.5.27",
+  "label": "Attendance-first synchronization and overnight Time In/Out pairing; unverified attendance review. Structured Member Name and authorized face re-enrollment. Blink-and-head-turn liveness on enrollment and time punches; four short voice prompts; offline AI readiness check. Pilot liveness is not certified presentation attack detection."
 }
