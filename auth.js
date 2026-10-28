@@ -6,7 +6,7 @@
 window.TIPONAuth=(()=>{
   let session=null,signing=false,registrationGpsAccuracy=null;
   const INACTIVITY_MS=90*1000;
-  let idleSignoutRunning=false,lastActivityPersist=0,activityPersistTimer=null;
+  let idleSignoutRunning=false,lastActivityPersist=0,activityPersistTimer=null,logoutInProgress=false;
   function inactivityExceeded(value,now=Date.now()){
     const last=Number(value?.lastActivityAt||0);
     return !last||!Number.isFinite(last)||last>now+300000||now-last>=INACTIVITY_MS;
@@ -53,17 +53,33 @@ window.TIPONAuth=(()=>{
     await saveOne('users',{id,username:s.account.username,salt,iterations:TIPONOrgCore.PBKDF2_ITERATIONS,vault:await seal(value,await vaultKey(s.proof),id)});
   }
   const SESSION_KEY_ID='tp5-persist-session-key-v1',SESSION_DATA_ID='tp5-persist-session-v1';
+  // Serialize writes so a delayed activity save can never recreate an already
+  // cleared session after manual or inactivity logout.
+  let sessionWriteQueue=Promise.resolve();
   async function persistSession(value=session){
-    if(!value)return;
-    try{
-      let record=await getOne('meta',SESSION_KEY_ID),key=record?.key;
-      if(!key){key=await crypto.subtle.generateKey({name:'AES-GCM',length:256},false,['encrypt','decrypt']);await saveOne('meta',{id:SESSION_KEY_ID,key});}
-      const iv=crypto.getRandomValues(new Uint8Array(12));
-      const encrypted=await crypto.subtle.encrypt({name:'AES-GCM',iv},key,enc.encode(JSON.stringify(value)));
-      await saveOne('meta',{id:SESSION_DATA_ID,iv:b64(iv),data:b64(new Uint8Array(encrypted))});
-    }catch(error){console.warn('Could not persist the signed-in session on this device.',error);}
+    if(!value||!session)return;
+    const accountId=value.account?.id;
+    const snapshot=JSON.stringify(value);
+    sessionWriteQueue=sessionWriteQueue.catch(()=>{}).then(async()=>{
+      if(!session||logoutInProgress||session.account?.id!==accountId)return;
+      try{
+        let record=await getOne('meta',SESSION_KEY_ID),key=record?.key;
+        if(!key){key=await crypto.subtle.generateKey({name:'AES-GCM',length:256},false,['encrypt','decrypt']);await saveOne('meta',{id:SESSION_KEY_ID,key});}
+        if(!session||logoutInProgress||session.account?.id!==accountId)return;
+        const iv=crypto.getRandomValues(new Uint8Array(12));
+        const encrypted=await crypto.subtle.encrypt({name:'AES-GCM',iv},key,enc.encode(snapshot));
+        if(!session||logoutInProgress||session.account?.id!==accountId)return;
+        await saveOne('meta',{id:SESSION_DATA_ID,iv:b64(iv),data:b64(new Uint8Array(encrypted))});
+      }catch(error){console.warn('Could not persist the signed-in session on this device.',error);}
+    });
+    return sessionWriteQueue;
   }
-  async function clearPersistedSession(){try{await deleteOne('meta',SESSION_DATA_ID);}catch(error){console.warn('Could not clear saved session.',error);}}
+  async function clearPersistedSession(){
+    try{
+      await sessionWriteQueue.catch(()=>{});
+      await deleteOne('meta',SESSION_DATA_ID);
+    }catch(error){console.warn('Could not clear saved session.',error);}
+  }
   async function restoreSession(){
     try{
       const [saved,keyRecord]=await Promise.all([getOne('meta',SESSION_DATA_ID),getOne('meta',SESSION_KEY_ID)]);
@@ -136,11 +152,14 @@ window.TIPONAuth=(()=>{
     session={...session,...reply,onlineVerified:true};state.user=session.account;state.orgId=session.orgId;applyRoles();await remember(session,session.salt);await persistSession(session);return session.token;
   }
   async function signOut(reason='manual'){
-    if(!session)return;
-    const old=session;TIPONSync.stop();
+    if(!session||logoutInProgress)return;
+    logoutInProgress=true;
+    const old=session;session=null;
+    TIPONSync.stop();
     if(activityPersistTimer){clearTimeout(activityPersistTimer);activityPersistTimer=null;}
-    await stopScanner();await stopEnrollment();
-    session=null;await clearPersistedSession();state.user=null;document.body.dataset.terminalAccess='denied';state.platforms=[];state.members=[];state.sites=[];state.punches=[];state.accounts=[];state.devices=[];state.reviews=[];state.schedules=[];
+    try{await stopScanner();}catch(error){console.warn('Scanner cleanup failed during logout.',error);}
+    try{await stopEnrollment();}catch(error){console.warn('Enrollment cleanup failed during logout.',error);}
+    await clearPersistedSession();state.user=null;document.body.dataset.terminalAccess='denied';state.platforms=[];state.members=[];state.sites=[];state.punches=[];state.accounts=[];state.devices=[];state.reviews=[];state.schedules=[];
     ['recordRows','mpcOverviewCards','mpcRows','presenceRows','summaryRows','accountRows','deviceRows','reviewRows','memberRows','siteCards'].forEach(id=>{if($(id))$(id).innerHTML='';});
     document.querySelectorAll('dialog[open]').forEach(d=>d.close());
     $('appShell').hidden=true;$('mobileNav').hidden=true;$('loginPage').hidden=false;document.body.classList.remove('kiosk-mode');
@@ -150,6 +169,7 @@ window.TIPONAuth=(()=>{
       :'Signed out. Local records and pending uploads were retained.');
     // Best-effort server revocation. No unencrypted session token is left in browser storage.
     if(old?.token&&navigator.onLine)TIPONAPI.raw({action:'logout',token:old.token}).catch(()=>{});
+    logoutInProgress=false;
   }
   async function changePassword(event){
     event.preventDefault();const button=$('changePasswordSubmit');button.disabled=true;
