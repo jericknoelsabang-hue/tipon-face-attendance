@@ -1,5 +1,5 @@
 {
   "app": "TIPON Face Attendance",
-  "version": "5.5.25",
-  "label": "Resolve Admin Work Location deletions against authoritative central catalog, including stale pending operations, with targeted sync pause and atomic cleanup. Show correct server compatibility status for User/Admin member location editors; include backend upgrade instructions without claiming unsaved changes. All writes remain server-acknowledged and historical attendance is preserved."
+  "version": "5.5.26",
+  "label": "Show Member Name before Member ID in shared Admin and User Attendance Logs, replacing the Username column. Resolve names from the current member registry with recorded attendance-name fallback; preserve attendance records, permissions and five-column payroll export."
 }
