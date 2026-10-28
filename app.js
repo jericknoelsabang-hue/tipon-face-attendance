@@ -1122,6 +1122,11 @@ async function installOfflinePack(){
    $('offlineBar').style.width=`${done/OFFLINE_ASSETS.length*100}%`;
   }
   const ready=await checkOfflineReady();if(!ready)throw Error('Offline cache verification was incomplete.');
+   // Ask the browser to keep encrypted member/attendance data and cached AI
+   // through ordinary storage cleanup. Not guaranteed by every browser.
+   if(navigator.storage?.persist){
+     try{await navigator.storage.persist();}catch(error){console.warn('Persistent storage not granted',error);}
+   }
   showToast('Offline face recognition resources cached. Excel export is built in.','success',6500);
  }catch(err){toastError(err,'Offline setup failed');setText('offlinePackageStatus',`${done}/${OFFLINE_ASSETS.length} assets downloaded. Retry while online.`);}
  finally{btn.disabled=false;}
