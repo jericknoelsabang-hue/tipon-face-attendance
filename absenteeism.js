@@ -105,7 +105,7 @@ window.TIPONAbsenteeism=(()=>{
   ].map(([color,label,count])=>'<div class="ab-legend-row"><i style="background:'+color+'"></i><span>'+escape(label)+'</span><b>'+count+'</b></div>').join('')+
    '<p class="ab-small">'+d.unenrolled+' registered member(s) not yet eligible for face attendance.</p>';
   const review=[...a.outOnlyMembers.map(m=>({member:m,flag:'Time Out Found — Check Sync'})),
-   ...a.missing.map(m=>({member:m,flag:syncVerified?'No Time In on Server':'Awaiting Sync Verification'}))];
+   ...a.missing.map(m=>({member:m,flag:syncVerified?'Time In Not Verified':'Sync Required'}))];
   $('absReviewCount').textContent=review.length+' to review';
   $('absReviewRows').innerHTML=review.length?review.slice(0,8).map(({member:m,flag})=>
    '<tr><td>'+escape(m.id)+'</td><td>'+escape(m.name)+'</td><td>'+escape(m.coop)+'</td><td><span class="ab-flag">'+escape(flag)+'</span></td></tr>'
