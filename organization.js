@@ -131,7 +131,14 @@ applyRoles=function(){
   $('logoutMobile').hidden=false;
   if($('kioskFullscreen'))$('kioskFullscreen').hidden=!TIPONOrgCore.canUseTerminal(u);if($('kioskExit'))$('kioskExit').hidden=u?.role!=='kiosk';
   if(window.TIPONPlatforms)TIPONPlatforms.render();
-  ['importBackup','exportBackup'].forEach(id=>{if($(id))$(id).hidden=!isAdmin();});
+  ['importBackup','exportBackup'].forEach(id=>{
+    const button=$(id);
+    if(!button)return;
+    button.hidden=false;
+    button.disabled=!isAdmin();
+    button.title=isAdmin()?'':'Only Administrators can export or restore organization backups.';
+  });
+  if($('backupPermissionNote'))$('backupPermissionNote').hidden=isAdmin();
 };
 const originalShowPage=showPage;
 Object.assign(pageNames,{accounts:'Accounts & Devices',members:'Member List',adminSites:'Work Locations List',settings:'Settings & Offline',dashboard:'Dashboard',scanner:'Face Terminal',terminalLogs:'Attendance Logs',sites:'Work Locations',records:'Attendance Logs'});

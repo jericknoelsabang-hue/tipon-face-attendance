@@ -1,5 +1,5 @@
 {
   "app": "TIPON Face Attendance",
-  "version": "5.5.11",
-  "label": "Expanded security information, cleaner admin controls, automatic 90-second inactivity logout, role-based login, interactive address-based full map, aligned Refresh actions, strict date-range validation and consistent Title Case labels"
+  "version": "5.5.12",
+  "label": "KABILANG login design with Welcome!, accessible role-preserving Settings parity, and clickable live organization connection check. All existing attendance, authentication, and synchronization functions retained."
 }

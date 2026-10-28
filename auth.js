@@ -191,14 +191,38 @@ window.TIPONAuth=(()=>{
     document.querySelectorAll('[data-registration-kiosk-only]').forEach(el=>{el.hidden=!kiosk;el.querySelectorAll('input').forEach(input=>input.required=kiosk);});
     setText('registrationStatus',kiosk?'Physical Kiosk needs accurate GPS at a configured work location.':'User registration requires only approved account details.');
   }
+
+  async function verifyOrganizationConnection(){
+    const button=$('authDiagnostics'),title=$('authConnectionTitle'),detail=$('authConnectionDetail');
+    if(!button||button.disabled)return;
+    button.disabled=true;button.dataset.state='checking';
+    setText('authConnectionTitle','Checking Organization Connection');
+    setText('authConnectionDetail','Contacting the TIPON KABILANG system...');
+    try{
+      if(!navigator.onLine)throw Object.assign(Error('This device is offline. Connect to the internet and try again.'),{offline:true});
+      const health=await TIPONAPI.raw({action:'health'});
+      if(health?.ok===false)throw Error('System health check did not succeed.');
+      button.dataset.state='connected';
+      setText('authConnectionTitle','Connected to TIPON KABILANG');
+      setText('authConnectionDetail','System is online and ready.');
+    }catch(error){
+      button.dataset.state=navigator.onLine?'failed':'offline';
+      setText('authConnectionTitle',navigator.onLine?'Connection Unavailable':'Device Is Offline');
+      setText('authConnectionDetail',navigator.onLine?'Unable to reach the organization system. Click to retry.':'Reconnect to the internet, then click to retry.');
+      console.warn('Organization connection check failed.',error);
+    }finally{
+      button.disabled=false;
+    }
+  }
   async function init(){
     $('appShell').hidden=true;$('mobileNav').hidden=true;$('loginPage').hidden=true;
     attach('loginForm','submit',login);attach('openRegistration','click',()=>{$('registrationForm').reset();registrationGpsAccuracy=null;updateRegistrationFields();TIPONPlatforms.render();setText('registrationStatus','');$('registrationDialog').showModal();TIPONPlatforms.refresh().catch(()=>{});});
     attach('registrationForm','submit',register);attach('registerAccountType','change',updateRegistrationFields);updateRegistrationFields();attach('registerUseGps','click',()=>{if(!navigator.geolocation){setText('registrationStatus','GPS is not available on this device.');return;}setText('registrationStatus','Getting current kiosk GPS...');navigator.geolocation.getCurrentPosition(p=>{$('registerOfficeLat').value=p.coords.latitude.toFixed(7);$('registerOfficeLng').value=p.coords.longitude.toFixed(7);registrationGpsAccuracy=p.coords.accuracy;setText('registrationStatus','Kiosk GPS captured. Accuracy '+Math.round(p.coords.accuracy)+' m.');},e=>setText('registrationStatus',e.message),{enableHighAccuracy:true,timeout:15000,maximumAge:0});});attach('logoutButton','click',signOut);attach('logoutMobile','click',signOut);attach('changePasswordForm','submit',changePassword);
     attach('showPassword','click',()=>{$('loginPassword').type=$('loginPassword').type==='password'?'text':'password';});
-    attach('authDiagnostics','click',async()=>{status('Checking organization connection...');try{const r=await TIPONAPI.raw({action:'health'});status('Connected to TIPON Face');}catch(e){status(e.message,true);}});
+    attach('authDiagnostics','click',verifyOrganizationConnection);
     const restored=await restoreSession();if(restored){try{await signedIn(restored,{freshLogin:false});status('');return;}catch(error){console.warn('Could not resume the saved session.',error);}}
     $('appShell').hidden=true;$('mobileNav').hidden=true;$('loginPage').hidden=false;
+    void verifyOrganizationConnection();
   }
   const originalInit=init;init=async function(){
     await originalInit();
