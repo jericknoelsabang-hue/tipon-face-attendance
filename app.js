@@ -239,7 +239,12 @@ function openMemberForm(member){if(!canEdit())return;
  setText('memberFormTitle',identityLocked?'Assign GPS Work Location / Enroll Face':member?'Edit Member':'Enroll New Member');
  $('memberId').disabled=!!member;
  if(member){$('memberId').value=member.id;$('memberName').value=member.name;$('memberCoop').value=member.coop;}
- fillMemberSites(member?.siteIds||member?.siteId);setText('enrollFaceLabel',state.pendingDescriptors.length>=3?'ENROLLED · select Enroll face to replace':'Not enrolled · select Enroll face');$('memberDialog').showModal();
+ fillMemberSites(member?.siteIds||member?.siteId);
+ const alreadyEnrolled=member?.active!==false&&state.pendingDescriptors.length>=3;
+ setText('enrollFaceLabel',alreadyEnrolled?'FACE ALREADY ENROLLED · re-enrollment is disabled':'Not enrolled · select Enroll face');
+ $('enrollFaceButton').disabled=alreadyEnrolled;
+ $('enrollFaceButton').textContent=alreadyEnrolled?'Already Enrolled':'Enroll Face';
+ $('memberDialog').showModal();
 }
 async function saveMemberForm(e){e.preventDefault();if(!canEdit())return;
  const id=$('memberId').value.trim(),name=$('memberName').value.trim(),coop=$('memberCoop').value,platform=$('memberPlatform').value.trim(),siteIds=[...$('memberSite').selectedOptions].map(o=>o.value),sites=siteIds.map(id=>state.sites.find(x=>x.id===id)).filter(Boolean),site=sites[0];
@@ -247,7 +252,9 @@ async function saveMemberForm(e){e.preventDefault();if(!canEdit())return;
  if(!state.editMember&&state.members.some(m=>m.id.toLowerCase()===id.toLowerCase())){showToast('Member ID is already registered.','error');return;}
  if(!state.pendingDescriptors.length||state.pendingDescriptors.length<3){showToast('Complete face enrollment before saving.','error');return;}
  const latestMembers=await getAll('members');
- const allMembers=[...new Map([...state.members,...latestMembers].filter(Boolean).map(m=>[String(m.id),m])).values()];
+ // Local encrypted records intentionally omit plaintext descriptors. Keep the
+ // decrypted in-memory copy when merging so duplicate checks cover enrolled faces.
+ const allMembers=[...new Map([...latestMembers,...state.members].filter(Boolean).map(m=>[String(m.id),m])).values()];
  if(findEnrolledFaceConflict(state.pendingDescriptors,id,allMembers)){
   state.pendingDescriptors=[];setText('enrollFaceLabel','Duplicate face enrollment blocked.');
   showToast('This face is already registered under another Member ID. Enrollment blocked.','error',8500);return;
@@ -412,7 +419,8 @@ async function saveSiteForm(e){
    if(!stored||stored._pendingOp){
     $('siteDialog').close();renderSites();window.TIPONAdminSites?.render();
     const reason=pending?.error||result?.error||'Central server has not acknowledged this location.';
-    showToast('Work Location is pending central confirmation. '+reason,'error',12000);
+    TIPONSync.kick();
+    showToast('Work location saved. Automatic sync will retry when the central connection is ready. '+reason,'info',11000);
     return;
    }
   }
@@ -754,6 +762,10 @@ function advanceEnrollmentBlink(ratio,now=Date.now()){
 }
 async function beginEnrollment(){
  if(!canEdit())return;
+ const existing=state.editMember;
+ if(existing?.active!==false&&existing?.descriptors?.length>=3){
+  showToast('This member already has an enrolled face. A second enrollment is not allowed.','error',7500);return;
+ }
  if(!$('memberName').value.trim()||!$('memberId').value.trim()){showToast('Enter member ID and full name before enrolling the face.','error');return;}
  if(![...$('memberSite').selectedOptions].length){showToast('Select or create an approved Work Location before starting Face Enrollment.','error');updateMemberSiteAvailability();return;}
  // Clicking Enroll face is the explicit acknowledgement shown beside the approved biometric privacy notice.
