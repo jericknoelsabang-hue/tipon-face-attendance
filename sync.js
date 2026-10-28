@@ -41,7 +41,8 @@ window.TIPONSync=(()=>{
   function start(){stopped=false;kick();}
   function stop(){stopped=true;clearTimeout(timer);}
   function schedule(){clearTimeout(timer);if(stopped)return;
-    const base=state.user?.role==='admin'&&state.page==='dashboard'?15000:25000;
+    const localEventsQueued=state.punches.some(p=>p.orgId===state.orgId&&!p.cloudAck&&!p.reviewStatus&&p.deviceId===state.deviceId);
+     const base=localEventsQueued?7000:state.user?.role==='admin'&&state.page==='dashboard'?15000:25000;
     const seconds=siteFastRetry>0&&siteFastRetry<=3&&attempt===0?4200:Math.min(300000,base*2**attempt)+Math.floor(Math.random()*3000);
     timer=setTimeout(run,seconds);
   }
@@ -133,11 +134,11 @@ window.TIPONSync=(()=>{
     const siteQueue=eligible.filter(op=>op.type==='sites');
     const operations=actor.role==='kiosk'?[]:
       (siteQueue.length?siteQueue.slice(0,3):eligible.slice(0,5));
-    // Isolate site writes from other operation types and attendance uploads.
-    // A rejected member edit cannot block creation of a new Work Location.
-    const events=siteQueue.length?[]:state.punches.filter(p=>
+    // Attendance is always submitted separately and before site/member writes.
+    // A stale work-location operation must never starve accepted Time In/Time Out.
+    const events=state.punches.filter(p=>
       p.orgId===state.orgId&&!p.cloudAck&&!p.reviewStatus&&p.deviceId===state.deviceId)
-      .sort((a,b)=>Date.parse(a.timestamp)-Date.parse(b.timestamp)).slice(0,20);
+      .sort((a,b)=>Date.parse(a.timestamp)-Date.parse(b.timestamp)).slice(0,8);
     if(!operations.length&&!events.length)return;
     const reportError=async(op,error)=>{
       const latest=await getOne('outbox',op.id);
@@ -194,7 +195,8 @@ window.TIPONSync=(()=>{
       const errors=(reply.operationErrors||[]).concat(reply.rejected||[]);
       if(errors.length)message='Some organization records need review: '+String(errors[0].error||'Rejected').slice(0,220);
     };
-    await send(operations,events);
+    if(events.length)await send([],events);
+    if(operations.length)await send(operations,[]);
   }
   async function pullCatalog(version){
     const cfgId='tp5-catalog:'+state.orgId+':'+state.user.id+':'+state.user.role+':v5.5.17-scope:'+String(state.user.version||1)+':'+(state.user.siteIds||[]).join(',');
@@ -278,7 +280,10 @@ window.TIPONSync=(()=>{
     let result={ok:false,error:'Synchronization did not complete.'};
     try{
       await TIPONAuth.ensureOnline();await loadCollections();await reconcileLegacyAdminDeletes();await flush();await pull();await loadCollections();
-      lastSync=TIPONCore.phStamp(new Date().toISOString());const waiting=(await getAll('outbox')).filter(o=>o.orgId===state.orgId&&o.error).length+state.punches.filter(p=>p.reviewStatus).length;message=waiting?'Central data updated; '+waiting+' record(s) still need review. See Settings / Accounts.':'Central data updated; records are acknowledged, not assumed sent.';attempt=0;
+      lastSync=TIPONCore.phStamp(new Date().toISOString());
+      const unsent=state.punches.filter(p=>p.orgId===state.orgId&&!p.cloudAck&&!p.reviewStatus&&p.deviceId===state.deviceId).length;
+      const waiting=(await getAll('outbox')).filter(o=>o.orgId===state.orgId&&o.error).length+
+        state.punches.filter(p=>p.reviewStatus).length+unsent;message=waiting?'Central data updated; '+waiting+' record(s) still need review. See Settings / Accounts.':'Central data updated; records are acknowledged, not assumed sent.';attempt=0;
       result={ok:true,pending:waiting};
       const remainingSites=(await getAll('outbox')).filter(op=>op.orgId===state.orgId&&
         op.ownerId===state.user?.id&&op.type==='sites'&&
@@ -308,5 +313,5 @@ window.TIPONSync=(()=>{
     attach('syncNow','click',kick);attach('syncRecordsNow','click',kick);
     window.addEventListener('online',kick);window.addEventListener('offline',render);document.addEventListener('visibilitychange',()=>{if(!document.hidden)kick();});render();
   }
-  return {init,start,stop,kick,render,run,submitPendingNow,pauseSite,waitUntilIdle,isBusy:()=>busy};
+  return {init,start,stop,kick,render,run,submitPendingNow,pauseSite,waitUntilIdle,isBusy:()=>busy,lastSuccessfulSync:()=>lastSync};
 })();
