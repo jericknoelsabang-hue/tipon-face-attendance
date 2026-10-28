@@ -1,77 +1,113 @@
-/* TIPON KABILANG - Shared Business Platform directory.
- * The backend is the source of truth. Never pretend that a browser-local
- * abbreviation, rename or deletion was saved to the organization.
- * New backend endpoints: platformUpdate / platformDelete.
+/* TIPON KABILANG - Business Platform directory v5.5.19.
+ * Codes are the existing authorization/attendance identifiers. Full names are
+ * presentation metadata: changing a full name must never silently change a BP
+ * code used by member, device or Work Location records.
  */
 'use strict';
 window.TIPONPlatforms=(()=>{
   const selectors=['sitePlatform','registerPlatform','migrationPlatform'];
   const PAGE_SIZE=10;
-  let target='',busy=false,editingName='',page=1;
+  const STARTER_DIRECTORY=Object.freeze([
+    {name:'Asiapro Construction',code:'AP Cons'},
+    {name:'Asiapro Trucking System',code:'ATS'},
+    {name:'Asiapro Contracting',code:'Contracting'},
+    {name:'Gawa At Kalinga',code:'GAK'},
+    {name:'Independent Manufactoring Group',code:'IMG'},
+    {name:'Managed Services Group - North Mindanao',code:'MSG-NM'},
+    {name:'Managed Services Group - Nation Wide',code:'MSG-NW'},
+    {name:'Managed Services Group - South Mindanao',code:'MSG-SM'},
+    {name:'Other Construction Group',code:'OCG'}
+  ]);
+  const captions=new Map(STARTER_DIRECTORY.map(x=>[x.code.toLowerCase(),x.name]));
   const norm=s=>TIPONOrgCore.platformKey(String(s||''));
-  const clean=s=>String(s||'').trim().replace(/\s+/g,' ');
+  const clean=s=>String(s||'').normalize('NFKC').trim().replace(/\s+/g,' ');
+  let target='',busy=false,editingCode='',page=1;
   function defaultNames(){return TIPONOrgCore.DEFAULT_PLATFORMS||[];}
   function names(){
-    return TIPONOrgCore.platformNames([...defaultNames(),...(state.platforms||[]),
-      ...(state.sites||[]).filter(s=>!s.deleted).map(s=>s.platform),state.user?.platform||'']);
+    return TIPONOrgCore.platformNames([
+      ...defaultNames(),...(state.platforms||[]),
+      ...(state.sites||[]).filter(x=>!x.deleted).map(x=>x.platform),
+      state.user?.platform||''
+    ]);
   }
-  function detailList(reply){
-    if(Array.isArray(reply?.businessPlatformRecords))return reply.businessPlatformRecords;
-    if(Array.isArray(reply?.businessPlatformDetails))return reply.businessPlatformDetails;
-    if(Array.isArray(reply?.platformRecords))return reply.platformRecords;
+  function detailsFrom(reply){
+    for(const key of ['businessPlatformRecords','businessPlatformDetails','platformRecords']){
+      if(Array.isArray(reply?.[key]))return reply[key];
+    }
     return null;
   }
-  function cleanRecords(items){
+  function normalizeRecords(items,knownCodes=names()){
     if(!Array.isArray(items))return [];
-    const result=[],seen=new Set();
-    for(const raw of items){
-      if(!raw||typeof raw!=='object')continue;
-      const name=clean(raw.name||raw.bpName||raw.platformName);
-      const abbreviation=clean(raw.abbreviation||raw.abbrev||raw.shortName||raw.bpAbbreviation);
-      if(!name||seen.has(norm(name)))continue;
-      seen.add(norm(name));
-      result.push({name,abbreviation});
+    const known=new Set(knownCodes.map(norm)),seen=new Set(),result=[];
+    for(const item of items){
+      if(!item||typeof item!=='object')continue;
+      const providedCode=clean(item.code||item.abbreviation||item.shortName||item.bpAbbreviation);
+      const providedName=clean(item.name||item.bpName||item.platformName);
+      let code=clean(item.code||'');
+      if(!code){
+        // New backend: {name: full label, abbreviation: existing BP code}.
+        // Older pilot: {name: existing BP code, abbreviation: optional label}.
+        code=known.has(norm(providedCode))?providedCode:
+          known.has(norm(providedName))?providedName:
+          providedCode||providedName;
+      }
+      if(!code||seen.has(norm(code)))continue;
+      seen.add(norm(code));
+      let displayName=clean(item.displayName||item.fullName||item.label||'');
+      if(!displayName&&norm(providedName)!==norm(code))displayName=providedName;
+      if(!displayName)displayName=captions.get(norm(code))||code;
+      result.push({code,name:displayName});
     }
     return result;
   }
   function records(){
-    const lookup=new Map((state.platformRecords||[]).map(p=>[norm(p.name),p]));
-    return names().map(name=>({name,abbreviation:lookup.get(norm(name))?.abbreviation||'',
-      isDefault:defaultNames().some(v=>norm(v)===norm(name))}));
+    const custom=new Map((state.platformRecords||[]).map(item=>[norm(item.code),item]));
+    return names().map(code=>({
+      code,
+      name:clean(custom.get(norm(code))?.name)||captions.get(norm(code))||code,
+      isDefault:defaultNames().some(name=>norm(name)===norm(code))
+    }));
   }
   function fill(id,preferred){
     const el=$(id);if(!el)return;
     const value=preferred===undefined?el.value:clean(preferred);
     const scoped=state.user?.role==='registrar'&&['sitePlatform','memberPlatform'].includes(id);
     const options=scoped?[state.user.platform]:TIPONOrgCore.platformNames([...names(),value]);
-    const html='<option value="">Select business platform</option>'+options.filter(Boolean)
-      .map(n=>'<option value="'+esc(n)+'">'+esc(n)+'</option>').join('');
+    const html='<option value="">Select business platform</option>'+
+      options.filter(Boolean).map(name=>'<option value="'+esc(name)+'">'+esc(name)+'</option>').join('');
     if(el.innerHTML!==html)el.innerHTML=html;
     el.disabled=scoped;el.value=scoped?state.user.platform:value;
   }
+  function hasReferences(code){
+    const is=value=>norm(value)===norm(code);
+    return [...(state.sites||[]).filter(x=>!x.deleted),
+      ...(state.members||[]).filter(x=>!x.deleted),
+      ...(state.accounts||[]).filter(x=>!x.deleted),
+      ...(state.devices||[]).filter(x=>!x.deleted)]
+      .some(x=>is(x.platform)||is(x.businessPlatform)||is(x.bp));
+  }
   function renderDirectory(){
     if(!isAdmin()||!$('adminBPRows'))return;
-    const query=norm($('adminBPSearch')?.value||'');
-    const rows=records().filter(p=>!query||(norm(p.name)+' '+norm(p.abbreviation)).includes(query));
-    const total=rows.length,pages=Math.max(1,Math.ceil(total/PAGE_SIZE));
+    const q=norm($('adminBPSearch')?.value||'');
+    const matches=records().filter(x=>!q||(norm(x.name)+' '+norm(x.code)).includes(q));
+    const pages=Math.max(1,Math.ceil(matches.length/PAGE_SIZE));
     page=Math.min(Math.max(1,page),pages);
-    const start=(page-1)*PAGE_SIZE,visible=rows.slice(start,start+PAGE_SIZE);
-    $('adminBPRows').innerHTML=visible.length?visible.map(p=>{
-      const used=hasReferences(p.name);
-      const note=p.isDefault?'<small class="bp-default-note">Default organization platform</small>':'';
-      const abbr=p.abbreviation?'<span class="bp-abbreviation">'+esc(p.abbreviation)+'</span>':'<span class="bp-unknown">Not set</span>';
-      return '<tr><td><b>'+esc(p.name)+'</b>'+note+'</td><td>'+abbr+'</td>'+
-        '<td><div class="bp-row-actions">'+
-          '<button type="button" class="tiny-button" data-bp-edit="'+esc(p.name)+'">Edit</button>'+
-          '<button type="button" class="tiny-button delete" data-bp-delete="'+esc(p.name)+'"'+
-          (used||p.isDefault?' disabled title="Reassign linked records before deleting this platform"':'')+'>Delete</button>'+
-        '</div></td></tr>';
-    }).join(''):'<tr><td colspan="3"><div class="empty-state">No matching Business Platforms.</div></td></tr>';
-    setText('adminBPCount',total+' business platform'+(total===1?'':'s'));
-    setText('adminBPPageCount',total?'Showing '+(start+1)+'–'+(start+visible.length)+' of '+total:'0 business platforms');
+    const start=(page-1)*PAGE_SIZE,visible=matches.slice(start,start+PAGE_SIZE);
+    $('adminBPRows').innerHTML=visible.length?visible.map(x=>(
+      '<tr><td><b>'+esc(x.name)+'</b></td>'+
+      '<td><span class="bp-abbreviation">'+esc(x.code)+'</span></td>'+
+      '<td><div class="bp-row-actions">'+
+      '<button type="button" class="tiny-button" data-bp-edit="'+esc(x.code)+'">Edit</button>'+
+      '<button type="button" class="tiny-button delete" data-bp-delete="'+esc(x.code)+
+        '" title="Deletion is checked against authorized member, account and Work Location records">Delete</button>'+
+      '</div></td></tr>'
+    )).join(''):'<tr><td colspan="3"><div class="empty-state">No matching Business Platforms.</div></td></tr>';
+    setText('adminBPCount',matches.length+' business platform'+(matches.length===1?'':'s'));
+    setText('adminBPPageCount',matches.length?
+      'Showing '+(start+1)+'–'+(start+visible.length)+' of '+matches.length:'0 business platforms');
     setText('adminBPPage','Page '+page+' of '+pages);
-    $('adminBPPrev').disabled=page<=1;
-    $('adminBPNext').disabled=page>=pages;
+    $('adminBPPrev').disabled=page===1;
+    $('adminBPNext').disabled=page===pages;
   }
   function render(){
     selectors.forEach(id=>fill(id));
@@ -82,135 +118,150 @@ window.TIPONPlatforms=(()=>{
   async function load(){
     const saved=await getOne('meta','tp51-platforms:'+state.orgId);
     state.platforms=TIPONOrgCore.platformNames(saved?.names||[]);
-    state.platformRecords=cleanRecords(saved?.records);
+    state.platformRecords=normalizeRecords(saved?.records);
     render();
   }
-  async function accept(values,details=null){
+  async function accept(values,rawDetails=null){
     state.platforms=TIPONOrgCore.platformNames(Array.isArray(values)?values:[]);
-    if(Array.isArray(details))state.platformRecords=cleanRecords(details);
-    const source=new Set(state.platforms.map(norm));
-    // Retain only server-provided records for names still in the central list.
-    state.platformRecords=(state.platformRecords||[]).filter(item=>source.has(norm(item.name)));
-    if(state.orgId&&state.user)await OrgDB.rawSave('meta',{
-      id:'tp51-platforms:'+state.orgId,names:state.platforms,records:state.platformRecords,
-      updatedAt:new Date().toISOString()
-    });
+    const allowed=new Set(state.platforms.concat(defaultNames()).map(norm));
+    if(Array.isArray(rawDetails))state.platformRecords=normalizeRecords(rawDetails);
+    state.platformRecords=(state.platformRecords||[]).filter(x=>allowed.has(norm(x.code)));
+    if(state.orgId&&state.user){
+      await OrgDB.rawSave('meta',{id:'tp51-platforms:'+state.orgId,names:state.platforms,
+        records:state.platformRecords,updatedAt:new Date().toISOString()});
+    }
     render();
   }
   async function refresh(){
     if(!navigator.onLine){render();return;}
     const response=await TIPONAPI.raw({action:'platforms'});
-    if(state.user&&response.orgId!==state.orgId)throw Error('The organization destination changed. Reconnect with the system owner.');
-    await accept(response.businessPlatforms||[],detailList(response));
-  }
-  function hasReferences(name){
-    const is=v=>norm(v)===norm(name);
-    return [...(state.sites||[]).filter(x=>!x.deleted),
-      ...(state.members||[]).filter(x=>!x.deleted),
-      ...(state.accounts||[]),...(state.devices||[])]
-      .some(x=>is(x.platform)||is(x.businessPlatform)||is(x.bp));
+    if(state.user&&response.orgId!==state.orgId)
+      throw Error('The organization destination changed. Reconnect with the system owner.');
+    await accept(response.businessPlatforms||[],detailsFrom(response));
   }
   function open(id='',record=null){
-    if(!isAdmin()){showToast('Only the Administrator can manage Business Platforms.','info');return;}
-    target=id||'';busy=false;editingName=record?.name||'';
+    if(!isAdmin()){showToast('Only Administrators can manage Business Platforms.','info');return;}
+    target=id||'';busy=false;editingCode=record?.code||'';
     $('platformForm').reset();
     $('newPlatformName').value=record?.name||'';
-    $('newPlatformAbbreviation').value=record?.abbreviation||'';
+    $('newPlatformAbbreviation').value=record?.code||'';
+    const locked=!!record&&(record.isDefault||hasReferences(record.code));
+    $('newPlatformAbbreviation').readOnly=locked;
     setText('platformFormTitle',record?'Edit Business Platform':'Add Business Platform');
-    setText('platformFormNote',record&&hasReferences(record.name)
-      ?'This BP is assigned to existing records. Its name cannot be changed until affected records are reassigned. You can request an abbreviation update.'
-      :'Changes require central Apps Script confirmation; no local-only edits will be shown as saved.');
-    $('newPlatformName').readOnly=!!record&&hasReferences(record.name);
+    setText('platformFormNote',locked?
+      'You may edit the full name. This platform code is locked because it is a default or has linked records; changing the code would affect existing access and attendance history.':
+      'Changes must be confirmed by the central backend; existing records are never silently reassigned.');
     setText('platformStatus','');
     $('platformDialog').showModal();
-    (record?$('newPlatformAbbreviation'):$('newPlatformName')).focus();
+    $('newPlatformName').focus();
   }
-  function openEdit(name){
-    const record=records().find(r=>norm(r.name)===norm(name));
-    if(!record)return;
-    open('',record);
+  function openEdit(code){
+    const found=records().find(x=>norm(x.code)===norm(code));
+    if(found)open('',found);
   }
-  function backendMissing(error,action){
-    const message=String(error?.message||'');
-    if(error?.code==='ACTION'||/unknown action|unsupported action|not implemented|invalid action/i.test(message)){
-      return 'The central Apps Script deployment does not yet support '+action+
-        '. No change was saved. Add the matching platform management endpoint on the backend first.';
+  function explainBackend(error,action){
+    const msg=String(error?.message||'');
+    if(/unknown action|unsupported action|not implemented|invalid action|unrecognized|does not support/i.test(msg)||
+       ['ACTION','UNKNOWN_ACTION','NOT_IMPLEMENTED'].includes(String(error?.code||''))){
+      return 'The central Apps Script must be updated to support '+action+'. No change was saved.';
     }
-    return message||'The server did not confirm the Business Platform change.';
+    return msg||'The central database did not confirm the change.';
+  }
+  async function requireDirectoryBackend(){
+    const info=await TIPONAPI.raw({action:'platforms'});
+    if(state.user&&info.orgId!==state.orgId)
+      throw Error('Organization changed. Sign out and reconnect to the approved organization.');
+    if(!Array.isArray(detailsFrom(info)))
+      throw Error('Business Platform editing is not yet available on the connected Apps Script. Install and deploy the BP Directory backend patch first. Nothing has been changed.');
+    return info;
+  }
+  function verifyRecord(reply,name,code,deleted=false){
+    const list=reply?.businessPlatforms;
+    const meta=detailsFrom(reply);
+    if(!Array.isArray(list)||!Array.isArray(meta))
+      throw Error('The central backend did not return an authoritative Business Platform directory.');
+    const listed=list.some(x=>norm(x)===norm(code));
+    if(deleted)return !listed;
+    const saved=normalizeRecords(meta,list).find(x=>norm(x.code)===norm(code));
+    return listed&&saved&&norm(saved.name)===norm(name);
   }
   async function save(event){
-    event.preventDefault();
-    if(busy||!isAdmin())return;
-    const name=clean($('newPlatformName').value),abbreviation=clean($('newPlatformAbbreviation').value);
-    if(name.length<2||name.length>80||abbreviation.length<2||abbreviation.length>20){
-      setText('platformStatus','Enter a BP Name (2–80 characters) and an Abbreviation (2–20 characters).');return;
-    }
-    const collisions=records();
-    if(collisions.some(r=>norm(r.name)===norm(name)&&norm(r.name)!==norm(editingName))){
-      setText('platformStatus','A Business Platform with this name already exists. Choose Edit on its row.');return;
-    }
-    if(editingName&&norm(name)!==norm(editingName)&&hasReferences(editingName)){
-      setText('platformStatus','Reassign existing sites, members and accounts before renaming this Business Platform.');return;
-    }
-    if(!navigator.onLine){setText('platformStatus','Connect to the internet to save Business Platform changes centrally.');return;}
-    busy=true;$('savePlatform').disabled=true;
-    setText('platformStatus',editingName?'Submitting BP update...':'Submitting new BP...');
-    try{
-      const mode=!!editingName;
-      const response=await TIPONAPI.call(mode?
-        {action:'platformUpdate',originalName:editingName,name,abbreviation}:
-        {action:'platformAdd',name,abbreviation});
-      const labels=Array.isArray(response.businessPlatforms)?response.businessPlatforms:null;
-      if(!labels||!labels.some(p=>norm(p)===norm(name)))
-        throw Error('The central server did not acknowledge the BP Name. Nothing has been marked saved.');
-      const details=detailList(response);
-      // Do not invent a stored abbreviation when the old server only accepts names.
-      await accept(labels,details);
-      if(target){fill(target,name);$(target)?.dispatchEvent(new Event('change',{bubbles:true}));}
-      $('platformDialog').close();
-      const confirmed=records().find(r=>norm(r.name)===norm(name));
-      if(confirmed?.abbreviation&&norm(confirmed.abbreviation)===norm(abbreviation)){
-        showToast((mode?'Business Platform updated':'Business Platform added')+' with the confirmed abbreviation.','success',6500);
-      }else{
-        showToast('BP Name was accepted, but the abbreviation was not confirmed by the backend. Update Apps Script support before relying on it.','info',10000);
-      }
-      TIPONSync.kick();renderDirectory();
-    }catch(error){setText('platformStatus',backendMissing(error,editingName?'Business Platform editing':'BP Name/Abbreviation registration'));}
-    finally{busy=false;$('savePlatform').disabled=false;}
-  }
-  async function deletePlatform(name){
-    if(!isAdmin())return;
-    const record=records().find(p=>norm(p.name)===norm(name));
-    if(!record)return;
-    if(record.isDefault||hasReferences(name)){
-      showToast('This BP is a default or is assigned to members, accounts, or Work Locations. Reassign its dependencies before deleting.','error',8000);
+    event.preventDefault();if(busy||!isAdmin())return;
+    const name=clean($('newPlatformName').value),code=clean($('newPlatformAbbreviation').value);
+    if(name.length<2||name.length>80||code.length<2||code.length>20||
+       /[<>\x00-\x1f\x7f]/.test(name+code)){
+      setText('platformStatus','Enter a valid Business Platforms Name (2–80 characters) and Business Platform code (2–20 characters).');
       return;
     }
-    const approved=await confirmAction('Delete Business Platform','Delete "'+record.name+'"? Only unassigned Business Platforms can be removed.');
-    if(!approved)return;
+    const existing=records().find(x=>norm(x.code)===norm(editingCode));
+    const others=records().filter(x=>norm(x.code)!==norm(editingCode));
+    if(others.some(x=>norm(x.code)===norm(code)||norm(x.name)===norm(name))){
+      setText('platformStatus','A Business Platform already uses that name or code.');return;
+    }
+    if(existing&&(existing.isDefault||hasReferences(editingCode))&&norm(code)!==norm(editingCode)){
+      setText('platformStatus','This Business Platform code cannot be changed while it is a default or assigned to existing records.');return;
+    }
+    if(!navigator.onLine){setText('platformStatus','Internet is required to save changes to the central directory.');return;}
+    busy=true;$('savePlatform').disabled=true;
+    setText('platformStatus','Verifying and saving with the central organization...');
+    try{
+      await requireDirectoryBackend();
+      const editing=!!editingCode;
+      const response=await TIPONAPI.call(editing?
+        {action:'platformUpdate',originalName:editingCode,name,abbreviation:code}:
+        {action:'platformAdd',name,abbreviation:code});
+      if(!verifyRecord(response,name,code))
+        throw Error('The backend did not confirm the exact Business Platform name and code. Please refresh before retrying.');
+      await accept(response.businessPlatforms,detailsFrom(response));
+      if(target){fill(target,code);$(target)?.dispatchEvent(new Event('change',{bubbles:true}));}
+      $('platformDialog').close();
+      showToast(editing?'Business Platform updated in the central directory.':
+        'Business Platform added to the central directory.','success',6500);
+      TIPONSync.kick();renderDirectory();
+    }catch(error){setText('platformStatus',explainBackend(error,'Business Platform Add/Edit'));}
+    finally{busy=false;$('savePlatform').disabled=false;}
+  }
+  async function deletePlatform(code){
+    if(!isAdmin())return;
+    const record=records().find(x=>norm(x.code)===norm(code));
+    if(!record)return;
+    if(record.isDefault){
+      showToast('This is a default Business Platform. It cannot be deleted because other devices can still use its original code.','info',8500);
+      return;
+    }
+    if(hasReferences(code)){
+      showToast('This Business Platform is assigned to a member, account or Work Location. Reassign related records before deleting it.','info',8500);
+      return;
+    }
+    const yes=await confirmAction('Delete Business Platform?',
+      'Permanently remove "'+record.name+'" ('+record.code+') from the central directory? This is allowed only if the platform is unassigned.');
+    if(!yes)return;
     if(!navigator.onLine){showToast('Internet is required to delete a Business Platform.','error');return;}
     try{
-      const response=await TIPONAPI.call({action:'platformDelete',name:record.name});
-      const updated=response.businessPlatforms;
-      if(!Array.isArray(updated)||updated.some(x=>norm(x)===norm(name)))
-        throw Error('The backend did not confirm this Business Platform was removed.');
-      await accept(updated,detailList(response));showToast('Business Platform deletion confirmed by central database.','success');
-      renderDirectory();TIPONSync.kick();
-    }catch(error){showToast(backendMissing(error,'Business Platform deletion'),'error',9000);}
+      await requireDirectoryBackend();
+      const response=await TIPONAPI.call({action:'platformDelete',name:code});
+      if(!verifyRecord(response,'',code,true))
+        throw Error('The central backend did not confirm deletion. The platform remains unchanged.');
+      await accept(response.businessPlatforms,detailsFrom(response));
+      showToast('Business Platform deletion confirmed by the central directory.','success',6500);
+      TIPONSync.kick();renderDirectory();
+    }catch(error){showToast(explainBackend(error,'Business Platform Delete'),'error',9000);}
   }
   function bind(){
-    document.querySelectorAll('[data-add-platform-for]').forEach(b=>b.addEventListener('click',()=>open(b.dataset.addPlatformFor)));
+    document.querySelectorAll('[data-add-platform-for]').forEach(b=>
+      b.addEventListener('click',()=>open(b.dataset.addPlatformFor)));
     attach('platformForm','submit',save);
     attach('adminBPAdd','click',()=>open());
     attach('adminBPSearch','input',()=>{page=1;renderDirectory();});
     attach('adminBPPrev','click',()=>{if(page>1){page--;renderDirectory();}});
     attach('adminBPNext','click',()=>{page++;renderDirectory();});
-    attach('adminBPRows','click',e=>{
-      const edit=e.target.closest('[data-bp-edit]'),del=e.target.closest('[data-bp-delete]');
+    attach('adminBPRows','click',event=>{
+      const edit=event.target.closest('[data-bp-edit]');
+      const del=event.target.closest('[data-bp-delete]');
       if(edit){openEdit(edit.dataset.bpEdit);return;}
-      if(del&&!del.disabled)void deletePlatform(del.dataset.bpDelete);
+      if(del)void deletePlatform(del.dataset.bpDelete);
     });
     render();
   }
-  return {bind,render,fill,load,accept,refresh,open,names,records,renderDirectory,hasReferences};
+  return {bind,render,fill,load,accept,refresh,open,names,records,renderDirectory,hasReferences,verifyRecord};
 })();

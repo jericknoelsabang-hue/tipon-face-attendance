@@ -1,5 +1,5 @@
 {
   "app": "TIPON Face Attendance",
-  "version": "5.5.18",
-  "label": "Align MPC and BP checkbox text, paginate Work Locations, add Admin Business Platforms directory (BP name, abbreviation, search, paging, Add/Edit/Delete with safe backend acknowledgements)."
+  "version": "5.5.19",
+  "label": "Work Locations show no inline pending-sync text (sync queue remains intact). Business Platforms table now uses nine approved full names and existing codes; secure Admin BP Edit and Delete via separately deployed Apps Script extension."
 }

@@ -41,9 +41,9 @@ window.TIPONAdminSites=(()=>{
       const coords=Number.isFinite(lat)&&Number.isFinite(lng)
         ?lat.toFixed(6)+', '+lng.toFixed(6):'Not configured';
       return '<tr>'+
-        '<td><b>'+esc(site.name||'—')+'</b>'+(site._pendingOp?
-          '<small class="mini-info" style="display:block;color:'+(site.syncIssue?'#ba7520':'#58749b')+'" title="'+esc(site.syncIssue||'Automatic sync will retry')+'">'+
-          (site.syncIssue?'Needs Review':'Syncing…')+'</small>':'')+'</td>'+
+        '<td><b'+(site._pendingOp?
+          ' title="Central confirmation is pending. Open Settings & Offline for sync diagnostics."':'')+
+          '>'+esc(site.name||'—')+'</b></td>'+
         '<td>'+esc(site.coop||'—')+'</td><td>'+esc(site.platform||'—')+'</td>'+
         '<td>'+esc(site.address||'—')+'</td><td><small>'+esc(coords)+'</small></td>'+
         '<td><div class="site-actions">'+
