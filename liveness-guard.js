@@ -136,6 +136,7 @@
                   state.scanArmed=false;state.lastRecognized=member.id;
                   state.scanCandidate=null;state.scanCandidateCount=0;state.scanLiveness=null;
                   playTerminalSound('face');
+                  state.livenessProof={memberId:member.id,scanRun:state.scanRun,at:Date.now()};
                   await recordRecognizedFace(member,found.best.distance);
                 }else{
                   updateScanResult('Live Face Check',live.prompt);
@@ -215,6 +216,7 @@
                 }
                 state.pendingDescriptors=state.enrollCollected.map(vector=>vector.slice());
                 state.faceReplacementPending=!!state.editMember?.template;
+                state.enrollmentProof={memberId:$('memberId').value.trim(),at:Date.now()};
                 setText('enrollFaceLabel','Verified · Three Live Samples Ready');
                 playTerminalSound('success');
                 showToast('Face verified. Save the member record.','success');
@@ -233,5 +235,5 @@
     if(state.enrollActive&&state.enrollRun===run)
       state.enrollTimer=setTimeout(enrollTick,220);
   };
-  window.TIPONLiveness={version:'5.5.29',challenge,advance};
+  window.TIPONLiveness={version:'5.5.30',challenge,advance};
 })();
