@@ -1,5 +1,5 @@
 {
   "app": "TIPON Face Attendance",
-  "version": "5.5.20",
-  "label": "Consistent black dropdown values and chevron arrows; all Confirm dialog buttons green. Admin can edit optional Assigned Location. User can edit member Work Location without a new face enrollment; optional site enrollment requires the corresponding private Apps Script backend deployment."
+  "version": "5.5.21",
+  "label": "Uniform 44px Member List header buttons. User Delete button enabled for approved MPC/BP members with server-confirmed soft deletion, rev checks, and attendance retention. Admin/User Assigned Location edits require a separately deployed private Apps Script patch."
 }

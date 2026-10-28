@@ -359,55 +359,65 @@ async function saveMemberForm(e){
    showToast(message,'error',8500);
  }
 }
-async function handleMemberTableClick(e){
- const edit=e.target.closest('[data-member-edit]'),del=e.target.closest('[data-member-delete]');
+async function handleMemberTableClick(event){
+ const edit=event.target.closest('[data-member-edit]'),
+   del=event.target.closest('[data-member-delete]');
  if(edit){
-  const m=state.members.find(x=>x.id===edit.dataset.memberEdit);
-  if(m)openMemberForm(m);
+  const member=state.members.find(x=>x.id===edit.dataset.memberEdit&&!x.deleted);
+  if(member)openMemberForm(member);
   return;
  }
  if(!del)return;
- const member=state.members.find(x=>x.id===del.dataset.memberDelete);
+ const member=state.members.find(x=>x.id===del.dataset.memberDelete&&!x.deleted);
  if(!member)return;
- if(!isAdmin()){
-  showToast('Only the TIPON Administrator can remove a member from the central directory.','error');
+ const admin=isAdmin(),userAuthorized=canEdit()&&TIPONOrgCore.inScope(state.user,member);
+ if(!admin&&!userAuthorized){
+  showToast('Only an Administrator or authorized User in this MPC/BP can delete this member.','error');
   return;
  }
  if(!navigator.onLine){
-  showToast('Connect to the internet before deleting. Member data has not been changed.','error');
+  showToast('Connect to the internet before deleting. No member records were changed.','error');
   return;
  }
  const stored=await getOne('members',member.id);
- if(stored?._pendingOp){
-  showToast('This member has an unsynced change. Sync first, then retry deletion.','error');
+ if(stored?._pendingOp||member._pendingOp){
+  showToast('This member has an unconfirmed edit. Complete central sync before deleting.','error');
   return;
  }
- const confirmed=await confirmAction('Delete member',
-  'Remove '+member.name+' from the central TIPON Members directory and other synced devices? Attendance history will be preserved.');
- if(!confirmed)return;
+ const yes=await confirmAction('Delete Member',
+  'Remove '+member.name+' from the central TIPON Members directory and all authorized devices? '+
+  'Any stored facial template will be removed, while the existing attendance history will be retained. '+
+  'Members with open Time In sessions cannot be deleted.');
+ if(!yes)return;
  del.disabled=true;
  try{
-  // No optimistic local deletion: the server must write and refresh TIPON Members.
-  const response=await TIPONAPI.call({action:'adminMemberDelete',
-    memberId:member.id,baseRev:Number(member.rev)||0});
-  if(!response.member||!response.member.deleted||response.member.id!==member.id){
-   throw Error('The server has not confirmed member deletion.');
+  // Admin keeps the existing fully deployed endpoint. A User must have the
+  // new server-authorized memberUserDelete endpoint. Never use local deleteOne
+  // or an Admin token to bypass the private backend role permission.
+  const reply=await TIPONAPI.call({
+   action:admin?'adminMemberDelete':'memberUserDelete',
+   memberId:member.id,baseRev:Number(member.rev)||0
+  });
+  if(!reply.member||!reply.member.deleted||reply.member.id!==member.id||
+     reply.member.active!==false){
+   throw Error('The central server did not confirm Member deletion. No local deletion was applied.');
   }
   const latest=await getOne('members',member.id);
-  if(latest?._pendingOp)throw Error('A local member change appeared during deletion. Sync and retry.');
-  const tombstone={...latest,...member,...response.member,orgId:state.orgId,deleted:true,
-    active:false,template:null,faceEnrollmentStatus:'deleted'};
+  if(latest?._pendingOp)throw Error('A concurrent edit appeared before deletion. Sync and try again.');
+  const tombstone={...latest,...member,...reply.member,orgId:state.orgId,
+    deleted:true,active:false,template:null,consentAt:null,faceEnrollmentStatus:'deleted'};
   delete tombstone.descriptors;delete tombstone._pendingOp;
   await OrgDB.rawSave('members',tombstone);
   await loadCollections();renderMembers();renderDashboard();
   TIPONSync.kick();
-  showToast('Member deleted from TIPON Members. Other open devices refresh during sync.','success');
- }catch(err){
-  if(err.code==='ACTION'||/Unknown action/i.test(err.message||'')){
-   showToast('Member deletion requires the matching Apps Script backend v5.5.8. No local deletion was made.','error',9000);
-  }else{
-   toastError(err,'Central member deletion failed — member retained');
-  }
+  showToast('Member deleted centrally. Attendance history remains available in existing logs.','success',7500);
+ }catch(error){
+  const message=error.code==='ACTION'||
+   /unknown action|unsupported action|not implemented/i.test(String(error.message||''))?
+   (admin?'Admin deletion requires the current private Apps Script backend. Nothing was deleted.':
+    'User Delete requires the private Apps Script memberUserDelete route. Nothing was deleted.'):
+   String(error.message||'Central deletion failed. No local deletion was applied.');
+  showToast(message,'error',9000);
  }finally{del.disabled=false;}
 }
 function renderSites(){

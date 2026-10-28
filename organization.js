@@ -209,7 +209,27 @@ openSiteForm=function(site){
   if(isAdmin())requestAnimationFrame(()=>window.TIPONAdminSites?.openMap());
 };
 const oldRenderMembers=renderMembers,oldRenderSites=renderSites;
-renderMembers=function(){oldRenderMembers();document.querySelectorAll('[data-member-delete]').forEach(x=>{const m=state.members.find(v=>v.id===x.dataset.memberDelete);x.hidden=!isAdmin();});document.querySelectorAll('[data-member-edit]').forEach(x=>{const m=state.members.find(v=>v.id===x.dataset.memberEdit);x.disabled=!canEdit()||!(m?.createdBy===state.user?.id||(m?.importedWithoutFace===true||m?.importPending===true&&!m?.template)&&TIPONOrgCore.inScope(state.user,m));});};
+renderMembers=function(){
+ oldRenderMembers();
+ document.querySelectorAll('[data-member-delete]').forEach(button=>{
+  const member=state.members.find(m=>m.id===button.dataset.memberDelete);
+  const permitted=!!member&&!member.deleted&&(isAdmin()||
+   (canEdit()&&TIPONOrgCore.inScope(state.user,member)));
+  // The server authorizes every delete. The browser cannot delete a record
+  // from another approved MPC/BP or hide the action from authorized Users.
+  button.hidden=!permitted;
+  button.disabled=!permitted||!!member?._pendingOp;
+  button.title=member?._pendingOp?'Sync the existing member change before deleting.':
+   'Delete from the central Member List after confirmation; attendance history remains.';
+ });
+ document.querySelectorAll('[data-member-edit]').forEach(button=>{
+  const member=state.members.find(m=>m.id===button.dataset.memberEdit);
+  button.disabled=!canEdit()||!(member?.createdBy===state.user?.id||
+   (member?.importedWithoutFace===true||
+    member?.importPending===true&&!member?.template)&&
+   TIPONOrgCore.inScope(state.user,member));
+ });
+};
 renderSites=function(){oldRenderSites();document.querySelectorAll('[data-site-delete],[data-site-edit]').forEach(x=>{const site=state.sites.find(v=>v.id===(x.dataset.siteDelete||x.dataset.siteEdit));x.hidden=false;x.disabled=!(site&&canEdit()&&TIPONOrgCore.inScope(state.user,site));});};
 filteredAttendanceRows=function(){
   if(!isAdmin())throw Error('Only the administrator can export attendance.');

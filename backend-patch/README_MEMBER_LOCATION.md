@@ -1,6 +1,6 @@
-# TIPON KABILANG — Assigned Location backend (v5.5.20)
+# TIPON KABILANG — Member Location and User Delete backend (v5.5.21)
 
-This patch enables the **Admin Member Details → Assigned Location** selector and a **User changing an existing member's Work Location without re-enrolling the face**. Assigned Location is optional. Attendance still requires an enrolled face and an approved site.
+This patch enables **Admin Member Details → Assigned Location**, **User editing an existing member's Work Location without re-enrolling the face**, and **User Delete** for members within the User's approved MPC/BP. Assigned Location is optional. Attendance still requires an enrolled face and an approved site.
 
 **Important:** GitHub Pages updates ONLY the public frontend; private Google Apps Script is separately deployed. Do not publish Code.gs, Script Properties, keys, tokens, or member/face data. This guide uses the earlier TIPON_Code_v5_5_9.gs provided by the user. Review the actual current Code.gs before merging. Never replace a newer deployed Code.gs with the older backup.
 
@@ -12,8 +12,9 @@ This file defines two operations with central verification, revision conflict ch
 
 - tp5AdminMemberUpdateV2_(actor,q): edit member identity, Cooperative, Business Platform and optional 0–40 Assigned Locations atomically; do not change face templates.
 - tp5UserMemberLocationUpdate_(actor,q): authorized User updates only GPS assignments for a member in the approved scope; face enrollment status is preserved.
+- tp5UserMemberDelete_(actor,q): an approved User may soft-delete only a member within their MPC/BP. It requires confirmation, matching revision and no open Time In, purges the member's face template, retains attendance history and records an audit log.
 
-## 2. Add three routes to the CURRENT private Code.gs
+## 2. Add four routes to the CURRENT private Code.gs
 
 In tp5Handle_(q,transport), immediately after the health route and before token authentication, add:
 
@@ -35,6 +36,10 @@ if(action==='adminMemberUpdateV2')return tp5Lock_(function(){
 if(action==='memberLocationUpdate')return tp5Lock_(function(){
   actor=tp5Auth_(q);
   return tp5UserMemberLocationUpdate_(actor,q);
+});
+if(action==='memberUserDelete')return tp5Lock_(function(){
+  actor=tp5Auth_(q);
+  return tp5UserMemberDelete_(actor,q);
 });
 ~~~
 
@@ -92,10 +97,15 @@ Test with synthetic records and approved test accounts BEFORE production:
 5. Admin changes MPC/BP and assigns a valid location in the new scope in one transaction.
 6. Cross-scope, deleted-site, stale-baseRev, and open-Time-In reassignments must be rejected.
 7. Verify the central TIPON Members projection and a second authorized device reflect the saved changes.
-8. Re-test kiosk face recognition, GPS, member access, and 90-second inactive logout.
+8. Sign in as an approved User and delete a synthetic member in the same MPC/BP. Confirm the member disappears from the central TIPON Members directory and a second device. Attendance history must remain available, and the member's encrypted template must be removed.
+9. Try User Delete for a different MPC/BP, with an open Time In, and with an out-of-date baseRev. All must fail without deleting anything.
+10. Test Administrator Delete through the existing adminMemberDelete endpoint. Its behavior must remain unchanged.
+11. Re-test kiosk face recognition, GPS, member access, and 90-second inactive logout.
 
 If these routes are not installed, the frontend intentionally shows a backend-required error rather than falsely reporting that the member's assigned location was saved.
 
 ## User interface changes
 
-v5.5.20 also uses black dropdown text, a consistent chevron on all native and custom dropdowns, and green Confirm buttons (including deletion confirmation, while retaining the separate confirmation step).
+v5.5.21 standardizes Member List header buttons to the same 44px height and exposes User Delete with proper MPC/BP scope controls. Confirmation remains green, including explicit destructive-action confirmation.
+
+**Why the red error appears:** The current GitHub Pages UI can call these private actions but cannot deploy Apps Script code. Until this patch is installed in the *existing private Apps Script deployment* and redeployed to a new version, the server returns Unknown Action for Admin/User location edits and User Delete. Do not suppress the error or show a fake success. There is no credential or Apps Script deployment information in this public repository.

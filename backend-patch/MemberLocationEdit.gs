@@ -94,3 +94,38 @@ function tp5UserMemberLocationUpdate_(actor,q){
     updatedAt:tp5Now_(),rev:Number(old.rev||0)+1});
   return tp5MemberLocationResult_(actor,old,next,'USER_EDIT_MEMBER_LOCATION');
 }
+
+
+/**
+ * Delete an approved User's in-scope member with a server-confirmed soft delete.
+ * This intentionally DOES NOT grant Admin access or modify attendance history.
+ * It purges the member's encrypted face template from the central member row.
+ */
+function tp5UserMemberDelete_(actor,q){
+  tp5Must_(actor.role==='registrar','An approved User account is required.','FORBIDDEN');
+  var id=TIPONOrgCore.clean(q.memberId,120),old=tp5Find_('members',id);
+  tp5Must_(old&&!old.deleted,'Member not found. Refresh Member List.','NOT_FOUND');
+  tp5Must_(TIPONOrgCore.inScope(actor,old),
+    'You can delete only members in your approved Cooperative and Business Platform.','FORBIDDEN');
+  tp5Must_(Number.isInteger(Number(q.baseRev))&&
+    Number(q.baseRev)===Number(old.rev||0),
+    'The member changed on another device. Refresh and try again.','CONFLICT');
+  tp5Must_(!tp5MemberOpenSession_(old.id),
+    'Complete the member open Time Out before deleting their account.','OPEN_SESSION');
+  var next=Object.assign({},old,{
+    deleted:true,active:false,importPending:false,importedWithoutFace:false,
+    template:null,consentAt:null,faceEnrollmentStatus:'deleted',
+    updatedAt:tp5Now_(),deletedAt:tp5Now_(),deletedBy:actor.id,
+    rev:Number(old.rev||0)+1
+  });
+  delete next.descriptors;
+  delete next._pendingOp;
+  delete next._row;
+  tp5Put_('members',next,old);
+  tp5RefreshMemberDirectory_();
+  var catalogVersion=tp5Bump_();
+  tp5Audit_(actor,'USER_DELETE_MEMBER',next.id,
+    'Authorized in-scope User soft-deleted member; biometric template removed. Attendance history retained. Revision '+next.rev);
+  return tp5Reply_({member:{id:next.id,deleted:true,active:false,
+    rev:next.rev},catalogVersion:catalogVersion});
+}
