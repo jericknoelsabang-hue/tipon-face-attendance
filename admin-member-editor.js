@@ -75,7 +75,7 @@
   setText('adminMemberEditStatus','Saving to TIPON central database...');
   try{
    const health=await TIPONAPI.raw({action:'health'});
-   if(!String(health.version||'').startsWith('5.5.8'))
+   if(!/^5\.5\.(?:8|9|[1-9]\d+)(?:\D|$)/.test(String(health.version||'')))
     throw Error('Member MPC/BP editing requires Apps Script backend v5.5.8. Deploy Code.gs and OrgCore.gs to the existing Web App first.');
    const reply=await TIPONAPI.call({
     action:'adminMemberUpdate',memberId:editingId,baseRev:Number(member.rev)||0,
