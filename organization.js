@@ -81,7 +81,18 @@ loadCollections=async function(){
   state.sites=allSites.filter(x=>!x.deleted&&belongs(x)&&(u?.role==='admin'||u?.role==='kiosk'||u&&TIPONOrgCore.inScope(u,x)));
   // Physical kiosks identify members across the organization; assigned-office GPS is verified before recording.
   state.members=allMembers.filter(x=>!x.deleted&&belongs(x)&&(u?.role==='admin'||u?.role==='kiosk'||u&&TIPONOrgCore.inScope(u,x)));
-  for(const m of state.members){if(m.template&&!m.descriptors){try{m.descriptors=await TIPONAuth.unseal(m.template,TIPONAuth.current().faceKey,'member:'+m.id);}catch{m.descriptors=[];m.templateError='Face template could not be decrypted; re-enroll after review.';}}}
+  if(u?.role!=='admin'){
+    const queue=state.members.filter(m=>m.template&&!m.descriptors);
+    let cursor=0;
+    const worker=async()=>{
+      while(cursor<queue.length){
+        const m=queue[cursor++];
+        try{m.descriptors=await TIPONAuth.unseal(m.template,TIPONAuth.current().faceKey,'member:'+m.id);}
+        catch{m.descriptors=[];m.templateError='Face template could not be decrypted; re-enroll after review.';}
+      }
+    };
+    await Promise.all(Array.from({length:Math.min(6,queue.length)},worker));
+  }
   state.punches=allPunches.filter(x=>belongs(x)&&(u?.role==='admin'||u&&TIPONOrgCore.inScope(u,{...x,platform:x.platform||allSites.find(s=>s.id===x.siteId)?.platform}))).sort((a,b)=>Date.parse(b.timestamp)-Date.parse(a.timestamp));
   state.schedules=schedules.filter(x=>belongs(x)&&!x.deleted);state.users=[];
 };
@@ -99,7 +110,8 @@ enterApp=async function(options={}){
     savedPage?.page&&TIPONOrgCore.allowed(state.user,savedPage.page)&&
     (savedPage.page!=='scanner'||hasTerminalSession())?savedPage.page:defaultPage
   );
-  applyRoles();await showPage(startPage);refreshClock();await checkOfflineReady();
+  applyRoles();await showPage(startPage);refreshClock();
+  void checkOfflineReady().catch(error=>console.warn('Offline readiness check:',error));
   if(isAdmin()&&state.user.defaultPassword)showToast('Change the initial administrator password in Settings before organization rollout.','info',10000);
 };
 applyRoles=function(){
@@ -224,6 +236,7 @@ window.OrgUI=(()=>{
     if(!validateAttendanceDateRange('dashboardFrom','dashboardTo','dashboardDateError','dashboardRefresh')){
       $('dashboardSummary').innerHTML='';
       $('dashboardRanking').innerHTML='<tr><td colspan="6">Choose a valid date range before filtering attendance.</td></tr>';
+      window.TIPONAbsenteeism?.invalid();
       return;
     }
     const from=fromField.value,to=toField.value;
@@ -253,6 +266,7 @@ window.OrgUI=(()=>{
     $('dashboardSummary').innerHTML=[['Registered / enrolled',total.members],['With In and Out',total.complete],['No Time In / Out',total.missing]].map(([label,n])=>'<article class="kpi-card"><span>'+label+'</span><strong>'+n+'</strong><small>'+esc(day)+'</small></article>').join('');
     const ranked=coops.filter(c=>!f.coop||c===f.coop).map(coop=>({coop,...tally(members.filter(m=>m.coop===coop))})).sort((a,b)=>a.missing-b.missing||a.coop.localeCompare(b.coop));
     $('dashboardRanking').innerHTML=ranked.map((r,i)=>{const rate=r.members?100*r.missing/r.members:0;return '<tr><td>'+(i+1)+'</td><td><b>'+esc(r.coop)+'</b></td><td>'+r.members+'</td><td>'+r.complete+'</td><td>'+r.missing+'</td><td><div class="attendance-rate"><span style="width:'+rate+'%"></span></div><small>'+(r.members?rate.toFixed(1)+'%':'No members')+'</small></td></tr>';}).join('');
+    window.TIPONAbsenteeism?.render({to,coop:f.coop,valid:true});
     const legacy=state.members.some(m=>!m.orgId)||state.sites.some(s=>!s.orgId)||state.punches.some(p=>!p.orgId);
     if($('legacyNotice'))$('legacyNotice').hidden=!legacy;
   }
@@ -508,7 +522,7 @@ window.OrgUI=(()=>{
     ['dashboardCoop','presenceFilter'].forEach(id=>attach(id,'change',renderMpc));
     attach('dashboardRefresh','click',async()=>{
       if(!validateAttendanceDateRange('dashboardFrom','dashboardTo','dashboardDateError','dashboardRefresh'))return;
-      const result=await TIPONSync.run();
+      const result=await TIPONSync.submitPendingNow();
       if(!result?.ok)showToast(result?.error||'Refresh is not available right now. Check synchronization status.','error');
       else renderMpc();
     });

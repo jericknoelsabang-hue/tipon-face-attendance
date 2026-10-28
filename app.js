@@ -399,7 +399,6 @@ async function saveSiteForm(e){
   const admin=isAdmin();
   if(admin){
    if(!navigator.onLine)throw Error('Administrator Work Location changes require an online session.');
-   if(TIPONSync.isBusy())throw Error('Organization synchronization is running. Try saving again when it finishes.');
    const health=await TIPONAPI.raw({action:'health'});
    if(!health||health.ok===false)throw Error('The central organization backend is not ready. No changes were staged.');
   }
@@ -407,13 +406,13 @@ async function saveSiteForm(e){
   await loadCollections();
   if(admin){
    // Do not report success until the server acknowledges this specific site.
-   const result=await TIPONSync.run();
+   const result=await TIPONSync.submitPendingNow();
    const stored=await getOne('sites',site.id);
    const pending=stored?._pendingOp?await getOne('outbox',stored._pendingOp):null;
-   if(!result?.ok||stored?._pendingOp){
+   if(!stored||stored._pendingOp){
     $('siteDialog').close();renderSites();window.TIPONAdminSites?.render();
     const reason=pending?.error||result?.error||'Central server has not acknowledged this location.';
-    showToast('Work Location is saved on this device only; central sync is not confirmed. '+reason,'error',12000);
+    showToast('Work Location is pending central confirmation. '+reason,'error',12000);
     return;
    }
   }

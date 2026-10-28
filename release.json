@@ -1,5 +1,5 @@
 {
   "app": "TIPON Face Attendance",
-  "version": "5.5.15",
-  "label": "Member form shows approved Business Platform beside Cooperative, removes extra Work Location notice and buttons, checks Admin site backend acceptance rather than hardcoded version, and forces refreshed member templates after central enrollment reset."
+  "version": "5.5.16",
+  "label": "Serialized Admin site saves, Absenteeism Dashboard with 14-day trends and flagged No Time In, faster login and workspace setup, scheduled live polling; no changes to biometric security."
 }

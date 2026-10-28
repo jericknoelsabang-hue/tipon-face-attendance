@@ -14,7 +14,7 @@ window.TIPONAPI=(()=>{
   return {raw,call};
 })();
 window.TIPONSync=(()=>{
-  let busy=false,timer=null,attempt=0,message='Sign in to enable organization sync.',lastSync='',stopped=true;
+  let busy=false,timer=null,attempt=0,message='Sign in to enable organization sync.',lastSync='',stopped=true,activeRun=null;
   function render(){
     const s=TIPONAuth.current();const pending=state.punches.filter(p=>p.orgId===state.orgId&&!p.cloudAck&&!p.reviewStatus).length;
     const review=state.punches.filter(p=>p.reviewStatus).length;
@@ -26,7 +26,10 @@ window.TIPONSync=(()=>{
   }
   function start(){stopped=false;kick();}
   function stop(){stopped=true;clearTimeout(timer);}
-  function schedule(){clearTimeout(timer);if(stopped)return;timer=setTimeout(run,Math.min(300000,20000*2**attempt)+Math.floor(Math.random()*3000));}
+  function schedule(){clearTimeout(timer);if(stopped)return;
+    const base=state.user?.role==='admin'&&state.page==='dashboard'?15000:25000;
+    timer=setTimeout(run,Math.min(300000,base*2**attempt)+Math.floor(Math.random()*3000));
+  }
   function kick(){clearTimeout(timer);if(!stopped)timer=setTimeout(run,500+Math.floor(Math.random()*1500));render();}
   async function markOps(reply){
     const all=await getAll('outbox');
@@ -152,7 +155,7 @@ window.TIPONSync=(()=>{
       if(!r.more||document.hidden||stopped)break;
     }
   }
-  async function run(){
+  async function runCycle(){
     if(stopped||busy||!state.user||document.hidden){schedule();return {ok:false,error:'The app is busy, signed out, or in a hidden browser tab.'};}
     if(!navigator.onLine){message='Offline: saved locally. Automatic sync resumes when internet is available and this app is open.';render();schedule();return {ok:false,error:message};}
     busy=true;message='Connecting to organization database...';render();
@@ -166,9 +169,24 @@ window.TIPONSync=(()=>{
     finally{busy=false;render();schedule();}
     return result;
   }
+  // A concurrent timer/manual caller receives the same pending cycle.
+  function run(){
+    if(activeRun)return activeRun;
+    const job=runCycle();activeRun=job;
+    const clear=()=>{if(activeRun===job)activeRun=null;};
+    job.then(clear,clear);
+    return job;
+  }
+  // An Admin edit can be queued during an existing poll. Finish that poll,
+  // then explicitly submit the NEW operation rather than returning BUSY.
+  async function submitPendingNow(){
+    const preceding=activeRun;
+    if(preceding){try{await preceding;}catch(_){}}
+    return run();
+  }
   async function init(){
     attach('syncNow','click',kick);attach('syncRecordsNow','click',kick);
     window.addEventListener('online',kick);window.addEventListener('offline',render);document.addEventListener('visibilitychange',()=>{if(!document.hidden)kick();});render();
   }
-  return {init,start,stop,kick,render,run,isBusy:()=>busy};
+  return {init,start,stop,kick,render,run,submitPendingNow,isBusy:()=>busy};
 })();

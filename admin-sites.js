@@ -31,7 +31,7 @@ window.TIPONAdminSites=(()=>{
       const coords=Number.isFinite(lat)&&Number.isFinite(lng)
         ?lat.toFixed(6)+', '+lng.toFixed(6):'Not configured';
       return '<tr>'+
-        '<td><b>'+esc(site.name||'—')+'</b></td>'+
+        '<td><b>'+esc(site.name||'—')+'</b>'+(site._pendingOp?'<small class="mini-info" style="display:block;color:#a75c28">Pending Sync</small>':'')+'</td>'+
         '<td>'+esc(site.coop||'—')+'</td><td>'+esc(site.platform||'—')+'</td>'+
         '<td>'+esc(site.address||'—')+'</td><td><small>'+esc(coords)+'</small></td>'+
         '<td><div class="site-actions">'+
@@ -45,10 +45,11 @@ window.TIPONAdminSites=(()=>{
     if(!navigator.onLine){showToast('Connect to the internet to refresh work locations from Google Sheets.','error');return;}
     refreshing=true;const btn=field('adminSitesRefresh');btn.disabled=true;
     try{
-      await TIPONSync.run();
+      const result=await TIPONSync.submitPendingNow();
+      if(!result?.ok)throw Error(result?.error||'Organization synchronization did not complete.');
       await loadCollections();
       render();
-      showToast('Work locations refreshed from the central directory.','success');
+      showToast('Work Locations refreshed from the central directory.','success');
     }catch(error){toastError(error,'Could not refresh work locations');}
     finally{refreshing=false;btn.disabled=false;}
   }
@@ -63,9 +64,10 @@ window.TIPONAdminSites=(()=>{
     try{
       await deleteOne('sites',site.id);
       await loadCollections();render();
-      await TIPONSync.run();
+      const result=await TIPONSync.submitPendingNow();
+      if(!result?.ok)throw Error(result?.error||'Work Location deletion is not yet confirmed.');
       await loadCollections();render();
-      showToast('Work location deletion submitted and synchronized.','success');
+      showToast('Work Location deletion submitted and synchronized.','success');
     }catch(error){toastError(error,'Deletion not confirmed; check Settings > Pending changes');}
   }
   async function loadLeaflet(){

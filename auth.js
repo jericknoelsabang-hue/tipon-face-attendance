@@ -98,20 +98,32 @@ window.TIPONAuth=(()=>{
     state.user=session.account;state.orgId=session.orgId;
     const kioskOnly=value.account?.role==='kiosk';
     document.body.classList.toggle('kiosk-mode',kioskOnly);
-    await persistSession(session);$('loginPage').hidden=true;try{await enterApp({freshLogin});TIPONSync.start();}catch(e){session=null;state.user=null;await clearPersistedSession();document.body.dataset.terminalAccess='denied';document.body.classList.remove('kiosk-mode');$('appShell').hidden=true;$('mobileNav').hidden=true;$('loginPage').hidden=false;throw e;}
+    // Session is encrypted in a serialized queue; UI need not block on its disk write.
+    void persistSession(session);
+    $('loginPage').hidden=true;try{await enterApp({freshLogin});TIPONSync.start();}catch(e){session=null;state.user=null;await clearPersistedSession();document.body.dataset.terminalAccess='denied';document.body.classList.remove('kiosk-mode');$('appShell').hidden=true;$('mobileNav').hidden=true;$('loginPage').hidden=false;throw e;}
   }
   function status(text,bad=false){setText('loginStatus',text);$('loginStatus').classList.toggle('danger',bad);}
   async function login(event){
-    event?.preventDefault();if(signing)return;signing=true;$('loginSubmit').disabled=true;status('Checking account...');
+    event?.preventDefault();if(signing)return;signing=true;$('loginSubmit').disabled=true;status('Signing in securely...');
     const username=$('loginUsername').value.trim(),password=$('loginPassword').value;
     try{
-      const cached=await getOne('users',vaultId(username));let current;
-      if(navigator.onLine){
+      const cachedLookup=getOne('users',vaultId(username));
+      // Start Apps Script challenge while checking the encrypted offline cache.
+      // Both results are awaited and online password verification stays mandatory.
+      const challengeRequest=navigator.onLine
+        ?TIPONAPI.raw({action:'challenge',username}).then(value=>({value}),error=>({error}))
+        :null;
+      const cached=await cachedLookup;let current;
+      if(challengeRequest){
         try{
-          const challenge=await TIPONAPI.raw({action:'challenge',username});
+          const response=await challengeRequest;
+          if(response.error)throw response.error;
+          const challenge=response.value;
           const derived=await proof(password,challenge.salt);
           const reply=await TIPONAPI.raw({action:'login',username,proof:derived});
-          current={...reply,proof:derived,salt:challenge.salt,onlineVerified:true};await remember(current,challenge.salt);
+          current={...reply,proof:derived,salt:challenge.salt,onlineVerified:true};
+          // Offline vault encryption continues while the signed-in view opens.
+          void remember(current,challenge.salt).catch(error=>console.warn('Offline sign-in cache failed:',error));
         }catch(err){
           if(!['NETWORK','TIMEOUT','GATEWAY_OFFLINE'].includes(err.code)||!cached)throw err;
         }
@@ -222,7 +234,13 @@ window.TIPONAuth=(()=>{
     attach('authDiagnostics','click',verifyOrganizationConnection);
     const restored=await restoreSession();if(restored){try{await signedIn(restored,{freshLogin:false});status('');return;}catch(error){console.warn('Could not resume the saved session.',error);}}
     $('appShell').hidden=true;$('mobileNav').hidden=true;$('loginPage').hidden=false;
-    void verifyOrganizationConnection();
+    // Only perform a health request when the connection card is clicked:
+    // a competing Apps Script health request can delay username/password login.
+    if($('authDiagnostics')){
+      $('authDiagnostics').dataset.state='idle';
+      setText('authConnectionTitle','Check Organization Connection');
+      setText('authConnectionDetail','Click to verify the central system is online.');
+    }
   }
   const originalInit=init;init=async function(){
     await originalInit();
