@@ -79,7 +79,7 @@ window.TIPONAbsenteeism=(()=>{
  }
  function render({from='',to='',coop='',valid=true}={}){
   if(!valid){invalid();return;}
-  if(!state.user||state.user.role!=='admin'||!$('absPanel'))return;
+  if(!state.user||!['admin','registrar'].includes(state.user.role)||!$('absPanel'))return;
   const d=compute(state.members,state.sites,state.punches,state.schedules,to,coop,Date.now(),from);
   const a=d.focus;if(!a)return;
   $('absPeriod').textContent='Date: '+a.day+' · '+(coop||'All Cooperatives');
@@ -92,7 +92,7 @@ window.TIPONAbsenteeism=(()=>{
    kpi('Headcount Coverage',fmt(d.coverage)+'%',a.present+' of '+a.eligible+' enrolled members','blue'),
    kpi('Validated Manhours',fmt(Math.round(a.hours*10)/10)+' h',a.complete+' completed shifts','teal'),
    kpi('Open Time Ins',a.open,'Missing a paired Time Out','orange'),
-   kpi('Provisional Absences',a.provisional,'Requires approved work schedule','red')
+   kpi('AWOL COUNT',a.provisional,'Schedule-based; verify before action','red')
   ].join('');
   $('absHeadcount').innerHTML=chart(d.rows,'head');
   $('absHours').innerHTML=chart(d.rows,'hours');
@@ -108,8 +108,8 @@ window.TIPONAbsenteeism=(()=>{
    ...a.missing.map(m=>({member:m,flag:syncVerified?'Time In Not Verified':'Sync Required'}))];
   $('absReviewCount').textContent=review.length+' to review';
   $('absReviewRows').innerHTML=review.length?review.slice(0,8).map(({member:m,flag})=>
-   '<tr><td>'+escape(m.id)+'</td><td>'+escape(m.name)+'</td><td>'+escape(m.coop)+'</td><td><span class="ab-flag">'+escape(flag)+'</span></td></tr>'
-  ).join(''):'<tr><td colspan="4">No attendance discrepancies in the available records.</td></tr>';
+   '<tr><td>'+escape(m.id)+'</td><td>'+escape(m.name)+'</td><td>'+escape(m.coop)+'</td><td><span class="ab-flag">'+escape(flag)+'</span></td><td><button type="button" class="tiny-button" data-review-member="'+escape(m.id)+'" data-review-day="'+escape(a.day)+'">Review</button></td></tr>'
+  ).join(''):'<tr><td colspan="5">No attendance discrepancies in the available records.</td></tr>';
   $('absReviewMore').textContent=review.length>8?'Showing 8 of '+review.length+'.':'';
  }
  function invalid(){if($('absKPIs'))$('absKPIs').innerHTML='<p class="ab-empty">Select a valid date range before viewing attendance analytics.</p>';}
@@ -122,7 +122,16 @@ window.TIPONAbsenteeism=(()=>{
   }catch(e){showToast('Sync was not completed: '+(e.message||e),'error',9000);}
   finally{btn.disabled=false;btn.textContent='Sync Now';}
  }
- function bind(){const el=$('absSyncNow');if(el&&!el.dataset.bound){el.dataset.bound='1';el.addEventListener('click',syncNow);}}
+ function bind(){
+  const el=$('absSyncNow');if(el&&!el.dataset.bound){el.dataset.bound='1';el.addEventListener('click',syncNow);}
+  const rows=$('absReviewRows');if(rows&&!rows.dataset.bound){rows.dataset.bound='1';rows.addEventListener('click',event=>{
+   const button=event.target.closest('[data-review-member]');if(!button)return;
+   const search=$('terminalLogSearch');if(search)search.value=button.dataset.reviewMember||'';
+   if($('terminalLogFrom'))$('terminalLogFrom').value=button.dataset.reviewDay||'';
+   if($('terminalLogTo'))$('terminalLogTo').value=button.dataset.reviewDay||'';
+   showPage('terminalLogs');renderTerminalLogs();
+  });}
+ }
  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',bind,{once:true});else bind();
  return {compute,render,invalid};
 })();
