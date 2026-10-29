@@ -1,5 +1,5 @@
 /**
- * TIPON KABILANG — Attendance correction helpers, v5.5.34
+ * TIPON KABILANG — Attendance correction helpers, v5.5.40
  * PRIVATE Google Apps Script file. Add to the existing attendance project only
  * after confirming the live Code.gs does not already define these functions.
  * Never publish Script Properties, credentials, face data or the private /exec URL.
@@ -14,7 +14,14 @@ function tp5ApplyAttendanceCorrections_(rows){
   var corrections=tp5Read_('operations').filter(function(x){return x&&x.kind==='attendanceCorrection';});
   if(!corrections.length)return rows;
   var bySession=new Map(corrections.map(function(x){return [String(x.sessionId),x];}));
-  return rows.map(function(event){
+  var needsVirtualOut=corrections.some(function(c){return !c.deleted&&c.createdOut&&c.timeOut;});
+  var rawOutSessions=new Set();
+  if(needsVirtualOut){
+    tp5AllEvents_().forEach(function(event){
+      if(event&&!event.deleted&&event.type==='OUT')rawOutSessions.add(String(event.sessionId||event.id));
+    });
+  }
+  var result=rows.map(function(event){
     var key=String(event.sessionId||event.id),correction=bySession.get(key);
     if(!correction)return event;
     var value=Object.assign({},event,{
@@ -32,11 +39,33 @@ function tp5ApplyAttendanceCorrections_(rows){
     }
     return value;
   });
+  corrections.forEach(function(correction){
+    var sessionId=String(correction.sessionId||'');
+    if(correction.deleted||!correction.createdOut||!correction.timeOut||rawOutSessions.has(sessionId))return;
+    var syntheticId='attendance-correction-out:'+sessionId;
+    if(result.some(function(event){return String(event.id)===syntheticId;}))return;
+    var source=rows.find(function(event){
+      return event&&!event.deleted&&event.type==='IN'&&String(event.sessionId||event.id)===sessionId;
+    })||{
+      id:syntheticId,sessionId:sessionId,memberId:correction.memberId||'',
+      memberName:correction.memberName||'',coop:correction.coop||'',platform:correction.platform||'',
+      siteId:correction.siteId||'',siteName:correction.siteName||'',orgId:correction.orgId||'',
+      recordedById:correction.actorId||'',performedBy:correction.performedBy||'',cloudAck:true
+    };
+    result.push(Object.assign({},source,{
+      id:syntheticId,sessionId:sessionId,type:'OUT',
+      timestamp:correction.timeOut,day:TIPONOrgCore.phDay(correction.timeOut),
+      correctionRev:Number(correction.rev)||0,correctedAt:correction.updatedAt||'',
+      correctedBy:correction.actorId||'',correctionReason:correction.reason||'',
+      source:'attendance-correction',cloudAck:true,requiresSessionResolution:false,deleted:false
+    }));
+  });
+  return result;
 }
 
 /** Rebuild only the affected report session; do not erase the raw event ledger. */
 function tp5RebuildAttendanceProjection_(sessionId){
-  var active=tp5AllEvents_().filter(function(e){return !e.deleted;});
+  var active=tp5ApplyAttendanceCorrections_(tp5AllEvents_()).filter(function(e){return !e.deleted;});
   var row=TIPONOrgCore.project(active).find(function(r){return String(r.key)===String(sessionId);});
   if(row){tp5WriteProjection_(row);SpreadsheetApp.flush();return;}
   var old=tp5Find_('sessions',sessionId);
@@ -54,7 +83,7 @@ function tp5AttendanceCorrect_(actor,q){
     'Only an Administrator or approved User can correct attendance.','FORBIDDEN');
   var sessionId=TIPONOrgCore.clean(q.sessionId,120);
   tp5Must_(sessionId,'Attendance session is required.','VALIDATION');
-  var all=tp5AllEvents_(),events=all.filter(function(e){
+  var rawEvents=tp5AllEvents_(),all=tp5ApplyAttendanceCorrections_(rawEvents),events=all.filter(function(e){
     return !e.deleted&&String(e.sessionId||e.id)===sessionId;
   });
   var row=TIPONOrgCore.project(events)[0];
@@ -69,7 +98,7 @@ function tp5AttendanceCorrect_(actor,q){
   tp5Must_(reason.length>=5,'Enter a correction reason of at least five characters.','VALIDATION');
   var deleted=q.delete===true,now=Date.now(),timeIn=row.timeIn||'',timeOut=row.timeOut||'';
   if(deleted){
-    tp5Must_(timeIn&&timeOut,'Complete Time Out before deleting an open attendance session.','OPEN_SESSION');
+    tp5Must_(timeIn,'Attendance session has no Time In to delete.','VALIDATION');
   }else{
     var c=q.changes||{};
     tp5Must_(c&&typeof c==='object'&&!Array.isArray(c)&&
@@ -77,9 +106,8 @@ function tp5AttendanceCorrect_(actor,q){
       'Only Time In and Time Out can be corrected.','FORBIDDEN');
     if(Object.prototype.hasOwnProperty.call(c,'timeIn'))timeIn=String(c.timeIn||'');
     if(Object.prototype.hasOwnProperty.call(c,'timeOut')){
-      tp5Must_(row.timeOut,'Record a missing Time Out in Face Terminal; corrections cannot create a new punch.','VALIDATION');
       timeOut=String(c.timeOut||'');
-      tp5Must_(timeOut,'Time Out cannot be cleared from a completed session.','VALIDATION');
+      tp5Must_(timeOut||!row.timeOut,'Time Out cannot be cleared from a completed session.','VALIDATION');
     }
     tp5Must_(timeIn,'Time In is required.','VALIDATION');
     var start=Date.parse(timeIn),end=timeOut?Date.parse(timeOut):null;
@@ -101,14 +129,18 @@ function tp5AttendanceCorrect_(actor,q){
         'The correction overlaps another attendance session.','OVERLAP');
     });
   }
+  var hasRawOut=rawEvents.some(function(e){return !e.deleted&&e.type==='OUT'&&String(e.sessionId||e.id)===sessionId;});
+  var createdOut=!deleted&&!!timeOut&&!hasRawOut;
   var next={id:correctionId,kind:'attendanceCorrection',sessionId:sessionId,
-    memberId:row.memberId,siteId:row.siteId,deleted:deleted,timeIn:timeIn,timeOut:timeOut,
-    reason:reason,actorId:actor.id,updatedAt:tp5Now_(),rev:base+1};
+    memberId:row.memberId,memberName:row.memberName||'',coop:row.coop||'',platform:row.platform||'',
+    siteId:row.siteId||'',siteName:row.location||row.siteName||'',orgId:row.orgId||'',
+    deleted:deleted,timeIn:timeIn,timeOut:timeOut,createdOut:createdOut,
+    reason:reason,actorId:actor.id,performedBy:actor.username||actor.name||'',updatedAt:tp5Now_(),rev:base+1};
   tp5Put_('operations',next,old);
   var eventVersion=Number(tp5Props_().getProperty('TP5_EVENT_VERSION')||0)+1;
   tp5Props_().setProperty('TP5_EVENT_VERSION',String(eventVersion));tp5Bump_();
   tp5Audit_(actor,deleted?'ATTENDANCE_DELETE':'ATTENDANCE_EDIT',sessionId,reason+'; revision '+next.rev);
   tp5RebuildAttendanceProjection_(sessionId);
-  return tp5Reply_({correction:{sessionId:sessionId,deleted:deleted,
-    timeIn:timeIn,timeOut:timeOut,rev:next.rev,updatedAt:next.updatedAt},eventVersion:eventVersion});
+  return tp5Reply_({correction:{sessionId:sessionId,deleted:deleted,createdOut:createdOut,
+    timeIn:timeIn,timeOut:timeOut,actorId:next.actorId,rev:next.rev,updatedAt:next.updatedAt},eventVersion:eventVersion});
 }

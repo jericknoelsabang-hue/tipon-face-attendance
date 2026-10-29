@@ -22,6 +22,36 @@ test('Time In/Out pairs across devices; duplicate and early punches are blocked'
   assert.equal(Core.transition([input],'TEST-1','out',Date.parse(output.timestamp)).type,'OUT');
   assert.equal(Org.project([{...input,deleted:true},{...output,deleted:true}]).length,0);
 });
+test('Open-session attendance correction synchronizes a synthetic Time Out event',async()=>{
+  const input={...event('open-in','IN','2026-10-28T01:00:00Z'),sessionId:'session-1'};
+  const punches=[input];
+  const outbox=[{id:'open-correction',type:'attendanceCorrections',orgId:'org-1',ownerId:actor.id,baseRev:0,value:{
+    sessionId:'session-1',eventIds:['open-in'],reason:'Correct open shift',
+    changes:{timeIn:'2026-10-28T01:00:00Z',timeOut:'2026-10-28T08:00:00Z'},
+    original:{timeIn:input.timestamp,timeOut:''}
+  }}];
+  const tables={punches,outbox};
+  const ctx={console,setTimeout,clearTimeout,Date,Map,Set,navigator:{onLine:true},
+    state:{user:actor,orgId:'org-1',deviceId:'device',punches},$:()=>null,setText:()=>{},TIPONOrgCore:Org,
+    TIPONAuth:{ensureOnline:async()=> 'token'},
+    TIPONGitHubBridge:{request:async()=>({ok:true,protocol:Org.PROTOCOL,correction:{
+      sessionId:'session-1',timeIn:'2026-10-28T01:00:00Z',timeOut:'2026-10-28T08:00:00Z',createdOut:true,rev:1
+    }})},
+    getAll:async name=>{assert.ok(tables[name],name);return tables[name];},
+    getOne:async(name,id)=>{assert.ok(tables[name],'Invalid store '+name);return tables[name].find(x=>x.id===id);},
+    OrgDB:{rawSave:async(name,item)=>{const i=tables[name].findIndex(x=>x.id===item.id);if(i>=0)tables[name][i]=item;else tables[name].push(item);},
+      rawDelete:async(name,id)=>{const i=tables[name].findIndex(x=>x.id===id);if(i>=0)tables[name].splice(i,1);}}
+  };
+  ctx.window=ctx;vm.createContext(ctx);
+  vm.runInContext(source('sync.js').replace('return {init,start,stop,kick','return {__flush:flush,init,start,stop,kick'),ctx);
+  await ctx.TIPONSync.__flush();
+  assert.equal(outbox.length,0);
+  const output=punches.find(p=>p.type==='OUT');
+  assert.ok(output);
+  assert.equal(output.id,'attendance-correction-out:session-1');
+  assert.equal(output.timestamp,'2026-10-28T08:00:00Z');
+  assert.equal(output.cloudAck,true);
+});
 test('Synced attendance correction reads the punches store and reaches the server',async()=>{
   const punches=[event('in','IN','2026-10-28T23:00:00Z'),event('out','OUT','2026-10-29T08:00:00Z')];
   const outbox=[{id:'operation',type:'attendanceCorrections',orgId:'org-1',ownerId:actor.id,baseRev:0,value:{sessionId:'session-1',eventIds:['in','out'],reason:'Correct test clock',changes:{timeIn:'2026-10-28T23:05:00Z'}}}];
@@ -42,6 +72,67 @@ function backend(){
   const ctx={Date,Map,Set,Number,TIPONOrgCore:Org,tp5Must_:(ok,message,code)=>{if(!ok)throw Object.assign(Error(message),{code});},tp5Find_:(type,id)=>(type==='members'?members:sites).find(x=>x.id===id),tp5Read_:type=>type==='sites'?sites:members,tp5ResolvePlatform_:x=>x,tp5SameLocations_:(a,b)=>JSON.stringify(a)===JSON.stringify(b),tp5OldLocations_:x=>x.siteIds,tp5MemberOpenSession_:()=>false,tp5Now_:()=>new Date().toISOString(),tp5Safe_:x=>x,tp5Reply_:x=>x,tp5Put_:(...args)=>writes.push(args),tp5Bump_:()=>3,tp5RefreshMemberDirectory_:()=>{},tp5Audit_:(...args)=>audits.push(args),tp5MemberLocationResult_:(actor,old,next,action)=>{writes.push(next);audits.push(action);return {member:next};},tp5LocationIds_:(actor,coop,platform,ids)=>{assert.ok(ids.length);return ids;},tp5Admin_:actor=>{if(actor.role!=='admin')throw Object.assign(Error('Administrator required.'),{code:'FORBIDDEN'});},tp5AllEvents_:()=>[]};
   vm.createContext(ctx);vm.runInContext(source('backend-patch/MemberFaceTransfer.gs'),ctx);vm.runInContext(source('backend-patch/MemberLocationEdit.gs'),ctx);return {ctx,members,writes,audits};
 }
+function attendanceCorrectionBackend(rawEvents){
+  const operations=[],audits=[],projections=[],properties=new Map();
+  const ctx={Date,Map,Set,Number,TIPONOrgCore:Org,SpreadsheetApp:{flush:()=>{}},
+    tp5Must_:(ok,message,code)=>{if(!ok)throw Object.assign(Error(message),{code});},
+    tp5Read_:type=>type==='operations'?operations:[],
+    tp5Find_:(type,id)=>type==='operations'?operations.find(x=>x.id===id)||null:null,
+    tp5AllEvents_:()=>rawEvents,
+    tp5Now_:()=>new Date().toISOString(),
+    tp5Put_:(type,value)=>{if(type==='operations'){const i=operations.findIndex(x=>x.id===value.id);if(i>=0)operations[i]=value;else operations.push(value);}},
+    tp5Props_:()=>({getProperty:key=>properties.get(key)||null,setProperty:(key,value)=>properties.set(key,value)}),
+    tp5Bump_:()=>{},tp5Audit_:(...args)=>audits.push(args),
+    tp5WriteProjection_:row=>projections.push(row),
+    tp5ReportSheet_:()=>({getRange:()=>({clearContent:()=>{}})}),
+    tp5Reply_:value=>value
+  };
+  vm.createContext(ctx);vm.runInContext(source('backend-patch/AttendanceCorrection.gs'),ctx);
+  return {ctx,operations,audits,projections,rawEvents};
+}
+test('Attendance correction can add a missing Time Out and synchronizes the corrected session view',()=>{
+  const input={...event('open-in','IN','2026-10-28T01:00:00Z'),sessionId:'session-1'};
+  const fixture=attendanceCorrectionBackend([input]);
+  const reply=fixture.ctx.tp5AttendanceCorrect_(actor,{sessionId:'session-1',baseRev:0,
+    changes:{timeIn:'2026-10-28T01:00:00Z',timeOut:'2026-10-28T08:00:00Z'},delete:false,reason:'Fix open shift'});
+  assert.equal(reply.correction.createdOut,true);
+  const corrected=fixture.ctx.tp5ApplyAttendanceCorrections_(fixture.rawEvents);
+  assert.equal(corrected.length,2);
+  assert.equal(corrected[1].id,'attendance-correction-out:session-1');
+  assert.equal(corrected[1].type,'OUT');
+  assert.equal(Org.project(corrected.filter(e=>!e.deleted))[0].timeOut,'2026-10-28T08:00:00Z');
+  assert.ok(fixture.projections.length);
+});
+test('Attendance correction can delete an open session without erasing the raw event',()=>{
+  const input={...event('open-in','IN','2026-10-28T01:00:00Z'),sessionId:'session-1'};
+  const fixture=attendanceCorrectionBackend([input]);
+  const reply=fixture.ctx.tp5AttendanceCorrect_(actor,{sessionId:'session-1',baseRev:0,changes:{},delete:true,reason:'Remove bad punch'});
+  assert.equal(reply.correction.deleted,true);
+  assert.equal(fixture.rawEvents.length,1);
+  assert.equal(fixture.ctx.tp5ApplyAttendanceCorrections_(fixture.rawEvents).filter(e=>!e.deleted).length,0);
+});
+test('Absenteeism with blank filters includes all history and flags open sessions and scheduled AWOL',()=>{
+  const members=[
+    {id:'M1',name:'Open Member',coop:'Asiapro',active:true,template:{},createdAt:'2026-10-26T00:00:00Z',siteId:'site-1'},
+    {id:'M2',name:'Scheduled Member',coop:'Asiapro',active:true,template:{},createdAt:'2026-10-27T00:00:00Z',siteId:'site-1',requiresSchedule:true}
+  ];
+  const sites=[{id:'site-1',name:'Test Location',coop:'Asiapro',platform:'IMG'}];
+  const events=[
+    {...event('in-1','IN','2026-10-26T01:00:00Z'),memberId:'M1',sessionId:'s1'},
+    {...event('out-1','OUT','2026-10-26T08:00:00Z'),memberId:'M1',sessionId:'s1'},
+    {...event('in-open','IN','2026-10-28T01:00:00Z'),memberId:'M1',sessionId:'s2'}
+  ];
+  const ctx={Date,Map,Set,Number,Math,Intl,state:{user:{role:'admin'}},console,
+    TIPONOrgCore:{scheduled:(member,site,day)=>member.requiresSchedule?{kind:'REQUIRED',end:Date.parse(day+'T00:00:00Z')}:{kind:'UNSCHEDULED'}},
+    document:{readyState:'complete',getElementById:()=>null}};
+  ctx.window=ctx;vm.createContext(ctx);vm.runInContext(source('absenteeism.js'),ctx);
+  const data=ctx.TIPONAbsenteeism.compute(members,sites,events,[],'','',Date.parse('2026-10-29T12:00:00Z'),'');
+  assert.equal(JSON.stringify(data.rows.map(row=>row.day)),JSON.stringify(['2026-10-26','2026-10-27','2026-10-28','2026-10-29']));
+  assert.equal(data.summary.open,1);
+  assert.equal(data.summary.awolCount,1);
+  assert.ok(data.rows[3].openSessions.some(session=>session.member.id==='M1'));
+  assert.ok(data.rows[3].awolMembers.some(member=>member.id==='M2'));
+});
 test('User transfers an in-scope member to valid selected Cooperative/BP without changing face data',()=>{
   const {ctx,members}=backend();const old=members[0];
   const r=ctx.tp5TransferUpdate_(actor,{memberId:old.id,baseRev:2,changes:{name:old.name,coop:'Worklife',platform:'OCG',siteIds:['site-2']}});
@@ -90,19 +181,27 @@ test('Attendance editor validates real dates and preserves Philippine time and o
 });
 test('Published assets share one release version and pagination controls cannot overflow',()=>{
   const html=source('index.html'),sw=source('sw.js'),release=JSON.parse(source('release.json'));
-  assert.equal(release.version,'5.5.39');
-  assert.match(sw,/const VERSION='5\.5\.39';/);
-  assert.match(sw,/tipon-face-shell-v5\.5\.39-github-only/);
-  assert.match(html,/app\.js\?v=5539/);
-  assert.match(html,/liveness-guard\.js\?v=5539/);
+  assert.equal(release.version,'5.5.40');
+  assert.match(sw,/const VERSION='5\.5\.40';/);
+  assert.match(sw,/tipon-face-shell-v5\.5\.40-github-only/);
+  assert.match(html,/app\.js\?v=5540/);
+  assert.match(html,/liveness-guard\.js\?v=5540/);
   assert.match(html,/id="captureEnrollmentSample"/);
   assert.match(html,/id="memberSiteSummary"[^>]+aria-required="true"/);
   assert.doesNotMatch(html,/Assigned Work Location <span class="field-optional">\(Optional\)/);
   assert.doesNotMatch(source('app.js'),/prompt\(['"]Reason for deleting this attendance session/);
-  assert.ok(html.includes('style.css?v=5539'));
-  assert.ok(html.includes('polish.css?v=5539'));
+  assert.ok(html.includes('style.css?v=5540'));
+  assert.ok(html.includes('polish.css?v=5540'));
   assert.match(source('polish.css'),/\.admin-list-pager-actions/);
   assert.ok(source('polish.css').includes('#adminMemberDialog input'));
+  const reviewStart=html.indexOf('<div class="ab-review-heading">'),reviewEnd=html.indexOf('</section>',reviewStart),review=html.slice(reviewStart,reviewEnd);
+  assert.equal(review.includes('<th>Action</th>'),false);
+  assert.equal(review.includes('<th>Date</th>'),true);
+  assert.match(review,/id="absReviewPrev"/);
+  assert.match(review,/id="absReviewNext"/);
+  assert.match(source('app.js'),/const SCAN_DELAY_MS=250;/);
+  assert.doesNotMatch(source('app.js'),/disabled title="Complete Time Out before deleting this session\."/);
+  assert.match(source('app.js'),/changes\.timeOut=attendanceInputStamp\(outDate,outTime\)/);
 });
 test('Member dropdown includes all known Business Platforms and remains editable for Users',()=>{
   const controls={memberPlatform:{value:'AP Cons',innerHTML:'',disabled:false},sitePlatform:{value:'AP Cons',innerHTML:'',disabled:false}};

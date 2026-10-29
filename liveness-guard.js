@@ -283,5 +283,5 @@
   if(captureButton&&!captureButton.dataset.bound){
     captureButton.dataset.bound='1';captureButton.addEventListener('click',captureEnrollmentSample);
   }
-  window.TIPONLiveness={version:'5.5.39',challenge,advance};
+  window.TIPONLiveness={version:'5.5.40',challenge,advance};
 })();
