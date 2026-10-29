@@ -204,7 +204,38 @@ test('Attendance capture restores Oct 28 9 AM flow; enrollment liveness stays se
   assert.match(liveness,/state\.enrollLiveness=challenge\(\)/);
   const record=app.slice(app.indexOf('async function recordRecognizedFace('),app.indexOf('async function recordRecognizedFace(')+500);
   assert.doesNotMatch(record,/Live Verification Required|const proof/);
-  assert.match(html,/liveness-guard\.js\?v=5543/);
+  assert.match(html,/liveness-guard\.js\?v=5544/);
+});
+test('Attendance reuses a recent accurate GPS watch fix without waiting for another position',async()=>{
+  const app=source('app.js'),start=app.indexOf('function usableAttendanceGPS('),end=app.indexOf('function startGPSWatch(){',start);
+  assert.ok(start>=0&&end>start);
+  const cached={latitude:14.575347,longitude:121.063125,accuracy:68,timestamp:Date.now()-5000};
+  let calls=0;
+  const ctx={Date,Promise,Error,Number,Math,GPS_MAX_ACCURACY:80,state:{lastGPS:cached,page:'scanner'},
+    navigator:{geolocation:{getCurrentPosition(){calls++;}}},renderTerminal:()=>{}};
+  vm.createContext(ctx);vm.runInContext(app.slice(start,end),ctx);
+  const gps=await ctx.readGPS();
+  assert.equal(gps.latitude,cached.latitude);assert.equal(gps.longitude,cached.longitude);
+  assert.equal(gps.accuracy,68);assert.equal(calls,0);
+});
+test('Attendance GPS refresh waits at most eight seconds and falls back to a recent accurate watch fix',async()=>{
+  const app=source('app.js'),start=app.indexOf('function usableAttendanceGPS('),end=app.indexOf('function startGPSWatch(){',start);
+  const cached={latitude:14.575347,longitude:121.063125,accuracy:68,timestamp:Date.now()-27000};
+  let options;
+  const ctx={Date,Promise,Error,Number,Math,GPS_MAX_ACCURACY:80,state:{lastGPS:cached,page:'scanner'},
+    navigator:{geolocation:{getCurrentPosition:(success,failure,opts)=>{options=opts;failure({code:3});}}},renderTerminal:()=>{}};
+  vm.createContext(ctx);vm.runInContext(app.slice(start,end),ctx);
+  const gps=await ctx.readGPS();
+  assert.equal(options.timeout,8000);assert.equal(options.maximumAge,5000);
+  assert.equal(gps.latitude,cached.latitude);assert.equal(gps.accuracy,68);
+});
+test('Attendance GPS refuses an expired fallback when fresh location acquisition times out',async()=>{
+  const app=source('app.js'),start=app.indexOf('function usableAttendanceGPS('),end=app.indexOf('function startGPSWatch(){',start);
+  const cached={latitude:14.575347,longitude:121.063125,accuracy:68,timestamp:Date.now()-60000};
+  const ctx={Date,Promise,Error,Number,Math,GPS_MAX_ACCURACY:80,state:{lastGPS:cached,page:'scanner'},
+    navigator:{geolocation:{getCurrentPosition:(success,failure)=>failure({code:3})}},renderTerminal:()=>{}};
+  vm.createContext(ctx);vm.runInContext(app.slice(start,end),ctx);
+  await assert.rejects(ctx.readGPS(),/GPS timed out/);
 });
 test('Attendance editor validates real dates and preserves Philippine time and overnight dates',()=>{
   const app=source('app.js'),code=app.slice(app.indexOf('function attendanceInputStamp('),app.indexOf('async function submitAttendanceEdit('));
@@ -217,19 +248,19 @@ test('Attendance editor validates real dates and preserves Philippine time and o
 });
 test('Published assets share one release version and pagination controls cannot overflow',()=>{
   const html=source('index.html'),sw=source('sw.js'),release=JSON.parse(source('release.json'));
-  assert.equal(release.version,'5.5.43');
-  assert.match(sw,/const VERSION='5\.5\.43';/);
-  assert.match(sw,/tipon-face-shell-v5\.5\.43-github-only/);
-  assert.match(html,/core\.js\?v=5543/);
-  assert.match(html,/app\.js\?v=5543/);
-  assert.match(html,/liveness-guard\.js\?v=5543/);
+  assert.equal(release.version,'5.5.44');
+  assert.match(sw,/const VERSION='5\.5\.44';/);
+  assert.match(sw,/tipon-face-shell-v5\.5\.44-github-only/);
+  assert.match(html,/core\.js\?v=5544/);
+  assert.match(html,/app\.js\?v=5544/);
+  assert.match(html,/liveness-guard\.js\?v=5544/);
   assert.match(source('app.js'),/const MATCH_LIMIT=\.60;/);
   assert.match(html,/id="captureEnrollmentSample"/);
   assert.match(html,/id="memberSiteSummary"[^>]+aria-required="true"/);
   assert.doesNotMatch(html,/Assigned Work Location <span class="field-optional">\(Optional\)/);
   assert.doesNotMatch(source('app.js'),/prompt\(['"]Reason for deleting this attendance session/);
-  assert.ok(html.includes('style.css?v=5543'));
-  assert.ok(html.includes('polish.css?v=5543'));
+  assert.ok(html.includes('style.css?v=5544'));
+  assert.ok(html.includes('polish.css?v=5544'));
   assert.match(source('polish.css'),/\.admin-list-pager-actions/);
   assert.ok(source('polish.css').includes('#adminMemberDialog input'));
   const reviewStart=html.indexOf('<div class="ab-review-heading">'),reviewEnd=html.indexOf('</section>',reviewStart),review=html.slice(reviewStart,reviewEnd);
