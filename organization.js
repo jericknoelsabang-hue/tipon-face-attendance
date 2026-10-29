@@ -238,7 +238,7 @@ filteredAttendanceRows=function(){
 };
 const originalDashboard=renderDashboard;
 renderDashboard=function(){
-  if(!isAdmin())return;OrgUI.renderMpc();
+  if(!isAdmin()&&!canEdit())return;OrgUI.renderMpc();
 };
 window.OrgUI=(()=>{
   let editingSchedule=null;
@@ -248,7 +248,7 @@ window.OrgUI=(()=>{
     return state.editSite?.schedule||{enabled:false,days:[],start:'',end:'',grace:0};
   }
   function csv(name,headers,rows){const safe=v=>{let s=String(v??'');if(/^[=+\-@\t\r]/.test(s))s="'"+s;return '"'+s.replace(/"/g,'""')+'"';};downloadBlob(name,new Blob(['\ufeff'+[headers,...rows].map(r=>r.map(safe).join(',')).join('\r\n')],{type:'text/csv;charset=utf-8'}));}
-  function dashboardFilter(){return {coop:$('dashboardCoop').value,platform:''};}
+  function dashboardFilter(){return {coop:isAdmin()?$('dashboardCoop').value:(state.user?.coop||''),platform:isAdmin()?'':(state.user?.platform||'')};}
   function filteredMembers(){const f=dashboardFilter(),sites=new Map(state.sites.map(x=>[x.id,x]));return state.members.filter(m=>(!f.coop||m.coop===f.coop)&&(!f.platform||TIPONOrgCore.platformKey(m.platform||sites.get(m.siteId)?.platform)===TIPONOrgCore.platformKey(f.platform)));}
   function renderDashboardPlatformFilter(){
     const el=$('dashboardPlatform');if(!el)return;const value=el.value;
@@ -257,12 +257,14 @@ window.OrgUI=(()=>{
     if(el.innerHTML!==html)el.innerHTML=html;el.value=value;
   }
   function renderMpc(){
-    if(!isAdmin())return;
+    if(!isAdmin()&&!canEdit())return;
+    if(!isAdmin()&&state.user){$('dashboardCoop').value=state.user.coop||'';$('dashboardCoop').disabled=true;}else $('dashboardCoop').disabled=false;
     // The filter controls live under Absenteeism. Empty native date fields
     // must remain blank (mm/dd/yyyy), not silently filled with today's date.
     const fromField=$('dashboardFrom'),toField=$('dashboardTo'),today=todayPH();
     const selectedFrom=fromField.value,selectedTo=toField.value;
-    const from=selectedFrom||selectedTo||today,to=selectedTo||today;
+    const defaultFrom=new Date(Date.parse(today+'T00:00:00Z')-13*86400000).toISOString().slice(0,10);
+    const from=selectedFrom||(selectedTo?selectedTo:defaultFrom),to=selectedTo||today;
     // Until the user sets filters, both dashboards show today's snapshot.
     // Date filters are only UI state; no server-side record is modified.
     const valid=validateAttendanceDateRange('dashboardFrom','dashboardTo','dashboardDateError');
@@ -284,7 +286,7 @@ window.OrgUI=(()=>{
     renderDashboardPlatformFilter();
     const day=from===to?from:from+' to '+to, f=dashboardFilter();
     const all=state.members.filter(m=>!m.deleted&&m.active!==false);
-    const coops=[...new Set([...TIPONOrgCore.COOPS,...all.map(m=>m.coop).filter(Boolean)])];
+    const coops=isAdmin()?[...new Set([...TIPONOrgCore.COOPS,...all.map(m=>m.coop).filter(Boolean)])]:[state.user?.coop].filter(Boolean);
     $('coopDashboardCards').innerHTML=coops.map(coop=>'<article class="coop-summary" data-coop="'+esc(coop)+'"><span class="coop-monogram" aria-hidden="true">'+esc(coop.split(' ').map(w=>w[0]).join('').slice(0,3))+'</span><h3>'+esc(coop)+'</h3><strong>'+all.filter(m=>m.coop===coop).length+'</strong><small>Registered members</small></article>').join('');
     const members=filteredMembers().filter(m=>!m.deleted&&m.active!==false);
     const events=state.punches.filter(p=>!p.reviewStatus&&!p.deleted&&p.timestamp);
