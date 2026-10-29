@@ -323,11 +323,25 @@ window.TIPONSync=(()=>{
   }
   function cursorId(){return 'tp5-events:'+state.orgId+':'+state.user.id+':'+state.user.role+':v5.5.9-username-backfill:'+String(state.user.version||1)+':'+(state.user.siteIds||[]).join(',');}
   async function pull(){
-    const id=cursorId();let saved=await getOne('meta',id),cursor=saved?.cursor||0;
+    const id=cursorId();let saved=await getOne('meta',id),cursor=saved?.cursor||0,eventVersion=saved?.eventVersion;
+    // A legacy cursor has no correction version. Re-read the ledger once to
+    // reconcile edits/deletions made on another device.
+    if(eventVersion===undefined&&cursor>0)cursor=0;
     for(let pages=0;pages<8;pages++){
-      const r=await TIPONAPI.call({action:'poll',cursor});
-      for(const event of r.events||[]){const old=await getOne('punches',event.id);await OrgDB.rawSave('punches',{...old,...event,orgId:state.orgId,cloudAck:true});}
-      cursor=r.cursor;await OrgDB.rawSave('meta',{id,cursor,orgId:state.orgId});
+      const r=await TIPONAPI.call({action:'poll',cursor}),remoteVersion=Number(r.eventVersion||0);
+      if(eventVersion!==undefined&&Number(eventVersion)!==remoteVersion&&cursor!==0){
+        cursor=0;eventVersion=remoteVersion;
+        await OrgDB.rawSave('meta',{id,cursor,eventVersion,orgId:state.orgId});
+        continue;
+      }
+      eventVersion=remoteVersion;
+      for(const event of r.events||[]){
+        const old=await getOne('punches',event.id),merged={...old,...event,orgId:state.orgId,cloudAck:true};
+        if(event.sessionId&&event.type==='OUT')delete merged.requiresSessionResolution;
+        if(event.correctionRev!==undefined)delete merged.pendingCorrection;
+        await OrgDB.rawSave('punches',merged);
+      }
+      cursor=r.cursor;await OrgDB.rawSave('meta',{id,cursor,eventVersion,orgId:state.orgId});
       state.devices=r.devices||state.devices||[];await OrgDB.rawSave('meta',{id:'tp5-deviceSnapshot',devices:state.devices,orgId:state.orgId});
       await pullCatalog(r.catalogVersion);
       if(!r.more||document.hidden||stopped)break;
