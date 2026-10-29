@@ -398,6 +398,12 @@ select:disabled{color:#27374a!important;-webkit-text-fill-color:#27374a!importan
  #page-dashboard #absPanel .abs-filter-bar select{width:100%;min-width:0}
  #memberDialog .form-row.three{grid-template-columns:1fr!important}
 }
+
+/* v5.5.39 follow-up: separate template download and CSV upload controls. */
+#page-members .page-head-actions .action-row{display:flex!important;align-items:center!important;gap:12px!important;flex-wrap:wrap!important}
+#page-members .page-head-actions #uploadMemberTemplate,#page-members .page-head-actions #uploadMemberButton{margin:0!important;flex:0 0 auto!important}
+#page-members .page-head-actions #uploadMemberTemplate{margin-right:4px!important}
+@media(max-width:760px){#page-members .page-head-actions .action-row{gap:10px!important;width:100%}#page-members .page-head-actions #uploadMemberTemplate,#page-members .page-head-actions #uploadMemberButton{flex:1 1 190px!important}}
 </style><link rel="stylesheet" href="./polish.css?v=5539"/></head>
 <body data-terminal-access="denied"><div class="boot-alert" hidden="" id="bootAlert" role="alert"></div>
 <svg aria-hidden="true" class="svg-assets" xmlns="http://www.w3.org/2000/svg"><symbol id="i-grid" viewbox="0 0 24 24"><rect height="7" rx="1.5" width="7" x="3" y="3"></rect><rect height="7" rx="1.5" width="7" x="14" y="3"></rect><rect height="7" rx="1.5" width="7" x="3" y="14"></rect><rect height="7" rx="1.5" width="7" x="14" y="14"></rect></symbol><symbol id="i-scan" viewbox="0 0 24 24"><path d="M4 9V6a2 2 0 0 1 2-2h3m6 0h3a2 2 0 0 1 2 2v3M4 15v3a2 2 0 0 0 2 2h3m6 0h3a2 2 0 0 0 2-2v-3M9 9h.01M15 9h.01M9 15q3 3 6 0"></path></symbol><symbol id="i-users" viewbox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2m12-14a4 4 0 1 1 0 8M22 21v-2a4 4 0 0 0-3-3.87M13 7a4 4 0 1 1-8 0 4 4 0 0 1 8 0Z"></path></symbol><symbol id="i-pin" viewbox="0 0 24 24"><path d="M20 10c0 6-8 12-8 12S4 16 4 10a8 8 0 1 1 16 0Z"></path><circle cx="12" cy="10" r="2.5"></circle></symbol><symbol id="i-clock" viewbox="0 0 24 24"><circle cx="12" cy="12" r="9"></circle><path d="M12 7v5l4 2"></path></symbol><symbol id="i-team" viewbox="0 0 24 24"><rect height="16" rx="3" width="18" x="3" y="4"></rect><path d="M7 11h4M7 15h8M15 9h3"></path></symbol><symbol id="i-gear" viewbox="0 0 24 24"><path d="M9.7 3h4.6l.5 2.2 2 1 .2-.1 2-.9 3 3-.9 2.2v2l.9 2.2-3 3-2.2-.9-2 1-.5 2.3H9.7l-.5-2.3-2-1-2.2.9-3-3 .9-2.2v-2L2 8.2l3-3 2.2.9 2-1L9.7 3Z"></path><circle cx="12" cy="12" r="3"></circle></symbol><symbol id="i-download" viewbox="0 0 24 24"><path d="M12 3v12m-5-5 5 5 5-5M4 16v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"></path></symbol><symbol id="i-logout" viewbox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4m7 14 5-5-5-5m5 5H9"></path></symbol><symbol id="i-plus" viewbox="0 0 24 24"><path d="M12 5v14M5 12h14"></path></symbol><symbol id="i-search" viewbox="0 0 24 24"><circle cx="11" cy="11" r="7"></circle><path d="m16 16 5 5"></path></symbol><symbol id="i-check" viewbox="0 0 24 24"><path d="m4 12 5 5L20 6"></path></symbol><symbol id="i-alert" viewbox="0 0 24 24"><path d="M10.3 4.8 2 19a2 2 0 0 0 1.7 3h16.6a2 2 0 0 0 1.7-3L13.7 4.8a2 2 0 0 0-3.4 0ZM12 10v5m0 3h.01"></path></symbol><symbol id="i-lock-login" viewbox="0 0 24 24"><rect x="5" y="10" width="14" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3M12 14v3"/></symbol><symbol id="i-arrow" viewbox="0 0 24 24"><path d="M5 12h14m-6-6 6 6-6 6"></path></symbol><symbol id="i-camera" viewbox="0 0 24 24"><rect height="15" rx="3" width="20" x="2" y="6"></rect><path d="m8 6 1.6-3h4.8L16 6"></path><circle cx="12" cy="13.5" r="4"></circle></symbol></svg>
@@ -545,7 +551,7 @@ select:disabled{color:#27374a!important;-webkit-text-fill-color:#27374a!importan
         <button type="button" class="btn quiet compact" id="adminBPNext" disabled>Next</button>
       </div>
     </div>
-    <p class="mini-info bp-sync-note" id="adminBPNote">Full names can be edited without changing their platform codes. Changes must be confirmed by the central database.</p>
+    
   </section>
 </section>
 <section class="page" hidden="" id="page-accounts">
