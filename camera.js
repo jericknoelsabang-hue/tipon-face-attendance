@@ -51,7 +51,7 @@ window.TIPONCamera=(()=>{
       const name=facing==='user'?'Front camera':facing==='environment'?'Back camera':track.label||'Device camera';
       actual[context]={facing,label:name};
       const video=$(context==='scan'?'scanVideo':'enrollVideo');if(video)video.classList.toggle('front-camera-preview',facing==='user');
-      setText(context==='scan'?'scanCameraInfo':'enrollCameraInfo',(fallback?'Requested camera unavailable; using ':'Using ')+name+(context==='enroll'?'. Three automatic samples.':'.'));
+      setText(context==='scan'?'scanCameraInfo':'enrollCameraInfo',(fallback?'Requested camera unavailable; using ':'Using ')+name+(context==='enroll'?'. Three manual captures after live verification.':'.'));
       if(fallback)showToast('Requested camera was unavailable. Using '+name+'. You can choose another listed camera.','info',6500);
       try{devices=(await navigator.mediaDevices.enumerateDevices()).filter(d=>d.kind==='videoinput'&&d.deviceId);}catch{}
       render();return stream;
