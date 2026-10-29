@@ -122,7 +122,7 @@ window.TIPONSync=(()=>{
         op.errorCode='NEEDS_REVIEW';await OrgDB.rawSave('outbox',op);
       }
     }
-    const specialTypes=['memberEdits','memberDeletes','attendanceCorrections','siteDeletes'];
+    const specialTypes=['memberEdits','memberFaceUpdates','memberDeletes','attendanceCorrections','siteDeletes'];
     const eligible=outbox.filter(op=>
       !['NEEDS_REVIEW','CONFLICT','FORBIDDEN','NOT_FOUND'].includes(op.errorCode)&&
       !specialTypes.includes(op.type)&&!(actor.role==='admin'&&op.type==='members')&&
@@ -200,6 +200,18 @@ window.TIPONSync=(()=>{
           Object.assign(current,{name:original.name,coop:original.coop,platform:original.platform,siteId:original.siteIds?.[0]||'',siteIds:original.siteIds||[]});
           delete current._pendingOp;delete current.pendingEdit;current.syncIssue=latest.error;await OrgDB.rawSave('members',current);
         }
+      }else if(op.type==='memberFaceUpdates'){
+        const current=await getOne('members',op.value.memberId),original=op.value.original;
+        if(current&&original){
+          Object.assign(current,{name:original.name,coop:original.coop,platform:original.platform,
+            siteId:original.siteId||original.siteIds?.[0]||'',siteIds:original.siteIds||[],
+            template:original.template||null,consentAt:original.consentAt||null,
+            enrolledBy:original.enrolledBy||'',enrolledByUsername:original.enrolledByUsername||'',
+            active:original.active!==false,faceEnrollmentStatus:original.faceEnrollmentStatus||'not-enrolled'});
+          current.descriptors=[];delete current._pendingOp;delete current.pendingEdit;
+          current.pendingFaceUpdate='review';current.syncIssue=latest.error;
+          await OrgDB.rawSave('members',current);
+        }
       }else if(op.type==='memberDeletes'){
         const current=await getOne('members',op.value.memberId);
         if(current){current.deleted=false;current.active=op.value.wasActive!==false;delete current._pendingOp;current.pendingDelete='review';current.syncIssue=latest.error;await OrgDB.rawSave('members',current);}
@@ -217,12 +229,24 @@ window.TIPONSync=(()=>{
     for(const op of special){
       try{
         if(op.type==='memberEdits'){
-          const reply=await TIPONAPI.call({action:actor.role==='admin'?'adminMemberUpdateV2':'memberUpdateV2',
+          const reply=await TIPONAPI.call({action:actor.role==='admin'?'adminMemberUpdateV2':'memberTransferUpdateV2',
             memberId:op.value.memberId,baseRev:Number(op.baseRev)||0,changes:op.value.changes});
           if(!reply.member||String(reply.member.id)!==String(op.value.memberId))throw Error('Server did not confirm member changes.');
           const current=await getOne('members',op.value.memberId);
           if(current?._pendingOp&&current._pendingOp!==op.id)throw Object.assign(Error('A concurrent member edit is pending.'),{code:'CONFLICT'});
           const updated={...current,...reply.member,orgId:state.orgId};delete updated._pendingOp;delete updated.pendingEdit;delete updated.syncIssue;
+          await OrgDB.rawSave('members',updated);await OrgDB.rawDelete('outbox',op.id);
+        }else if(op.type==='memberFaceUpdates'){
+          const reply=await TIPONAPI.call({action:'memberFaceUpdateV2',
+            memberId:op.value.memberId,baseRev:Number(op.baseRev)||0,changes:op.value.changes});
+          if(!reply.member||String(reply.member.id)!==String(op.value.memberId)||
+             !reply.member.template||reply.member.faceEnrollmentStatus!=='enrolled')
+            throw Error('The organization did not confirm the encrypted face enrollment.');
+          const current=await getOne('members',op.value.memberId);
+          if(current?._pendingOp&&current._pendingOp!==op.id)
+            throw Object.assign(Error('A concurrent member update is pending.'),{code:'CONFLICT'});
+          const updated={...current,...reply.member,orgId:state.orgId};
+          delete updated._pendingOp;delete updated.pendingEdit;delete updated.syncIssue;
           await OrgDB.rawSave('members',updated);await OrgDB.rawDelete('outbox',op.id);
         }else if(op.type==='memberDeletes'){
           const action=actor.role==='admin'?'adminMemberDelete':'memberUserDelete';
