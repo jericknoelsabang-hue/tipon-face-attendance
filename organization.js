@@ -295,7 +295,7 @@ window.OrgUI=(()=>{
     const historyDays=[
       ...state.punches.filter(p=>p&&!p.deleted&&p.timestamp).map(p=>TIPONCore.phStamp(p.timestamp).slice(0,10)),
       ...state.members.filter(m=>m&&!m.deleted&&m.createdAt).map(m=>TIPONCore.phStamp(m.createdAt).slice(0,10))
-    ].filter(day=>/^\\d{4}-\\d{2}-\\d{2}$/.test(day));
+    ].filter(day=>/^\d{4}-\d{2}-\d{2}$/.test(day));
     const from=selectedFrom||(historyDays.length?historyDays.sort()[0]:today),to=selectedTo||today;
     const valid=validateAttendanceDateRange('dashboardFrom','dashboardTo','dashboardDateError');
     const futureFrom=selectedFrom&&!selectedTo&&selectedFrom>today;
