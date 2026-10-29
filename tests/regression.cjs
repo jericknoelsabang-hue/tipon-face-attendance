@@ -39,8 +39,8 @@ function backend(){
   const members=[{id:'TEST-1',name:'Synthetic Member',coop:'Asiapro',platform:'IMG',rev:2,template:{alg:'AES-GCM',iv:'existing',data:'encrypted'},active:true,siteIds:['site-1']}];
   const sites=[{id:'site-1',coop:'Asiapro',platform:'IMG'},{id:'site-2',coop:'Worklife',platform:'OCG'}];
   const writes=[],audits=[];
-  const ctx={Date,Map,Set,Number,TIPONOrgCore:Org,tp5Must_:(ok,message,code)=>{if(!ok)throw Object.assign(Error(message),{code});},tp5Find_:(type,id)=>(type==='members'?members:sites).find(x=>x.id===id),tp5Read_:type=>type==='sites'?sites:members,tp5ResolvePlatform_:x=>x,tp5SameLocations_:(a,b)=>JSON.stringify(a)===JSON.stringify(b),tp5OldLocations_:x=>x.siteIds,tp5MemberOpenSession_:()=>false,tp5Now_:()=>new Date().toISOString(),tp5Safe_:x=>x,tp5Reply_:x=>x,tp5Put_:(...args)=>writes.push(args),tp5Bump_:()=>3,tp5RefreshMemberDirectory_:()=>{},tp5Audit_:(...args)=>audits.push(args),tp5MemberLocationResult_:(actor,old,next,action)=>{writes.push(next);audits.push(action);return {member:next};},tp5LocationIds_:(actor,coop,platform,ids)=>{assert.ok(ids.length);return ids;}};
-  vm.createContext(ctx);vm.runInContext(source('backend-patch/MemberFaceTransfer.gs'),ctx);return {ctx,members,writes,audits};
+  const ctx={Date,Map,Set,Number,TIPONOrgCore:Org,tp5Must_:(ok,message,code)=>{if(!ok)throw Object.assign(Error(message),{code});},tp5Find_:(type,id)=>(type==='members'?members:sites).find(x=>x.id===id),tp5Read_:type=>type==='sites'?sites:members,tp5ResolvePlatform_:x=>x,tp5SameLocations_:(a,b)=>JSON.stringify(a)===JSON.stringify(b),tp5OldLocations_:x=>x.siteIds,tp5MemberOpenSession_:()=>false,tp5Now_:()=>new Date().toISOString(),tp5Safe_:x=>x,tp5Reply_:x=>x,tp5Put_:(...args)=>writes.push(args),tp5Bump_:()=>3,tp5RefreshMemberDirectory_:()=>{},tp5Audit_:(...args)=>audits.push(args),tp5MemberLocationResult_:(actor,old,next,action)=>{writes.push(next);audits.push(action);return {member:next};},tp5LocationIds_:(actor,coop,platform,ids)=>{assert.ok(ids.length);return ids;},tp5Admin_:actor=>{if(actor.role!=='admin')throw Object.assign(Error('Administrator required.'),{code:'FORBIDDEN'});},tp5AllEvents_:()=>[]};
+  vm.createContext(ctx);vm.runInContext(source('backend-patch/MemberFaceTransfer.gs'),ctx);vm.runInContext(source('backend-patch/MemberLocationEdit.gs'),ctx);return {ctx,members,writes,audits};
 }
 test('User transfers an in-scope member to valid selected Cooperative/BP without changing face data',()=>{
   const {ctx,members}=backend();const old=members[0];
@@ -90,16 +90,19 @@ test('Attendance editor validates real dates and preserves Philippine time and o
 });
 test('Published assets share one release version and pagination controls cannot overflow',()=>{
   const html=source('index.html'),sw=source('sw.js'),release=JSON.parse(source('release.json'));
-  assert.equal(release.version,'5.5.38');
-  assert.match(sw,/const VERSION='5\.5\.38';/);
-  assert.match(sw,/tipon-face-shell-v5\.5\.38-github-only/);
-  assert.match(html,/app\.js\?v=5538/);
-  assert.match(html,/liveness-guard\.js\?v=5538/);
+  assert.equal(release.version,'5.5.39');
+  assert.match(sw,/const VERSION='5\.5\.39';/);
+  assert.match(sw,/tipon-face-shell-v5\.5\.39-github-only/);
+  assert.match(html,/app\.js\?v=5539/);
+  assert.match(html,/liveness-guard\.js\?v=5539/);
   assert.match(html,/id="captureEnrollmentSample"/);
   assert.match(html,/id="memberSiteSummary"[^>]+aria-required="true"/);
   assert.doesNotMatch(html,/Assigned Work Location <span class="field-optional">\(Optional\)/);
   assert.doesNotMatch(source('app.js'),/prompt\(['"]Reason for deleting this attendance session/);
+  assert.ok(html.includes('style.css?v=5539'));
+  assert.ok(html.includes('polish.css?v=5539'));
   assert.match(source('polish.css'),/\.admin-list-pager-actions/);
+  assert.ok(source('polish.css').includes('#adminMemberDialog input'));
 });
 test('Member dropdown includes all known Business Platforms and remains editable for Users',()=>{
   const controls={memberPlatform:{value:'AP Cons',innerHTML:'',disabled:false},sitePlatform:{value:'AP Cons',innerHTML:'',disabled:false}};
@@ -114,6 +117,38 @@ test('Editable Member ID preserves the internal record/template key and rejects 
   assert.equal(result.member.id,'TEST-1');assert.equal(result.member.memberNumber,'BUSINESS-1');assert.equal(result.member.template,members[0].template);
   assert.throws(()=>ctx.tp5TransferUpdate_(actor,{memberId:'TEST-1',baseRev:2,changes:{name:'Synthetic Member',memberNumber:'business-2',coop:'Asiapro',platform:'IMG',siteIds:['site-1']}}),/already registered/);
 });
+
+test('Member ID can be changed by Admin and User without changing the internal member key',()=>{
+  const {ctx,members}=backend(),old=members[0];
+  const userResult=ctx.tp5UserMemberTransferUpdateV2_(actor,{memberId:old.id,baseRev:2,changes:{memberNumber:'BUSINESS-1',name:old.name,coop:'Worklife',platform:'OCG',siteIds:['site-2']}});
+  assert.equal(userResult.member.id,'TEST-1');assert.equal(userResult.member.memberNumber,'BUSINESS-1');assert.equal(userResult.member.template,old.template);
+  const {ctx:adminCtx,members:adminMembers}=backend();
+  const adminResult=adminCtx.tp5AdminMemberUpdateV2_({id:'admin-1',role:'admin',username:'admin'},{memberId:'TEST-1',baseRev:2,changes:{memberNumber:'ADMIN-1',name:adminMembers[0].name,coop:'Asiapro',platform:'IMG',siteIds:['site-1']}});
+  assert.equal(adminResult.member.id,'TEST-1');assert.equal(adminResult.member.memberNumber,'ADMIN-1');
+});
+test('Face re-enrollment validates and persists a unique Member ID with the new encrypted template',()=>{
+  const {ctx,members}=backend();members.push({id:'other',memberNumber:'BUSINESS-2'});
+  assert.throws(()=>ctx.tp5UserMemberTransferUpdateV2_(actor,{memberId:'TEST-1',baseRev:2,changes:{memberNumber:'business-2',name:members[0].name,coop:'Asiapro',platform:'IMG',siteIds:['site-1']}}),/already registered/);
+  const {ctx:faceCtx,members:faceMembers}=backend(),old=faceMembers[0],template={alg:'AES-GCM',iv:'new-iv-123456789',data:'new-encrypted-template'};
+  const result=faceCtx.tp5UserMemberFaceUpdateV2_(actor,{memberId:old.id,baseRev:2,changes:{memberNumber:'FACE-1',name:old.name,coop:old.coop,platform:old.platform,siteIds:['site-1'],template,consentAt:new Date().toISOString()}});
+  assert.equal(result.member.memberNumber,'FACE-1');assert.equal(result.member.id,'TEST-1');assert.equal(result.member.template.data,template.data);assert.equal(result.member.enrolledBy,actor.id);
+});
+test('Admin/User edit routing and transient Time Out fallback are guarded',()=>{
+  const app=source('app.js'),sync=source('sync.js');
+  assert.ok(app.includes("const action=isAdmin()?'adminMemberUpdateV2':'memberTransferUpdateV2'"));
+  assert.ok(sync.includes("actor.role==='admin'?'adminMemberUpdateV2':'memberTransferUpdateV2'"));
+  assert.ok(sync.includes('delete routeChanges.enrolledBy'));
+  assert.ok(!app.includes('if(!refreshed?.readOk)throw Error('));
+  const start=app.indexOf('function canQueueUnresolvedTimeOut('),end=app.indexOf('async function recordRecognizedFace(');
+  assert.ok(start>=0&&end>start);
+  const ctx={String};vm.createContext(ctx);vm.runInContext(app.slice(start,end),ctx);
+  assert.equal(ctx.canQueueUnresolvedTimeOut('out',true,false,false,Error('No Time In on this device')),true);
+  assert.equal(ctx.canQueueUnresolvedTimeOut('out',false,false,false,Error('Already timed out')),true);
+  assert.equal(ctx.canQueueUnresolvedTimeOut('out',true,true,false,Error('No Time In on this device')),false);
+  assert.equal(ctx.canQueueUnresolvedTimeOut('out',true,false,true,Error('No Time In on this device')),false);
+  assert.equal(ctx.canQueueUnresolvedTimeOut('out',true,false,false,Error('Unauthorized')),false);
+});
+
 test('Three manual re-enrollment captures trigger one immediate save with a fresh proof',async()=>{
   let capture,saves=0;const button={dataset:{},addEventListener:(name,fn)=>capture=fn},nodes={captureEnrollmentSample:button,enrollProgress:{style:{}},retryEnrollment:{}};
   const ctx={console,Date,Math,Number,Array,crypto:{getRandomValues:a=>{a[0]=0;return a;}},state:{enrollActive:true,enrollCollected:[],editMember:{id:'STABLE-KEY',template:{}}},navigator:{onLine:true},$:id=>nodes[id],speakTerminal:()=>{},loadFaceModels:async()=>{},startScanner:async()=>{},stopScanner:async()=>{},beginEnrollment:async()=>{},scanTick:()=>{},enrollTick:()=>{},blinkRatio:f=>f.ratio,enrollmentMemberKey:()=>'STABLE-KEY',findEnrolledFaceConflict:()=>false,euclidean:(a,b)=>Math.sqrt(a.reduce((n,x,i)=>n+(x-b[i])**2,0)),setText:()=>{},playTerminalSound:()=>{},showToast:()=>{},finishEnrollment:async()=>{},saveMemberForm:async()=>{saves++;}};
