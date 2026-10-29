@@ -24,9 +24,12 @@ window.TIPONPlatforms=(()=>{
   let target='',busy=false,editingCode='',page=1;
   function defaultNames(){return TIPONOrgCore.DEFAULT_PLATFORMS||[];}
   function names(){
+    const referenced=rows=>(rows||[]).filter(x=>x&&!x.deleted).flatMap(x=>[x.platform,x.businessPlatform,x.bp]);
     return TIPONOrgCore.platformNames([
-      ...defaultNames(),...STARTER_DIRECTORY.map(x=>x.code),...(state.platforms||[]),...(state.members||[]).filter(m=>!m.deleted).map(m=>m.platform),
-      ...(state.sites||[]).filter(x=>!x.deleted).map(x=>x.platform),
+      ...defaultNames(),...STARTER_DIRECTORY.map(x=>x.code),...(state.platforms||[]),
+      ...(state.platformRecords||[]).map(x=>x.code),
+      ...referenced(state.members),...referenced(state.sites),...referenced(state.memberSiteOptions),
+      ...referenced(state.accounts),...referenced(state.devices),...referenced(state.punches),
       state.user?.platform||''
     ]);
   }
