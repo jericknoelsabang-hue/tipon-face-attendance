@@ -109,7 +109,7 @@ function tp5UserMemberFaceUpdateV2_(actor,q){
   tp5Must_(c&&typeof c==='object'&&!Array.isArray(c)&&
     Object.keys(c).every(function(k){return ['name','memberNumber','coop','platform','siteIds','template','consentAt'].includes(k);}),
     'Only member identity, Assigned Work Location, consent and encrypted face fields are accepted.','FORBIDDEN');
-  var name=TIPONOrgCore.clean(c.name,120),coop=TIPONOrgCore.clean(c.coop,80),platform=tp5ResolvePlatform_(c.platform);
+  var memberNumber=tp5EditableMemberNumberV2_(old,c.memberNumber),name=TIPONOrgCore.clean(c.name,120),coop=TIPONOrgCore.clean(c.coop,80),platform=tp5ResolvePlatform_(c.platform);
   tp5Must_(name&&TIPONOrgCore.COOPS.includes(coop),'Enter a valid Full Name and Cooperative.','VALIDATION');
   var siteIds=tp5TransferLocationIds_(coop,platform,c.siteIds);
   var template=c.template;
