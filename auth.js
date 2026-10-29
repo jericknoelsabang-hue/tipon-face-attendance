@@ -208,7 +208,7 @@ window.TIPONAuth=(()=>{
     const button=$('authDiagnostics'),title=$('authConnectionTitle'),detail=$('authConnectionDetail');
     if(!button||button.disabled)return;
     button.disabled=true;button.dataset.state='checking';
-    setText('authConnectionTitle','Checking Organization Connection');
+    setText('authConnectionTitle','Checking system status');
     setText('authConnectionDetail','Contacting the TIPON KABILANG system...');
     try{
       if(!navigator.onLine)throw Object.assign(Error('This device is offline. Connect to the internet and try again.'),{offline:true});
@@ -238,8 +238,8 @@ window.TIPONAuth=(()=>{
     // a competing Apps Script health request can delay username/password login.
     if($('authDiagnostics')){
       $('authDiagnostics').dataset.state='idle';
-      setText('authConnectionTitle','Check Organization Connection');
-      setText('authConnectionDetail','Click to verify the central system is online.');
+      setText('authConnectionTitle','System Status');
+      setText('authConnectionDetail','Click to check system status.');
     }
   }
   const originalInit=init;init=async function(){
