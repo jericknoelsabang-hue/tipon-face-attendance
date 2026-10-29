@@ -233,10 +233,14 @@ function memberNumberFor(id){return state.members.find(m=>String(m.id)===String(
 function memberSiteCatalog(){return state.user?.role==='registrar'&&state.memberTransferTargetMode&&Array.isArray(state.memberSiteOptions)?state.memberSiteOptions:state.sites;}
 function fillMemberSites(preferred){
  const coop=$('memberCoop').value,ids=(Array.isArray(preferred)?preferred:[preferred]).filter(Boolean),platform=$('memberPlatform')?.value||state.user?.platform||'';
- const sites=memberSiteCatalog().filter(s=>!s.deleted&&s.coop===coop&&(!platform||TIPONOrgCore.platformKey(s.platform)===TIPONOrgCore.platformKey(platform)));
- $('memberSite').innerHTML=sites.map(s=>'<option value="'+esc(s.id)+'">'+esc(s.name)+' ('+esc(s.radius)+' m)</option>').join('');
+ const sites=memberSiteCatalog().filter(s=>!s.deleted);
+ const compatible=s=>s.coop===coop&&(!platform||TIPONOrgCore.platformKey(s.platform)===TIPONOrgCore.platformKey(platform));
+ $('memberSite').innerHTML=sites.filter(compatible).map(s=>'<option value="'+esc(s.id)+'">'+esc(s.name)+' ('+esc(s.radius)+' m)</option>').join('');
  for(const option of $('memberSite').options)option.selected=ids.includes(option.value);
- $('memberSiteChoices').innerHTML=sites.map(s=>'<label class="multi-select-option"><input type="checkbox" data-member-site-option="'+esc(s.id)+'" '+(ids.includes(s.id)?'checked':'')+'/><span>'+esc(s.name)+' <small>'+esc(s.radius||150)+' m GPS</small></span></label>').join('');
+ $('memberSiteChoices').innerHTML=sites.map(s=>{
+  const valid=compatible(s),checked=valid&&ids.includes(s.id);
+  return '<label class="multi-select-option'+(valid?'':' location-unavailable')+'"><input type="checkbox" data-member-site-option="'+esc(s.id)+'" '+(checked?'checked ':'')+(!valid?'disabled ':'')+'/><span>'+esc(s.name)+' <small>'+esc(s.coop||'No cooperative')+' · '+esc(s.platform||'No BP')+(valid?' · '+esc(s.radius||150)+' m GPS':' · Select matching Cooperative/BP first')+'</small></span></label>';
+ }).join('');
  updateMemberSite();
 }
 function updateMemberSite(){
