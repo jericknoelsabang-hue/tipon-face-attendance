@@ -205,7 +205,12 @@ window.TIPONSync=(()=>{
         if(current){current.deleted=false;current.active=op.value.wasActive!==false;delete current._pendingOp;current.pendingDelete='review';current.syncIssue=latest.error;await OrgDB.rawSave('members',current);}
       }else if(op.type==='siteDeletes'){
         const original=op.value.original,current=await getOne('sites',op.value.siteId);
-        if(current){current.deleted=false;delete current._pendingOp;current.pendingDelete='review';current.syncIssue=latest.error;await OrgDB.rawSave('sites',current);}
+        if(current){
+          if(original)Object.assign(current,original);
+          current.deleted=false;delete current._pendingOp;
+          current.pendingDelete='review';current.syncIssue=latest.error;
+          await OrgDB.rawSave('sites',current);
+        }
       }
     };
     if(events.length)await send([],events);
