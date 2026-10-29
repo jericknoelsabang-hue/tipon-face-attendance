@@ -31,3 +31,37 @@
 @media(max-width:640px){#appShell .page-head h1{font-size:24px}#page-members .table-toolbar{grid-template-columns:1fr!important}#memberDialog .form-row.three{grid-template-columns:1fr!important}.admin-list-pager{padding:12px!important}.admin-list-pager-actions{justify-content:space-between!important;width:100%}#attendanceEditDialog .form-row{grid-template-columns:1fr}}
 
 .btn.confirm-success{background:#15803d!important;border-color:#15803d!important;color:#fff!important}
+
+
+/* v5.5.38: keep table pagination readable at every width. */
+.admin-list-pager{
+  box-sizing:border-box!important;width:100%!important;min-width:0!important;
+  display:flex!important;align-items:center!important;justify-content:space-between!important;
+  gap:12px!important;flex-wrap:wrap!important;overflow:visible!important;
+}
+.admin-list-pager>.text-count{
+  flex:1 1 220px!important;min-width:0!important;white-space:normal!important;
+  overflow-wrap:anywhere!important;line-height:1.5!important;
+}
+.admin-list-pager-actions{
+  display:flex!important;flex:0 1 auto!important;min-width:0!important;
+  align-items:center!important;justify-content:flex-end!important;gap:8px!important;flex-wrap:wrap!important;
+}
+.admin-list-pager-actions .btn{
+  box-sizing:border-box!important;flex:0 0 84px!important;width:84px!important;
+  min-width:84px!important;height:36px!important;min-height:36px!important;
+  padding:0 8px!important;white-space:nowrap!important;
+}
+.admin-list-pager-actions .text-count{white-space:nowrap!important;flex:0 0 auto!important}
+#memberDialog #memberSiteSummary:after,#adminMemberDialog #adminMemberSiteSummary:after{
+  width:5px!important;height:5px!important;border-width:0 1.25px 1.25px 0!important;
+  right:13px!important;margin-top:-3px!important
+}
+#memberDialog #memberSiteSummary,#adminMemberDialog #adminMemberSiteSummary{
+  box-sizing:border-box!important;min-width:0!important;overflow-wrap:anywhere!important
+}
+@media(max-width:640px){
+  .admin-list-pager{align-items:flex-start!important;padding:12px!important}
+  .admin-list-pager-actions{width:100%!important;justify-content:flex-start!important}
+  .admin-list-pager-actions .btn{flex:0 0 auto!important;width:auto!important;min-width:76px!important}
+}
