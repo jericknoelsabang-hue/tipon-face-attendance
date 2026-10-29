@@ -1,5 +1,5 @@
 {
   "app": "TIPON Face Attendance",
-  "version": "5.5.40",
-  "label": "All available attendance history is shown until filters are selected; attendance correction supports missing Time Out with audited synthetic events and open-session deletion; review flags are complete and paginated; face scan polling is faster."
+  "version": "5.5.41",
+  "label": "Attendance now requires one blink after face matching; transient GPS failures retry once; Time Out fallback no longer converts duplicate Time Outs into new punches; local attendance transitions are scoped to the current organization."
 }

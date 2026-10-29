@@ -19,16 +19,21 @@
     const id=String(member?.id||'unknown');
     return 'This face is already enrolled to '+name+' (ID '+id+'). Cancel and open that member record. Duplicate enrollment is blocked.';
   }
-  function challenge(){
-    const random=crypto.getRandomValues(new Uint8Array(1))[0];
-    return {order:random%2?['turn','blink']:['blink','turn'],step:0,
-      started:Date.now(),stepStarted:Date.now(),
+  function makeChallenge(order){
+    return {order:order.slice(),step:0,started:Date.now(),stepStarted:Date.now(),
       openRatio:0,openFrames:0,closed:false,closedAt:0,
       baseYaw:null,yawFrames:0,passed:false};
   }
+  // Attendance uses one natural blink after a stable face match. Enrollment
+  // retains the existing two-step challenge because it changes biometric data.
+  function challenge(){
+    const random=crypto.getRandomValues(new Uint8Array(1))[0];
+    return makeChallenge(random%2?['turn','blink']:['blink','turn']);
+  }
+  function blinkChallenge(){return makeChallenge(['blink']);}
   function prompt(s){
     return s.order[s.step]==='blink'?
-      'Close both eyes for one second, then open.':
+      'Blink once: close both eyes briefly, then open.':
       'Turn your head slightly left or right.';
   }
   function speakOnce(phrase,kind='error',reason=''){
@@ -48,7 +53,7 @@
         if(ratio>=.09){s.openRatio=Math.max(s.openRatio*.98,ratio);s.openFrames++;}
         if(s.openFrames<2)return {ok:false,prompt:'Look straight at the camera.'};
         if(ratio<Math.max(.06,s.openRatio*.78)){s.closed=true;s.closedAt=now;}
-        return {ok:false,prompt:'Close both eyes for one second, then open.'};
+        return {ok:false,prompt:'Blink once: close both eyes briefly, then open.'};
       }
       if(now-s.closedAt>6000){s.closed=false;return {ok:false,prompt:'Blink again slowly.'};}
       if(now-s.closedAt>=80&&ratio>Math.max(.09,s.openRatio*.82))success=true;
@@ -107,6 +112,10 @@
       return;
     }
     const run=state.scanRun;
+    if(state.scanRetryAt&&Date.now()>=state.scanRetryAt){
+      state.scanRetryAt=0;state.scanArmed=true;state.lastRecognized=null;
+      state.scanCandidate=null;state.scanCandidateCount=0;state.scanLiveness=null;state.livenessProof=null;
+    }
     try{
       const video=$('scanVideo');
       if(video.readyState>=2&&!state.scanBusy){
@@ -115,7 +124,7 @@
         if(faces.length===0){
           state.scanCandidate=null;state.scanCandidateCount=0;state.scanLiveness=null;
           state.scanAbsentCount++;
-          if(state.scanAbsentCount>=3){state.scanArmed=true;state.lastRecognized=null;}
+          if(state.scanAbsentCount>=3){state.scanArmed=true;state.lastRecognized=null;state.scanRetryAt=0;state.scanRetryCount=0;}
           setText('cameraBottomTag','Position one live face in the frame.');
         }else if(faces.length!==1){
           state.scanCandidate=null;state.scanCandidateCount=0;state.scanLiveness=null;state.scanAbsentCount=0;
@@ -136,15 +145,16 @@
             const member=found.best.member;
             if(!state.scanArmed&&state.lastRecognized!==member.id)state.scanArmed=true;
             if(!state.scanArmed){
-              setText('cameraBottomTag','Move away before the next scan.');
+              setText('cameraBottomTag',state.scanRetryAt?'GPS retry scheduled. Keep your face in frame.':'Move away before the next scan.');
             }else{
+              if(!state.scanArmed&&state.lastRecognized!==member.id){state.scanArmed=true;state.scanRetryAt=0;state.scanRetryCount=0;}
               if(state.scanCandidate===member.id)state.scanCandidateCount++;
               else {state.scanCandidate=member.id;state.scanCandidateCount=1;state.scanLiveness=null;}
               if(state.scanCandidateCount>=2){
-                state.scanLiveness ||= challenge();
+                state.scanLiveness ||= blinkChallenge();
                 const live=advance(state.scanLiveness,faces[0]);
                 if(live.expired){
-                  state.scanLiveness=challenge();
+                  state.scanLiveness=blinkChallenge();
                   updateScanResult('Live Check Timed Out','Follow the new instructions.','error');
                 }else if(live.ok){
                   state.scanArmed=false;state.lastRecognized=member.id;
@@ -283,5 +293,5 @@
   if(captureButton&&!captureButton.dataset.bound){
     captureButton.dataset.bound='1';captureButton.addEventListener('click',captureEnrollmentSample);
   }
-  window.TIPONLiveness={version:'5.5.40',challenge,advance};
+  window.TIPONLiveness={version:'5.5.41',challenge,blinkChallenge,advance};
 })();

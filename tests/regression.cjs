@@ -170,6 +170,25 @@ test('Fully closed eyes advance the blink challenge; a stationary face cannot pa
   const staticFace=ctx.TIPONLiveness.challenge();for(let i=1;i<=20;i++)ctx.TIPONLiveness.advance(staticFace,face(.25),staticFace.started+i*150);
   assert.equal(staticFace.passed,false);
 });
+test('Attendance face capture needs one blink, while enrollment keeps its separate challenge',()=>{
+  const liveness=source('liveness-guard.js'),app=source('app.js');
+  const start=liveness.indexOf('scanTick=async function(){'),end=liveness.indexOf('// Enrollment uses the same random two-step challenge.');
+  assert.ok(start>=0&&end>start);
+  assert.match(liveness.slice(start,end),/state\.scanLiveness \|\|= blinkChallenge\(\)/);
+  assert.match(liveness.slice(end),/state\.enrollLiveness=challenge\(\)/);
+  assert.match(app,/state\.scanRetryAt=Date\.now\(\)\+2500/);
+  assert.match(app,/const relevantPunches=state\.punches\.filter\(p=>\(p\.orgId===state\.orgId\|\|!p\.orgId\)\)/);
+  const ctx={console,Date,Math,Number,Array,crypto:{getRandomValues:a=>{a[0]=0;return a;}},state:{},navigator:{onLine:true},$:()=>null,speakTerminal:()=>{},loadFaceModels:async()=>{},startScanner:async()=>{},stopScanner:async()=>{},beginEnrollment:async()=>{},scanTick:()=>{},enrollTick:()=>{},blinkRatio:f=>f.ratio};
+  ctx.window=ctx;vm.createContext(ctx);vm.runInContext(liveness,ctx);
+  const face=ratio=>({ratio,landmarks:{positions:Array.from({length:68},()=>({x:0,y:0}))}});
+  const challenge=ctx.TIPONLiveness.blinkChallenge(),t=challenge.started;
+  ctx.TIPONLiveness.advance(challenge,face(.25),t+100);
+  ctx.TIPONLiveness.advance(challenge,face(.25),t+250);
+  ctx.TIPONLiveness.advance(challenge,face(.02),t+450);
+  assert.equal(challenge.closed,true);
+  assert.equal(ctx.TIPONLiveness.advance(challenge,face(.25),t+650).ok,true);
+  assert.equal(challenge.order.length,1);
+});
 test('Attendance editor validates real dates and preserves Philippine time and overnight dates',()=>{
   const app=source('app.js'),code=app.slice(app.indexOf('function attendanceInputStamp('),app.indexOf('async function submitAttendanceEdit('));
   const ctx={TIPONCore:Core,Date,Number,Error};vm.createContext(ctx);vm.runInContext(code,ctx);
@@ -181,17 +200,17 @@ test('Attendance editor validates real dates and preserves Philippine time and o
 });
 test('Published assets share one release version and pagination controls cannot overflow',()=>{
   const html=source('index.html'),sw=source('sw.js'),release=JSON.parse(source('release.json'));
-  assert.equal(release.version,'5.5.40');
-  assert.match(sw,/const VERSION='5\.5\.40';/);
-  assert.match(sw,/tipon-face-shell-v5\.5\.40-github-only/);
-  assert.match(html,/app\.js\?v=5540/);
-  assert.match(html,/liveness-guard\.js\?v=5540/);
+  assert.equal(release.version,'5.5.41');
+  assert.match(sw,/const VERSION='5\.5\.41';/);
+  assert.match(sw,/tipon-face-shell-v5\.5\.41-github-only/);
+  assert.match(html,/app\.js\?v=5541/);
+  assert.match(html,/liveness-guard\.js\?v=5541/);
   assert.match(html,/id="captureEnrollmentSample"/);
   assert.match(html,/id="memberSiteSummary"[^>]+aria-required="true"/);
   assert.doesNotMatch(html,/Assigned Work Location <span class="field-optional">\(Optional\)/);
   assert.doesNotMatch(source('app.js'),/prompt\(['"]Reason for deleting this attendance session/);
-  assert.ok(html.includes('style.css?v=5540'));
-  assert.ok(html.includes('polish.css?v=5540'));
+  assert.ok(html.includes('style.css?v=5541'));
+  assert.ok(html.includes('polish.css?v=5541'));
   assert.match(source('polish.css'),/\.admin-list-pager-actions/);
   assert.ok(source('polish.css').includes('#adminMemberDialog input'));
   const reviewStart=html.indexOf('<div class="ab-review-heading">'),reviewEnd=html.indexOf('</section>',reviewStart),review=html.slice(reviewStart,reviewEnd);
@@ -242,9 +261,9 @@ test('Admin/User edit routing and transient Time Out fallback are guarded',()=>{
   assert.ok(start>=0&&end>start);
   const ctx={String};vm.createContext(ctx);vm.runInContext(app.slice(start,end),ctx);
   assert.equal(ctx.canQueueUnresolvedTimeOut('out',true,false,false,Error('No Time In on this device')),true);
-  assert.equal(ctx.canQueueUnresolvedTimeOut('out',false,false,false,Error('Already timed out')),true);
+  assert.equal(ctx.canQueueUnresolvedTimeOut('out',false,false,false,Error('Already timed out')),false);
   assert.equal(ctx.canQueueUnresolvedTimeOut('out',true,true,false,Error('No Time In on this device')),false);
-  assert.equal(ctx.canQueueUnresolvedTimeOut('out',true,false,true,Error('No Time In on this device')),false);
+  assert.equal(ctx.canQueueUnresolvedTimeOut('out',true,false,true,Error('No Time In on this device')),true);
   assert.equal(ctx.canQueueUnresolvedTimeOut('out',true,false,false,Error('Unauthorized')),false);
 });
 
