@@ -36,6 +36,22 @@ test('Same-day duplicate Time Out remains blocked after date-aware mode resoluti
   const todayOut=event('out-today','OUT','2026-10-29T05:30:00Z');
   assert.throws(()=>Core.transition([todayOut],'TEST-1','out',Date.parse('2026-10-29T05:51:00Z')),/Already timed out today/);
 });
+test('Multiple attendance sessions are allowed until eight completed duty hours',()=>{
+  const day='2026-10-29',firstIn={...event('in-1','IN','2026-10-29T00:00:00Z'),sessionId:'session-1'},
+    firstOut={...event('out-1','OUT','2026-10-29T04:00:00Z'),sessionId:'session-1'},
+    secondIn={...event('in-2','IN','2026-10-29T05:00:00Z'),sessionId:'session-2'},
+    secondOut={...event('out-2','OUT','2026-10-29T09:00:00Z'),sessionId:'session-2'},
+    punches=[firstIn,firstOut,secondIn,secondOut];
+  assert.equal(Core.workedDurationForDay(punches,'TEST-1',day),8*60*60*1000);
+  assert.throws(()=>Core.transition(punches,'TEST-1','in',Date.parse('2026-10-29T09:02:00Z')),/8-hour duty limit/);
+  assert.equal(Core.transition([firstIn,firstOut],'TEST-1','in',Date.parse('2026-10-29T04:02:00Z')).type,'IN');
+});
+test('Open sessions from other devices prevent duplicate Time In and choose one Time Out session',()=>{
+  const first={...event('in-device-a','IN','2026-10-29T00:00:00Z'),sessionId:'session-a',deviceId:'device-a'},
+    second={...event('in-device-b','IN','2026-10-29T00:01:00Z'),sessionId:'session-b',deviceId:'device-b'};
+  assert.throws(()=>Core.transition([first,second],'TEST-1','in',Date.parse('2026-10-29T00:05:00Z')),/Already timed in/);
+  assert.equal(Core.transition([first,second],'TEST-1','out',Date.parse('2026-10-29T02:00:00Z')).last.sessionId,'session-b');
+});
 test('Open overnight Time In from the previous Philippine date can still be closed with Time Out',()=>{
   const overnightIn=event('in-overnight','IN','2026-10-28T23:00:00Z');
   const tx=Core.transition([overnightIn],'TEST-1','out',Date.parse('2026-10-29T08:00:00Z'));
@@ -248,19 +264,20 @@ test('Attendance editor validates real dates and preserves Philippine time and o
 });
 test('Published assets share one release version and pagination controls cannot overflow',()=>{
   const html=source('index.html'),sw=source('sw.js'),release=JSON.parse(source('release.json'));
-  assert.equal(release.version,'5.5.52');
-  assert.match(sw,/const VERSION='5\.5\.49';/);
-  assert.match(sw,/tipon-face-shell-v5\.5\.49-github-only/);
-  assert.match(html,/core\.js\?v=5552/);
-  assert.match(html,/app\.js\?v=5552/);
-  assert.match(html,/liveness-guard\.js\?v=5552/);
+  assert.match(release.version,/^\d+\.\d+\.\d+$/);
+  const [major,minor,patch]=release.version.split('.'),assetVersion=major+minor+patch;
+  assert.match(sw,new RegExp(`const VERSION='${release.version.replaceAll('.','\\.')}'`));
+  assert.match(sw,new RegExp(`tipon-face-shell-v${release.version.replaceAll('.','\\.')}\\-github-only`));
+  assert.match(html,new RegExp(`core\\.js\\?v=${assetVersion}`));
+  assert.match(html,new RegExp(`app\\.js\\?v=${assetVersion}`));
+  assert.match(html,new RegExp(`liveness-guard\\.js\\?v=${assetVersion}`));
   assert.match(source('app.js'),/const MATCH_LIMIT=\.47;/);
   assert.match(html,/id="captureEnrollmentSample"/);
   assert.match(html,/id="memberSiteSummary"[^>]+aria-required="true"/);
   assert.doesNotMatch(html,/Assigned Work Location <span class="field-optional">\(Optional\)/);
   assert.doesNotMatch(source('app.js'),/prompt\(['"]Reason for deleting this attendance session/);
-  assert.ok(html.includes('style.css?v=5552'));
-  assert.ok(html.includes('polish.css?v=5552'));
+  assert.ok(html.includes(`style.css?v=${assetVersion}`));
+  assert.ok(html.includes(`polish.css?v=${assetVersion}`));
   assert.match(source('polish.css'),/\.admin-list-pager-actions/);
   assert.ok(source('polish.css').includes('#adminMemberDialog input'));
   const reviewStart=html.indexOf('<div class="ab-review-heading">'),reviewEnd=html.indexOf('</section>',reviewStart),review=html.slice(reviewStart,reviewEnd);
