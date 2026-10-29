@@ -982,7 +982,6 @@ function renderTerminalLogs(){
    const action=canCorrectAttendance()?'<div class="row-inline">'+
      '<button type="button" class="tiny-button" data-attendance-edit="'+esc(row.key)+'" data-in="'+esc(localInput(row.timeIn))+'" data-out="'+esc(localInput(row.timeOut))+'">Edit</button>'+
      '<button type="button" class="tiny-button delete" data-attendance-delete="'+esc(row.key)+'" '+(!(row.timeIn&&row.timeOut)?'disabled title="Complete Time Out before deleting this session."':'')+'>Delete</button>'+
-     '<button type="button" class="tiny-button" data-attendance-review="'+esc(row.key)+'">Review</button>'+
      '</div>':'—';
    const data=[
     attendanceMemberName(row,memberNames),memberNumberFor(row.memberId),
@@ -1530,7 +1529,7 @@ function bindEvents(){
  attach('terminalLogPrev','click',()=>{state.attendancePage=Math.max(1,(state.attendancePage||1)-1);renderTerminalLogs();});
  attach('terminalLogNext','click',()=>{state.attendancePage=(state.attendancePage||1)+1;renderTerminalLogs();});
  attach('terminalLogExport','click',exportTerminalLogs);attach('terminalLogSync','click',()=>TIPONSync.kick());
-  attach('terminalLogRows','click',editAttendanceFromLog);attach('terminalLogRows','click',deleteAttendanceFromLog);attach('terminalLogRows','click',openAttendanceReview);
+  attach('terminalLogRows','click',editAttendanceFromLog);attach('terminalLogRows','click',deleteAttendanceFromLog);
   attach('attendanceEditForm','submit',submitAttendanceEdit);
  attach('attendanceReviewRetry','click',retryAttendanceReview);attach('attendanceReviewClose','click',()=> $('attendanceReviewDialog').close());
  document.addEventListener('fullscreenchange',()=>document.body.classList.toggle('terminal-fullscreen',!!document.fullscreenElement&&state.page==='scanner'));
