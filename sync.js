@@ -33,13 +33,21 @@ window.TIPONSync=(()=>{
   function render(){
     const s=TIPONAuth.current();const pending=state.punches.filter(p=>p.orgId===state.orgId&&!p.cloudAck&&!p.reviewStatus).length;
     const review=state.punches.filter(p=>p.reviewStatus).length;
+    const liveStatus=!s?'Sign in to connect this device to central attendance.':!navigator.onLine?'Offline. New punches stay saved on this device until it reconnects.':busy?'Syncing attendance, members, and work locations…':lastSync?'Last central sync: '+lastSync+'. Automatic updates run while this app is open.':message;
+    setText('attendanceLogSyncStatus',liveStatus);
+    if($('attendanceLogSyncStatus'))$('attendanceLogSyncStatus').dataset.state=!navigator.onLine?'offline':busy?'syncing':s&&lastSync?'connected':'waiting';
     setText('syncConnectionState',s?(busy?'Syncing organization data...':navigator.onLine?'Account connected; automatic retry enabled':'Offline: using this device\'s saved data'):'Sign in required');
     setText('syncQueueState',pending+' local attendance events pending'+(review?' | '+review+' require review':''));
     setText('syncLastState',message+(lastSync?' | Last successful sync: '+lastSync:''));setText('recordSyncState',message);
     if($('syncNow'))$('syncNow').disabled=busy||!s;if($('syncRecordsNow'))$('syncRecordsNow').disabled=busy||!s;
     setText('orgSyncStamp',lastSync?'Last received: '+lastSync:'No central snapshot received yet.');
   }
-  function start(){stopped=false;kick();}
+  function syncStampId(){return 'tp5-last-sync:'+String(state.orgId||'')+':'+String(state.user?.id||'');}
+  function start(){
+    stopped=false;lastSync='';
+    getOne('meta',syncStampId()).then(saved=>{if(!lastSync&&saved?.value){lastSync=saved.value;render();}}).catch(()=>{});
+    kick();
+  }
   function stop(){stopped=true;clearTimeout(timer);}
   function schedule(){clearTimeout(timer);if(stopped)return;
     const localEventsQueued=state.punches.some(p=>p.orgId===state.orgId&&!p.cloudAck&&!p.reviewStatus&&p.deviceId===state.deviceId);
@@ -468,6 +476,7 @@ window.TIPONSync=(()=>{
        await pull();await loadCollections();
        if(uploadFailure)console.warn('Upload needs review; central attendance read succeeded:',uploadFailure);
       lastSync=TIPONCore.phStamp(new Date().toISOString());
+      await OrgDB.rawSave('meta',{id:syncStampId(),value:lastSync,orgId:state.orgId,accountId:state.user.id});
       const unsent=state.punches.filter(p=>p.orgId===state.orgId&&!p.cloudAck&&!p.reviewStatus&&p.deviceId===state.deviceId).length;
       const waiting=(await getAll('outbox')).filter(o=>o.orgId===state.orgId&&o.error).length+
         state.punches.filter(p=>p.reviewStatus).length+unsent;

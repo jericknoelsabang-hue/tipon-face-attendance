@@ -1,5 +1,5 @@
 {
   "app": "TIPON Face Attendance",
-  "version": "5.5.48",
-  "label": "Keeps Attendance Logs visible when a session contains duplicate or conflicting punches and marks those events for review."
+  "version": "5.5.49",
+  "label": "Improves multi-device sync visibility, persists each account\u2019s last successful sync, and makes Attendance Logs Sync Now wait for confirmation."
 }

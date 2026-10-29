@@ -1562,11 +1562,11 @@ async function restoreEncryptedBackup(event){if(!isAdmin())return;if(window.TIPO
 }
 
 let directoryRefreshBusy=false;
-async function refreshDirectoryView(kind){
+async function refreshDirectoryView(kind,buttonId=''){
  if(directoryRefreshBusy)return;
  if(!navigator.onLine){showToast('Offline: saved records are still available. Connect to the internet to refresh from Google Sheets.','info');return;}
  directoryRefreshBusy=true;
- const button=$(kind==='members'?'memberRefresh':'terminalLogRefresh');
+ const button=$(buttonId||(kind==='members'?'memberRefresh':'terminalLogRefresh'));
  if(button)button.disabled=true;
  try{
   const sync=await TIPONSync.run();
@@ -1601,7 +1601,7 @@ function bindEvents(){
  });
  attach('terminalLogPrev','click',()=>{state.attendancePage=Math.max(1,(state.attendancePage||1)-1);renderTerminalLogs();});
  attach('terminalLogNext','click',()=>{state.attendancePage=(state.attendancePage||1)+1;renderTerminalLogs();});
- attach('terminalLogExport','click',exportTerminalLogs);attach('terminalLogSync','click',()=>TIPONSync.kick());
+ attach('terminalLogExport','click',exportTerminalLogs);attach('terminalLogSync','click',()=>refreshDirectoryView('logs','terminalLogSync'));
   attach('terminalLogRows','click',editAttendanceFromLog);attach('terminalLogRows','click',deleteAttendanceFromLog);
  attach('terminalLogRows','click',openAttendanceReview);
   attach('attendanceEditForm','submit',submitAttendanceEdit);
