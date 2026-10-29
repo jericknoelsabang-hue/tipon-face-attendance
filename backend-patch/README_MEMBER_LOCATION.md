@@ -1,4 +1,4 @@
-# TIPON KABILANG v5.5.33 — Private Apps Script compatibility patch
+# TIPON KABILANG v5.5.34 — Private Apps Script compatibility patch
 
 This patch is for the **existing private Google Apps Script project** behind the TIPON Face Attendance `/exec` URL. GitHub Pages cannot deploy Apps Script. Do not paste credentials, Script Properties, tokens, deployment IDs, member data, or face data into this public repository.
 
