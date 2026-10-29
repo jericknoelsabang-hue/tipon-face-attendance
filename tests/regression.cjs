@@ -182,8 +182,8 @@ test('Attendance editor validates real dates and preserves Philippine time and o
 test('Published assets share one release version and pagination controls cannot overflow',()=>{
   const html=source('index.html'),sw=source('sw.js'),release=JSON.parse(source('release.json'));
   assert.equal(release.version,'5.5.40');
-  assert.match(sw,/const VERSION='5\\.5\\.40';/);
-  assert.match(sw,/tipon-face-shell-v5\\.5\\.40-github-only/);
+  assert.match(sw,/const VERSION='5\.5\.40';/);
+  assert.match(sw,/tipon-face-shell-v5\.5\.40-github-only/);
   assert.match(html,/app\.js\?v=5540/);
   assert.match(html,/liveness-guard\.js\?v=5540/);
   assert.match(html,/id="captureEnrollmentSample"/);
