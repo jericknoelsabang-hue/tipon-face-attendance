@@ -232,9 +232,15 @@ window.TIPONSync=(()=>{
         if(op.type==='memberEdits'||op.type==='memberFaceUpdates'){
           const memberId=String(op.value.memberId),baseRev=Number(op.baseRev)||0;
           let reply,usedGenericSubmit=false;
-          const action=op.type==='memberFaceUpdates'?'memberFaceUpdateV2':'memberTransferUpdateV2';
+          const action=op.type==='memberFaceUpdates'?'memberFaceUpdateV2':
+            actor.role==='admin'?'adminMemberUpdateV2':'memberTransferUpdateV2';
+          const routeChanges={...(op.value.changes||{})};
+          if(op.type==='memberFaceUpdates'){
+            delete routeChanges.enrolledBy;
+            delete routeChanges.enrolledByUsername;
+          }
           try{
-            reply=await TIPONAPI.call({action,memberId,baseRev,changes:op.value.changes});
+            reply=await TIPONAPI.call({action,memberId,baseRev,changes:routeChanges});
           }catch(error){
             const unsupported=['ACTION','UNKNOWN_ACTION','NOT_IMPLEMENTED'].includes(String(error?.code||'').toUpperCase())||
               /unknown action|unsupported action|not implemented|is not defined/i.test(String(error?.message||''));
@@ -259,7 +265,21 @@ window.TIPONSync=(()=>{
             usedGenericSubmit=true;
           }
           if(!reply.member||String(reply.member.id)!==memberId)throw Error('Server did not confirm member changes.');
-          if(op.type==='memberFaceUpdates'&&(!reply.member.template||reply.member.faceEnrollmentStatus!=='enrolled'))
+          const changes=op.value.changes||{};
+          const expectedNumber=String(changes.memberNumber||op.value.original?.memberNumber||memberId).trim();
+          const expectedName=String(changes.name??op.value.original?.name??reply.member.name).trim();
+          const expectedCoop=String(changes.coop??op.value.original?.coop??reply.member.coop);
+          const expectedPlatform=String(changes.platform??op.value.original?.platform??reply.member.platform);
+          const expectedSites=(Array.isArray(changes.siteIds)?changes.siteIds:op.value.original?.siteIds||[]).map(String);
+          const returnedSites=(Array.isArray(reply.member.siteIds)&&reply.member.siteIds.length?reply.member.siteIds:[reply.member.siteId].filter(Boolean)).map(String);
+          if(String(reply.member.memberNumber||reply.member.id).trim()!==expectedNumber||
+             String(reply.member.name||'').trim()!==expectedName||String(reply.member.coop||'')!==expectedCoop||
+             TIPONOrgCore.platformKey(reply.member.platform)!==TIPONOrgCore.platformKey(expectedPlatform)||
+             returnedSites.length!==expectedSites.length||!returnedSites.every(id=>expectedSites.includes(id)))
+            throw Error('The central organization did not confirm all member fields. Refresh the Member List before retrying.');
+          if(op.type==='memberFaceUpdates'&&(!reply.member.template||reply.member.template.alg!=='AES-GCM'||
+             reply.member.template.data!==changes.template?.data||reply.member.template.iv!==changes.template?.iv||
+             reply.member.faceEnrollmentStatus!=='enrolled'))
             throw Error('The organization did not confirm the encrypted face enrollment.');
           const current=await getOne('members',memberId);
           if(current?._pendingOp&&current._pendingOp!==op.id)
@@ -438,7 +458,7 @@ window.TIPONSync=(()=>{
         !['NEEDS_REVIEW','FORBIDDEN','CONFLICT'].includes(op.errorCode));
       siteFastRetry=remainingSites.length?siteFastRetry+1:0;
       if(state.page==='terminalLogs')renderTerminalLogs();if(state.page==='dashboard')renderDashboard();if(state.page==='records')renderRecords();if(state.page==='members')renderMembers();if(state.page==='adminSites')window.TIPONAdminSites?.render();if(state.page==='accounts'&&isAdmin())await OrgUI.renderAccounts();if(state.page==='sites')renderSites();if(state.page==='scanner'){renderTerminal();renderTerminalLogs();const ready=state.members.filter(m=>m.active!==false&&!m.deleted&&m.descriptors?.length>=3).length;if(ready)updateScanResult('Member directory ready',ready+' enrolled face template(s) loaded on this terminal. Face matches are checked against assigned office GPS.','success');}TIPONPlatforms.render();
-    }catch(e){siteFastRetry=0;message=e.message;attempt=Math.min(attempt+1,4);if(['AUTH','ACCOUNT','DEVICE_DISABLED'].includes(e.code))message+=' Sign out and sign in online.';result={ok:false,error:message};}
+    }catch(e){siteFastRetry=0;message=e.message;attempt=Math.min(attempt+1,4);if(['AUTH','ACCOUNT','DEVICE_DISABLED'].includes(e.code))message+=' Sign out and sign in online.';result={ok:false,error:message,code:e.code||'SYNC'};
     finally{busy=false;render();schedule();}
     return result;
   }
