@@ -37,7 +37,7 @@ window.TIPONSync=(()=>{
     setText('attendanceLogSyncStatus',liveStatus);
     if($('attendanceLogSyncStatus'))$('attendanceLogSyncStatus').dataset.state=!navigator.onLine?'offline':eventVersionSupported===false?'warning':busy?'syncing':s&&lastSync?'connected':'waiting';
     setText('syncConnectionState',s?(busy?'Syncing organization data...':navigator.onLine?'Account connected; automatic retry enabled':'Offline: using this device\'s saved data'):'Sign in required');
-    setText('syncQueueState',pending+' local attendance events pending'+(review?' | '+review+' require review':''));
+    setText('syncQueueState',pending+' local attendance events pending'+(review?' | '+review+' sync error(s)':''));
     setText('syncLastState',message+(lastSync?' | Last successful sync: '+lastSync:'')+(eventVersionSupported===false?' | Backend does not report attendance correction updates.':''));setText('recordSyncState',message);
     if($('syncNow'))$('syncNow').disabled=busy||!s;if($('syncRecordsNow'))$('syncRecordsNow').disabled=busy||!s;
     setText('orgSyncStamp',lastSync?'Last received: '+lastSync:'No central snapshot received yet.');
@@ -192,7 +192,7 @@ window.TIPONSync=(()=>{
         if(p){p.syncError=rejected.error;if(!['DEPENDENCY','SERVER','BUSY'].includes(rejected.code))p.reviewStatus=rejected.code;await OrgDB.rawSave('punches',p);}
       }
       const errors=(reply.operationErrors||[]).concat(reply.rejected||[]);
-      if(errors.length)message='Some records need review: '+String(errors[0].error||'Rejected').slice(0,180);
+      if(errors.length)message='Some records could not sync: '+String(errors[0].error||'Rejected').slice(0,180);
     };
     const failSpecial=async(op,error)=>{
       const latest=await getOne('outbox',op.id);if(!latest)return;
@@ -483,7 +483,7 @@ window.TIPONSync=(()=>{
       const waiting=(await getAll('outbox')).filter(o=>o.orgId===state.orgId&&o.error).length+
         state.punches.filter(p=>p.reviewStatus).length+unsent;
        message=uploadFailure?'Central attendance received; an upload failed: '+String(uploadFailure.message||uploadFailure).slice(0,180):
-         waiting?'Central data updated; '+waiting+' record(s) still need review. See Settings / Accounts.':
+         waiting?'Central data updated; '+waiting+' record(s) have sync errors. See Settings / Accounts.':
          'Central attendance updated.';attempt=uploadFailure?Math.min(attempt+1,4):0;
       result={ok:!uploadFailure,pending:waiting,error:uploadFailure?String(uploadFailure.message||uploadFailure):undefined,readOk:true};
       const remainingSites=(await getAll('outbox')).filter(op=>op.orgId===state.orgId&&
