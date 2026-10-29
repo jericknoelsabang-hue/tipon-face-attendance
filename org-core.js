@@ -105,7 +105,14 @@
       if(seen.has(e.id)||e.reviewStatus==='rejected'||e.deleted)return;seen.add(e.id);
       const key=e.sessionId||e.id;const r=m.get(key)||{key,memberId:String(e.memberId),memberName:e.memberName||'',coop:e.coop||'',platform:e.platform||'',siteId:e.siteId||'',location:e.siteName||e.location||'',correctionRev:Number(e.correctionRev)||0,timeIn:'',timeOut:'',eventIds:[]};r.correctionRev=Math.max(Number(r.correctionRev)||0,Number(e.correctionRev)||0);
       must(r.memberId===String(e.memberId),'Session contains conflicting member IDs.','SESSION');
-      const col=e.type==='IN'?'timeIn':'timeOut';must(!r[col],'Duplicate direction within a session.','SESSION');r[col]=e.timestamp;r.eventIds.push(e.id);m.set(key,r);
+      const col=e.type==='IN'?'timeIn':'timeOut';
+      // Keep the projection readable when older/offline devices uploaded the
+      // same direction twice under one session ID. Preserve every event ID so
+      // an administrator correction can reconcile the complete session.
+      if(e.type==='IN')r.timeIn=r.timeIn?new Date(Math.min(Date.parse(r.timeIn),Date.parse(e.timestamp))).toISOString():e.timestamp;
+      else if(e.type==='OUT')r.timeOut=r.timeOut?new Date(Math.max(Date.parse(r.timeOut),Date.parse(e.timestamp))).toISOString():e.timestamp;
+      else return;
+      r.eventIds.push(e.id);m.set(key,r);
     });
     return [...m.values()].sort((a,b)=>Date.parse(a.timeIn||a.timeOut)-Date.parse(b.timeIn||b.timeOut));
   }
