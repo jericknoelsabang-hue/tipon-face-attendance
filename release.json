@@ -1,5 +1,5 @@
 {
   "app": "TIPON Face Attendance",
-  "version": "5.5.33",
-  "label": "Member and Attendance Logs pagination; User lands on Face Terminal; editable member Cooperative/BP and required Work Location; three manual face captures after live blink/head-turn checks; duplicate-face details without blanking the camera; member enrollment and face re-enrollment queued for central acknowledgement; attendance Edit/Delete/Review actions and explicit filtered-empty state. Private Apps Script backend still requires matching routes before server-dependent actions are production-ready."
+  "version": "5.5.34",
+  "label": "User-only Face Terminal landing; editable in-scope member transfer with cached destination Work Locations; required Assigned Work Location; manual three-sample face enrollment with live blink/head-turn checks and duplicate-owner messaging; encrypted enrollment/re-enrollment outbox with explicit central acknowledgement; paginated Member List and Attendance Logs with Edit/Delete/Review and filtered-empty explanations. Private Apps Script routes still require deployment for central transfer, face-update and attendance-correction operations."
 }
