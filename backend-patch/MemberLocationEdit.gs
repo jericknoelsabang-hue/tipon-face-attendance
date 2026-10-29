@@ -21,6 +21,86 @@ function tp5LocationIds_(actor,coop,platform,value){
   });
   return ids;
 }
+/** Validate centrally registered target locations for an authorized member transfer.
+ * The source member must already be in the User's scope; the transfer is audited
+ * and the User loses access to that member once it leaves their scope.
+ */
+function tp5TransferLocationIds_(coop,platform,value){
+  tp5Must_(Array.isArray(value)&&value.length>=1&&value.length<=40,
+    'Select at least one Assigned Work Location (maximum 40).','VALIDATION');
+  var ids=value.map(function(id){return String(id||'').trim();});
+  tp5Must_(ids.every(function(id){return id&&id.length<=120;})&&new Set(ids).size===ids.length,
+    'Assigned Work Locations must be unique and valid.','VALIDATION');
+  ids.forEach(function(id){
+    var site=tp5Find_('sites',id);
+    tp5Must_(site&&!site.deleted&&site.coop===coop&&
+      TIPONOrgCore.platformKey(site.platform)===TIPONOrgCore.platformKey(platform),
+      'Assigned Work Location must be an active central location matching the selected Cooperative and Business Platform.','DEPENDENCY');
+  });
+  return ids;
+}
+/** User may transfer a member currently in their approved scope to another MPC/BP.
+ * The target Work Location must already exist centrally; attendance and face history
+ * remain attached to the same Member ID. The open-session guard prevents mid-shift moves.
+ */
+function tp5UserMemberTransferUpdateV2_(actor,q){
+  tp5Must_(actor.role==='registrar','An approved User account is required.','FORBIDDEN');
+  var id=TIPONOrgCore.clean(q.memberId,120),old=tp5Find_('members',id);
+  tp5Must_(old&&!old.deleted,'Member was not found. Refresh Member List.','NOT_FOUND');
+  tp5Must_(TIPONOrgCore.inScope(actor,old),'Only a member currently in your approved scope can be transferred.','FORBIDDEN');
+  tp5Must_(Number.isInteger(Number(q.baseRev))&&Number(q.baseRev)===Number(old.rev||0),
+    'Member was changed on another device. Sync and reopen Edit.','CONFLICT');
+  var c=q.changes;
+  tp5Must_(c&&typeof c==='object'&&!Array.isArray(c)&&
+    Object.keys(c).every(function(k){return ['name','coop','platform','siteIds'].includes(k);})&&
+    Object.prototype.hasOwnProperty.call(c,'siteIds'),
+    'Only Full Name, Cooperative, Business Platform and Assigned Work Location can be edited.','FORBIDDEN');
+  var name=TIPONOrgCore.clean(c.name,120),coop=TIPONOrgCore.clean(c.coop,80),platform=tp5ResolvePlatform_(c.platform);
+  tp5Must_(name&&TIPONOrgCore.COOPS.includes(coop),'Enter a valid Full Name and Cooperative.','VALIDATION');
+  var siteIds=tp5TransferLocationIds_(coop,platform,c.siteIds);
+  var changed=name!==old.name||coop!==old.coop||
+    TIPONOrgCore.platformKey(platform)!==TIPONOrgCore.platformKey(old.platform)||
+    !tp5SameLocations_(tp5OldLocations_(old),siteIds);
+  if(!changed)return tp5Reply_({member:tp5Safe_(old),unchanged:true});
+  tp5Must_(!tp5MemberOpenSession_(old.id),
+    'Complete Time Out before transferring this member.','OPEN_SESSION');
+  var next=Object.assign({},old,{name:name,coop:coop,platform:platform,siteId:siteIds[0],siteIds:siteIds,
+    workLocationReassignmentRequired:false,updatedAt:tp5Now_(),rev:Number(old.rev||0)+1});
+  return tp5MemberLocationResult_(actor,old,next,'USER_TRANSFER_MEMBER_SCOPE');
+}
+/** Update an encrypted facial template for a member currently in the User's scope.
+ * No plaintext descriptor is accepted by the server. The existing AES-GCM template
+ * is replaced only after revision, scope, consent, target site and open-session checks.
+ */
+function tp5UserMemberFaceUpdateV2_(actor,q){
+  tp5Must_(actor.role==='registrar','An approved User account is required.','FORBIDDEN');
+  var id=TIPONOrgCore.clean(q.memberId,120),old=tp5Find_('members',id);
+  tp5Must_(old&&!old.deleted,'Member was not found. Refresh Member List.','NOT_FOUND');
+  tp5Must_(TIPONOrgCore.inScope(actor,old),'Member is outside your approved Cooperative/Business Platform.','FORBIDDEN');
+  tp5Must_(Number.isInteger(Number(q.baseRev))&&Number(q.baseRev)===Number(old.rev||0),
+    'Member was changed on another device. Sync and reopen Edit.','CONFLICT');
+  var c=q.changes;
+  tp5Must_(c&&typeof c==='object'&&!Array.isArray(c)&&
+    Object.keys(c).every(function(k){return ['name','coop','platform','siteIds','template','consentAt'].includes(k);}),
+    'Only member identity, Assigned Work Location, consent and encrypted face fields are accepted.','FORBIDDEN');
+  var name=TIPONOrgCore.clean(c.name,120),coop=TIPONOrgCore.clean(c.coop,80),platform=tp5ResolvePlatform_(c.platform);
+  tp5Must_(name&&TIPONOrgCore.COOPS.includes(coop),'Enter a valid Full Name and Cooperative.','VALIDATION');
+  var siteIds=tp5TransferLocationIds_(coop,platform,c.siteIds);
+  var template=c.template;
+  tp5Must_(template&&template.alg==='AES-GCM'&&typeof template.data==='string'&&
+    template.data.length<18000&&typeof template.iv==='string'&&template.iv.length>=12,
+    'A valid encrypted face template is required.','VALIDATION');
+  var consentAt=String(c.consentAt||'');
+  tp5Must_(consentAt&&Number.isFinite(Date.parse(consentAt))&&Date.parse(consentAt)<=Date.now()+300000,
+    'Biometric consent must be confirmed before enrollment.','CONSENT');
+  tp5Must_(!tp5MemberOpenSession_(old.id),
+    'Complete Time Out before replacing this member face.','OPEN_SESSION');
+  var next=Object.assign({},old,{name:name,coop:coop,platform:platform,siteId:siteIds[0],siteIds:siteIds,
+    template:template,consentAt:consentAt,enrolledBy:actor.id,enrolledByUsername:actor.username||'',
+    active:true,faceEnrollmentStatus:'enrolled',importPending:false,importedWithoutFace:false,
+    workLocationReassignmentRequired:false,updatedAt:tp5Now_(),rev:Number(old.rev||0)+1});
+  return tp5MemberLocationResult_(actor,old,next,'USER_REENROLL_MEMBER_FACE');
+}
 function tp5MemberOpenSession_(id){
   return TIPONOrgCore.project(tp5AllEvents_()).some(function(r){
     return String(r.memberId)===String(id)&&r.timeIn&&!r.timeOut;
@@ -39,7 +119,7 @@ function tp5MemberLocationResult_(actor,old,next,action){
   tp5RefreshMemberDirectory_();
   var version=tp5Bump_();
   tp5Audit_(actor,action,next.id,
-    'Authorized member GPS assignment updated; AES-GCM template and attendance history retained. Rev '+next.rev);
+    'Authorized member metadata, assignment or encrypted face update; attendance history retained. Rev '+next.rev);
   return tp5Reply_({member:tp5Safe_(next),catalogVersion:version});
 }
 /** Admin atomically edits identity, MPC/BP and optional work-location assignments. */
