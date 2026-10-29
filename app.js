@@ -1292,7 +1292,10 @@ async function recordRecognizedFace(member,faceDistance){
  let centralReadOk=false;
  document.querySelectorAll('.mode-option').forEach(b=>b.disabled=true);
  try{
-  if(mode==='out'&&navigator.onLine){
+  // Refresh the central ledger before either direction. Two devices may be
+  // looking at stale copies of the same open session; a fresh poll lets the
+  // transition guard reject a second IN or a duplicate OUT before saving.
+  if(navigator.onLine){
    try{
     const refreshed=await TIPONSync.submitPendingNow();
     centralReadOk=!!refreshed?.readOk;
@@ -1342,6 +1345,21 @@ async function recordRecognizedFace(member,faceDistance){
   const match=candidates.find(x=>x.distance<=150);
   if(!match){const closest=candidates[0];throw Error(`Face recognized: ${member.name}. Nearest assigned work location is ${Math.round(closest.distance)} m away; maximum allowed is 150 m.`);}
   const {site,distance}=match,stamp=new Date();
+  // GPS verification can take several seconds. Refresh once more immediately
+  // before committing so another device's completed punch is seen locally.
+  if(navigator.onLine){
+   try{
+    const latest=await TIPONSync.submitPendingNow();
+    if(latest?.readOk){centralReadOk=true;await loadCollections();
+     tx=TIPONCore.transition(state.punches.filter(p=>(p.orgId===state.orgId||!p.orgId)),member.id,mode,Date.now(),COOLDOWN_MS);
+     if(tx.type!==mode.toUpperCase())throw Error('Attendance direction changed on another device. Refresh and retry.');
+    }
+   }catch(error){
+    if(['AUTH','ACCOUNT','DEVICE_DISABLED','FORBIDDEN','PROTOCOL'].includes(String(error?.code||'').toUpperCase()))throw error;
+    if(/Already timed in|Already timed out|8-hour duty limit|Duplicate protection|No Time In/.test(String(error?.message||'')))throw error;
+    centralReadOk=false;
+   }
+  }
   const punch={id:uuid(),orgId:state.orgId,siteRev:site.rev||0,deviceId:state.deviceId,timestamp:stamp.toISOString(),day:todayPH(stamp),type:tx.type,
     memberId:member.id,memberName:member.name,coop:member.coop,platform:site.platform,recordedById:state.user.id,siteId:site.id,siteName:site.name,requiresSessionResolution:needsSessionResolution,
     siteLat:site.lat,siteLng:site.lng,radius:150,lat:gps.latitude,lng:gps.longitude,
@@ -1379,8 +1397,7 @@ function commitPunch(punch,mode){return new Promise((resolve,reject)=>{
    let action;
    if(punch.requiresSessionResolution&&mode==='out')action={type:'OUT',last:null};
    else action=TIPONCore.transition(previous,punch.memberId,mode,Date.parse(punch.timestamp),COOLDOWN_MS);
-   const attendanceDay=action.type==='OUT'&&action.last?todayPH(new Date(action.last.timestamp)):todayPH(new Date(punch.timestamp));
-   if(previous.some(p=>String(p.memberId)===String(punch.memberId)&&p.siteId===punch.siteId&&p.type===action.type&&todayPH(new Date(p.timestamp))===attendanceDay))throw Error('Time '+action.type+' already recorded for this member at this location today.');
+   if(action.type==='OUT'&&action.last&&action.last.siteId!==punch.siteId)throw Error('Time Out must be recorded at the same assigned work location as Time In.');
    punch.sessionId=action.type==='IN'?punch.id:(action.last?.sessionId||'');
    if(action.type==='OUT'&&action.last)punch.siteName=action.last.siteName;
    store.add(punch);
