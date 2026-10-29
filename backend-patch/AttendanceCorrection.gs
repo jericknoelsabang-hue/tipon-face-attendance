@@ -46,8 +46,12 @@ function tp5ApplyAttendanceCorrections_(rows){
     if(result.some(function(event){return String(event.id)===syntheticId;}))return;
     var source=rows.find(function(event){
       return event&&!event.deleted&&event.type==='IN'&&String(event.sessionId||event.id)===sessionId;
-    });
-    if(!source)return;
+    })||{
+      id:syntheticId,sessionId:sessionId,memberId:correction.memberId||'',
+      memberName:correction.memberName||'',coop:correction.coop||'',platform:correction.platform||'',
+      siteId:correction.siteId||'',siteName:correction.siteName||'',orgId:correction.orgId||'',
+      recordedById:correction.actorId||'',performedBy:correction.performedBy||'',cloudAck:true
+    };
     result.push(Object.assign({},source,{
       id:syntheticId,sessionId:sessionId,type:'OUT',
       timestamp:correction.timeOut,day:TIPONOrgCore.phDay(correction.timeOut),
@@ -128,13 +132,15 @@ function tp5AttendanceCorrect_(actor,q){
   var hasRawOut=rawEvents.some(function(e){return !e.deleted&&e.type==='OUT'&&String(e.sessionId||e.id)===sessionId;});
   var createdOut=!deleted&&!!timeOut&&!hasRawOut;
   var next={id:correctionId,kind:'attendanceCorrection',sessionId:sessionId,
-    memberId:row.memberId,siteId:row.siteId,deleted:deleted,timeIn:timeIn,timeOut:timeOut,
-    createdOut:createdOut,reason:reason,actorId:actor.id,updatedAt:tp5Now_(),rev:base+1};
+    memberId:row.memberId,memberName:row.memberName||'',coop:row.coop||'',platform:row.platform||'',
+    siteId:row.siteId||'',siteName:row.location||row.siteName||'',orgId:row.orgId||'',
+    deleted:deleted,timeIn:timeIn,timeOut:timeOut,createdOut:createdOut,
+    reason:reason,actorId:actor.id,performedBy:actor.username||actor.name||'',updatedAt:tp5Now_(),rev:base+1};
   tp5Put_('operations',next,old);
   var eventVersion=Number(tp5Props_().getProperty('TP5_EVENT_VERSION')||0)+1;
   tp5Props_().setProperty('TP5_EVENT_VERSION',String(eventVersion));tp5Bump_();
   tp5Audit_(actor,deleted?'ATTENDANCE_DELETE':'ATTENDANCE_EDIT',sessionId,reason+'; revision '+next.rev);
   tp5RebuildAttendanceProjection_(sessionId);
   return tp5Reply_({correction:{sessionId:sessionId,deleted:deleted,createdOut:createdOut,
-    timeIn:timeIn,timeOut:timeOut,rev:next.rev,updatedAt:next.updatedAt},eventVersion:eventVersion});
+    timeIn:timeIn,timeOut:timeOut,actorId:next.actorId,rev:next.rev,updatedAt:next.updatedAt},eventVersion:eventVersion});
 }
