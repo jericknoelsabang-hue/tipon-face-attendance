@@ -6,6 +6,7 @@
 })(typeof globalThis !== 'undefined' ? globalThis : this, function () {
   'use strict';
   const HEADERS = Object.freeze(['Member ID', 'Business platform', 'Work location', 'Time In', 'Time Out']);
+  const MAX_DUTY_MS = 8 * 60 * 60 * 1000;
   const epoch = value => { const t = Date.parse(value); if (!Number.isFinite(t)) throw Error('Invalid attendance timestamp.'); return t; };
   function phStamp(value) { return value ? new Date(epoch(value) + 28800000).toISOString().slice(0, 19).replace('T', ' ') : ''; }
   function serial(value) { return value ? (epoch(value) + 28800000) / 86400000 + 25569 : ''; }
@@ -72,18 +73,53 @@
     const switched = mode === 'out' && last?.type === 'OUT' && previousDay < currentDay;
     return {mode:switched?'in':mode,switched,last,previousDay,currentDay};
   }
+  function workedDurationForDay(punches, memberId, day) {
+    const sessions = new Map();
+    for (const punch of [...punches].filter(p=>!p.deleted&&!p.reviewStatus&&String(p.memberId)===String(memberId))
+      .sort((a,b)=>epoch(a.timestamp)-epoch(b.timestamp)||String(a.id).localeCompare(String(b.id)))) {
+      const key=String(punch.sessionId||punch.id),list=sessions.get(key)||[];
+      list.push(punch);sessions.set(key,list);
+    }
+    let total=0;
+    for(const list of sessions.values()){
+      const start=list.find(p=>p.type==='IN');
+      const end=start&&list.find(p=>p.type==='OUT'&&epoch(p.timestamp)>epoch(start.timestamp));
+      if(!start||!end||phStamp(start.timestamp).slice(0,10)!==day)continue;
+      total+=epoch(end.timestamp)-epoch(start.timestamp);
+    }
+    return total;
+  }
+  function openSessionsForMember(punches, memberId) {
+    const sessions=new Map();
+    for(const punch of [...punches].filter(p=>!p.deleted&&!p.reviewStatus&&String(p.memberId)===String(memberId))
+      .sort((a,b)=>epoch(a.timestamp)-epoch(b.timestamp)||String(a.id).localeCompare(String(b.id)))){
+      const key=String(punch.sessionId||punch.id),list=sessions.get(key)||[];
+      list.push(punch);sessions.set(key,list);
+    }
+    const open=[];
+    for(const list of sessions.values()){
+      const input=list.find(p=>p.type==='IN');
+      const output=input&&list.find(p=>p.type==='OUT'&&epoch(p.timestamp)>epoch(input.timestamp));
+      if(input&&!output)open.push(input);
+    }
+    return open.sort((a,b)=>epoch(a.timestamp)-epoch(b.timestamp)||String(a.id).localeCompare(String(b.id)));
+  }
   function transition(punches, memberId, mode, now = Date.now(), cooldown = 90000) {
     const resolved = resolveModeForDate(punches, memberId, mode, now);
     mode = resolved.mode;
-    const last = resolved.last;
+    const open=openSessionsForMember(punches,memberId);
+    if(mode==='in'&&open.length)throw Error('Already timed in on this account or another device. Select Time Out after the shift.');
+    const last=mode==='out'&&open.length?open[open.length-1]:resolved.last;
     const type = mode.toUpperCase();
     if (last && epoch(last.timestamp) > now) throw Error('Device clock is earlier than the previous attendance. Correct the clock first.');
     if (last?.type === type) throw Error(type === 'IN' ? 'Already timed in. Select Time Out after the shift.' : 'Already timed out today. Select Time In for the next shift.');
     if (type === 'OUT' && !last) throw Error('No Time In on this device. Use the same attendance phone for both punches.');
+    if (type === 'IN' && workedDurationForDay(punches,memberId,resolved.currentDay) >= MAX_DUTY_MS)
+      throw Error('8-hour duty limit reached for today. Time In is closed for this Philippine day.');
     const lastDay = last ? phStamp(last.timestamp).slice(0,10) : '';
     if (last && lastDay === resolved.currentDay && now - epoch(last.timestamp) < cooldown)
       throw Error('Duplicate protection: wait at least 90 seconds between punches.');
     return {type,last,mode,dateSwitched:resolved.switched,previousDay:resolved.previousDay,currentDay:resolved.currentDay};
   }
-  return {HEADERS, phStamp, serial, normalize, publicEvent, rows, table, filterRows, resolveModeForDate, transition};
+  return {HEADERS, MAX_DUTY_MS, phStamp, serial, normalize, publicEvent, rows, table, filterRows, resolveModeForDate, workedDurationForDay, openSessionsForMember, transition};
 });
