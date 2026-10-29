@@ -86,3 +86,16 @@
 .attendance-live-sync[data-state="syncing"]{color:#1769a4}
 
 .attendance-live-sync[data-state="warning"]{color:#9a6510}
+
+
+/* Dashboard cooperative artwork and a clearer attendance editor. */
+.coop-banner-heading h2{font-size:clamp(28px,3vw,38px);line-height:1.15;letter-spacing:-.6px;color:#fff}
+.coop-banner-heading img{width:72px;height:72px;flex:0 0 auto}
+#coopDashboardCards .coop-summary{min-width:132px;flex-basis:132px;padding:8px 2px}
+#coopDashboardCards .coop-monogram{width:132px;height:138px;background-size:1024px 342px}
+#coopDashboardCards .coop-summary strong{color:#fff;font-size:30px;line-height:1.1;margin-top:8px}
+#attendanceEditStatus{box-sizing:border-box;padding:7px 10px;border-radius:7px;background:#a61b1b;color:#fff!important;font-weight:700}
+#attendanceEditStatus:empty{padding:0;background:transparent}
+#appShell .tiny-button.delete{background:#b42332!important;border-color:#b42332!important;color:#fff!important}
+#appShell .tiny-button.delete:hover{background:#8f1725!important;border-color:#8f1725!important;color:#fff!important}
+@media(max-width:600px){.coop-banner{padding:20px}.coop-banner-heading{gap:12px}.coop-banner-heading img{width:56px;height:56px}.coop-banner-heading h2{font-size:27px}#coopDashboardCards{gap:10px}#coopDashboardCards .coop-summary{min-width:118px;flex-basis:118px}#coopDashboardCards .coop-monogram{width:118px;height:128px;background-size:1024px 342px}}
