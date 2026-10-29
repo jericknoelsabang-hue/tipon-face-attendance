@@ -58,6 +58,9 @@ if(action==='memberLocationUpdate')return tp5Lock_(function(){
 if(action==='memberUserDelete')return tp5Lock_(function(){
   actor=tp5Auth_(q);return tp5UserMemberDelete_(actor,q);
 });
+if(action==='memberTransferLocations')return tp5Lock_(function(){
+  actor=tp5Auth_(q);return tp5UserMemberTransferLocations_(actor,q);
+});
 if(action==='memberTransferUpdateV2')return tp5Lock_(function(){
   actor=tp5Auth_(q);return tp5UserMemberTransferUpdateV2_(actor,q);
 });
