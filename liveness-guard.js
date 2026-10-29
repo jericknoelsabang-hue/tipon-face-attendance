@@ -53,7 +53,7 @@
         if(ratio>=.09){s.openRatio=Math.max(s.openRatio*.98,ratio);s.openFrames++;}
         if(s.openFrames<2)return {ok:false,prompt:'Look straight at the camera.'};
         if(ratio<Math.max(.06,s.openRatio*.78)){s.closed=true;s.closedAt=now;}
-        return {ok:false,prompt:'Close both eyes for one second, then open.'};
+        return {ok:false,prompt:'Blink once: close both eyes briefly, then open.'};
       }
       if(now-s.closedAt>6000){s.closed=false;return {ok:false,prompt:'Blink again slowly.'};}
       if(now-s.closedAt>=80&&ratio>Math.max(.09,s.openRatio*.82))success=true;
