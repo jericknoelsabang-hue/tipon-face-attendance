@@ -13,6 +13,12 @@
     const width=Math.hypot(p[45].x-p[36].x,p[45].y-p[36].y);
     return width>8?(p[30].x-(p[36].x+p[45].x)/2)/width:null;
   }
+  function duplicateFaceNotice(conflict){
+    const member=conflict?.member||conflict;
+    const name=String(member?.name||'another member');
+    const id=String(member?.id||'unknown');
+    return 'This face is already enrolled to '+name+' (ID '+id+'). Cancel and open that member record. Duplicate enrollment is blocked.';
+  }
   function challenge(){
     const random=crypto.getRandomValues(new Uint8Array(1))[0];
     return {order:random%2?['turn','blink']:['blink','turn'],step:0,
@@ -33,13 +39,13 @@
       const ratio=blinkRatio(face);
       if(!Number.isFinite(ratio)||ratio<.045||ratio>.60)return {ok:false,prompt:'Keep your eyes clearly visible.'};
       if(!s.closed){
-        if(ratio>=.11){s.openRatio=Math.max(s.openRatio*.98,ratio);s.openFrames++;}
+        if(ratio>=.09){s.openRatio=Math.max(s.openRatio*.98,ratio);s.openFrames++;}
         if(s.openFrames<2)return {ok:false,prompt:'Look straight at the camera.'};
-        if(ratio<Math.max(.075,s.openRatio*.76)){s.closed=true;s.closedAt=now;}
+        if(ratio<Math.max(.06,s.openRatio*.78)){s.closed=true;s.closedAt=now;}
         return {ok:false,prompt:'Close both eyes for a moment, then open.'};
       }
       if(now-s.closedAt>6000){s.closed=false;return {ok:false,prompt:'Blink again slowly.'};}
-      if(now-s.closedAt>=80&&ratio>Math.max(.11,s.openRatio*.86))success=true;
+      if(now-s.closedAt>=80&&ratio>Math.max(.09,s.openRatio*.82))success=true;
       else return {ok:false,prompt:'Open your eyes to complete the blink.'};
     }else{
       const offset=yaw(face);
@@ -160,52 +166,49 @@
     state.enrollLiveness=challenge();
     state.enrollFaceMissing=0;
     state.enrollReadyDescriptor=null;
+    state.enrollConflictMemberId='';
     const capture=$('captureEnrollmentSample');
     if(capture){capture.disabled=true;capture.textContent='Capture Sample 1';}
     return originalBeginEnrollment(...args);
   };
   async function captureEnrollmentSample(){
     const button=$('captureEnrollmentSample');
-    if(!button||!state.enrollActive||!state.enrollReadyDescriptor||!state.enrollLiveness?.passed)return;
+    if(!button||!state.enrollActive||!state.enrollReadyDescriptor||!state.enrollLiveness?.passed||state.enrollConflictMemberId)return;
     const memberId=$('memberId').value.trim(),descriptor=state.enrollReadyDescriptor.slice();
-    if(findEnrolledFaceConflict([descriptor],memberId)){
-      state.enrollReadyDescriptor=null;button.disabled=true;
-      setText('enrollStatus','This face is registered under another Member ID.');
-      $('retryEnrollment').hidden=false;await stopEnrollment(true);return;
+    const conflict=findEnrolledFaceConflict([descriptor],memberId);
+    if(conflict){
+      state.enrollConflictMemberId=conflict.member.id;state.enrollReadyDescriptor=null;button.disabled=true;
+      $('retryEnrollment').hidden=true;setText('enrollStatus',duplicateFaceNotice(conflict));return;
     }
     const first=state.enrollCollected[0],previous=state.enrollCollected.at(-1);
     if(first&&euclidean(first,descriptor)>.50){
       state.enrollCollected=[];state.enrollReadyDescriptor=null;state.enrollLiveness=challenge();button.disabled=true;
       setText('enrollCount','0 / 3 samples');$('enrollProgress').style.width='0%';
-      setText('enrollStatus','Different face detected. Repeat the live check.');
-      return;
+      setText('enrollStatus','Different face detected. Repeat the live check.');return;
     }
     if(previous&&euclidean(previous,descriptor)<.023){
       state.enrollReadyDescriptor=null;state.enrollLiveness=challenge();button.disabled=true;
-      setText('enrollStatus','Move your head slightly, complete the live check, then capture again.');
-      return;
+      setText('enrollStatus','Move your head slightly, complete the live check, then capture again.');return;
     }
-    state.enrollCollected.push(descriptor);
-    state.enrollReadyDescriptor=null;button.disabled=true;
+    state.enrollCollected.push(descriptor);state.enrollReadyDescriptor=null;button.disabled=true;
     setText('enrollCount',state.enrollCollected.length+' / 3 samples');
     $('enrollProgress').style.width=(state.enrollCollected.length/3*100)+'%';
     if(state.enrollCollected.length<3){
       state.enrollLiveness=challenge();button.textContent='Capture Sample '+(state.enrollCollected.length+1);
-      setText('enrollStatus','Sample captured. Complete the next live check.');
-      return;
+      setText('enrollStatus','Sample captured. Complete the next live check, then capture again.');return;
     }
-    if(findEnrolledFaceConflict(state.enrollCollected,memberId)){
-      state.enrollCollected=[];state.enrollLiveness=challenge();
-      setText('enrollCount','0 / 3 samples');$('enrollProgress').style.width='0%';
-      setText('enrollStatus','Duplicate face detected. Restart enrollment.');
-      $('retryEnrollment').hidden=false;await stopEnrollment(true);return;
+    const finalConflict=findEnrolledFaceConflict(state.enrollCollected,memberId);
+    if(finalConflict){
+      state.enrollCollected=[];state.enrollConflictMemberId=finalConflict.member.id;
+      state.enrollLiveness=challenge();setText('enrollCount','0 / 3 samples');$('enrollProgress').style.width='0%';
+      $('retryEnrollment').hidden=true;setText('enrollStatus',duplicateFaceNotice(finalConflict));return;
     }
     state.pendingDescriptors=state.enrollCollected.map(vector=>vector.slice());
     state.faceReplacementPending=!!state.editMember?.template;
     state.enrollmentProof={memberId:memberId,at:Date.now()};
     setText('enrollFaceLabel','Verified · Three Live Samples Ready');
-    setText('enrollStatus','Three samples captured.');
-    playTerminalSound('success');showToast('Face enrollment captured. Save the member record.','success');
+    setText('enrollStatus','Three samples captured. Save the member record.');
+    playTerminalSound('success');showToast('Three face samples captured. Save the member record.','success');
     await finishEnrollment(false);
   }
   enrollTick=async function(){
@@ -213,26 +216,30 @@
     const run=state.enrollRun;
     try{
       const video=$('enrollVideo'),button=$('captureEnrollmentSample');
-      if(video.readyState>=2){
+      if(state.enrollConflictMemberId){
+        const conflict=state.members.find(m=>String(m.id)===String(state.enrollConflictMemberId));
+        if(button)button.disabled=true;$('retryEnrollment').hidden=true;
+        setText('enrollStatus',duplicateFaceNotice(conflict||{id:state.enrollConflictMemberId,name:'another member'}));
+      }else if(video.readyState>=2){
         const faces=await detectFaces(video);
         if(!state.enrollActive||state.enrollRun!==run)return;
         if(faces.length!==1){
-          state.enrollFaceMissing=(state.enrollFaceMissing||0)+1;
-          state.enrollReadyDescriptor=null;if(button)button.disabled=true;
+          state.enrollFaceMissing=(state.enrollFaceMissing||0)+1;state.enrollReadyDescriptor=null;
+          if(button)button.disabled=true;
           if(faces.length>1||state.enrollFaceMissing>=3)state.enrollLiveness=challenge();
           setText('enrollStatus',faces.length?'One face at a time.':'Position one face in the frame.');
         }else{
           state.enrollFaceMissing=0;
           const descriptor=Array.from(faces[0].descriptor),memberId=$('memberId').value.trim();
-          if(findEnrolledFaceConflict([descriptor],memberId)){
-            state.enrollReadyDescriptor=null;if(button)button.disabled=true;
-            setText('enrollStatus','This face is registered under another Member ID.');
-            $('retryEnrollment').hidden=false;await stopEnrollment(true);return;
-          }
-          if(state.enrollReadyDescriptor){
+          const conflict=findEnrolledFaceConflict([descriptor],memberId);
+          if(conflict){
+            state.enrollConflictMemberId=conflict.member.id;state.enrollReadyDescriptor=null;
+            if(button)button.disabled=true;$('retryEnrollment').hidden=true;
+            setText('enrollStatus',duplicateFaceNotice(conflict));
+          }else if(state.enrollReadyDescriptor){
             if(euclidean(state.enrollReadyDescriptor,descriptor)>.50){
               state.enrollReadyDescriptor=null;state.enrollLiveness=challenge();if(button)button.disabled=true;
-              setText('enrollStatus','Different face detected. Repeat the live check.');
+              setText('enrollStatus','Face changed. Repeat the live check.');
             }else{
               if(button){button.disabled=false;button.textContent='Capture Sample '+(state.enrollCollected.length+1);}
               setText('enrollStatus','Live check passed. Click Capture Sample.');
@@ -255,7 +262,7 @@
       }
     }catch(error){
       console.error('Face enrollment challenge',error);
-      setText('enrollStatus','Enrollment error. Try again.');
+      setText('enrollStatus','Enrollment error. Check camera permission and try again.');
       $('retryEnrollment').hidden=false;
     }
     if(state.enrollActive&&state.enrollRun===run)state.enrollTimer=setTimeout(enrollTick,220);
@@ -264,5 +271,5 @@
   if(captureButton&&!captureButton.dataset.bound){
     captureButton.dataset.bound='1';captureButton.addEventListener('click',captureEnrollmentSample);
   }
-  window.TIPONLiveness={version:'5.5.32',challenge,advance};
+  window.TIPONLiveness={version:'5.5.33',challenge,advance};
 })();
