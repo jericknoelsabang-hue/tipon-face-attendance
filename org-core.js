@@ -5,7 +5,7 @@
   else root.TIPONOrgCore = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this, function() {
   'use strict';
-  const VERSION='5.5.10', PROTOCOL='tipon-org-v5', PBKDF2_ITERATIONS=600000;
+  const VERSION='5.5.32', PROTOCOL='tipon-org-v5', PBKDF2_ITERATIONS=600000;
   const COOPS=['Asiapro','Gawa at Kalinga','Kaakbay sa Kinabukasan','Kadayawan','Kaamulan','Tnalak','Victory','Worklife'];
   const DEFAULT_PLATFORMS=['IMG','MSG-SM','MSG-NM','MSG-NW','OCG','Contracting','AP Cons','GAK'];
   const EXPORT_HEADERS=['MemberId','Date','Time In','Time Out','Date Time Out'];
@@ -39,7 +39,7 @@
   function allowed(u,page){
     if(!u)return false;
     if(page==='scanner')return canUseTerminal(u);
-    const pages={admin:['dashboard','members','records','accounts','settings','terminalLogs','adminSites'],registrar:['scanner','members','sites','settings','terminalLogs'],kiosk:['scanner','terminalLogs']};
+    const pages={admin:['dashboard','members','records','accounts','settings','terminalLogs','adminSites'],registrar:['dashboard','scanner','members','sites','settings','terminalLogs'],kiosk:['scanner','terminalLogs']};
     return (pages[u.role]||[]).includes(page);
   }
   function platformKey(v){return clean(v,100).normalize('NFKC').replace(/\s+/g,' ').toLowerCase();}
@@ -102,8 +102,8 @@
   function project(events){
     const m=new Map(),seen=new Set();
     [...events].sort((a,b)=>Date.parse(a.timestamp)-Date.parse(b.timestamp)||String(a.id).localeCompare(String(b.id))).forEach(e=>{
-      if(seen.has(e.id)||e.reviewStatus==='rejected')return;seen.add(e.id);
-      const key=e.sessionId||e.id;const r=m.get(key)||{key,memberId:String(e.memberId),memberName:e.memberName||'',coop:e.coop||'',platform:e.platform||'',siteId:e.siteId||'',location:e.siteName||e.location||'',timeIn:'',timeOut:'',eventIds:[]};
+      if(seen.has(e.id)||e.reviewStatus==='rejected'||e.deleted)return;seen.add(e.id);
+      const key=e.sessionId||e.id;const r=m.get(key)||{key,memberId:String(e.memberId),memberName:e.memberName||'',coop:e.coop||'',platform:e.platform||'',siteId:e.siteId||'',location:e.siteName||e.location||'',correctionRev:Number(e.correctionRev)||0,timeIn:'',timeOut:'',eventIds:[]};r.correctionRev=Math.max(Number(r.correctionRev)||0,Number(e.correctionRev)||0);
       must(r.memberId===String(e.memberId),'Session contains conflicting member IDs.','SESSION');
       const col=e.type==='IN'?'timeIn':'timeOut';must(!r[col],'Duplicate direction within a session.','SESSION');r[col]=e.timestamp;r.eventIds.push(e.id);m.set(key,r);
     });
