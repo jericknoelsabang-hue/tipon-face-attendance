@@ -1,5 +1,5 @@
 {
   "app": "TIPON Face Attendance",
-  "version": "5.5.32",
-  "label": "Manual face sample capture with blink/head-turn liveness; AWOL dashboard label and User absenteeism view; actionable attendance review; member and attendance edit/delete queues; soft-delete reconciliation; cross-device event-version refresh. Pilot liveness is not certified anti-spoofing."
+  "version": "5.5.33",
+  "label": "Member and Attendance Logs pagination; User lands on Face Terminal; editable member Cooperative/BP and required Work Location; three manual face captures after live blink/head-turn checks; duplicate-face details without blanking the camera; member enrollment and face re-enrollment queued for central acknowledgement; attendance Edit/Delete/Review actions and explicit filtered-empty state. Private Apps Script backend still requires matching routes before server-dependent actions are production-ready."
 }
