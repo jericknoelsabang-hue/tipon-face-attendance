@@ -885,6 +885,86 @@ function renderTerminalLogs(){
   $('terminalLogRows').innerHTML='<tr><td colspan="11">'+esc(err.message)+'</td></tr>';
  }
 }
+function attendanceRowByKey(key){
+ return TIPONOrgCore.project(state.punches.filter(p=>!p.reviewStatus)).find(row=>String(row.key)===String(key));
+}
+async function saveAttendanceCorrection(row,changes,reason,deleted=false){
+ if(!canCorrectAttendance())throw Error('An approved Administrator or User session is required.');
+ const events=state.punches.filter(p=>(row.eventIds||[]).includes(p.id));
+ if(!events.length)throw Error('Attendance events are not available on this device.');
+ if(events.some(p=>p.pendingCorrection==='pending'))throw Error('This session already has a pending correction.');
+ if(events.some(p=>p.requiresSessionResolution&&!p.cloudAck))throw Error('Sync this cross-device Time Out before editing or deleting the session.');
+ const id=uuid(),op={id,type:'attendanceCorrections',value:{sessionId:String(row.key),memberId:String(row.memberId),
+   eventIds:events.map(p=>p.id),changes:changes||{},delete:!!deleted,reason:String(reason||'').trim()},
+   baseRev:Number(row.correctionRev)||0,orgId:state.orgId,ownerId:state.user.id,createdAt:new Date().toISOString(),everSent:false};
+ await new Promise((resolve,reject)=>{
+  const tx=db.transaction(['punches','outbox'],'readwrite'),store=tx.objectStore('punches');
+  for(const original of events){
+   const p={...original,pendingCorrection:'pending',correctionReason:op.value.reason,correctionRev:op.baseRev};
+   if(deleted)p.deleted=true;
+   else{
+    if(changes.timeIn){p.timestamp=p.type==='IN'?changes.timeIn:p.timestamp;}
+    if(changes.timeOut&&p.type==='OUT')p.timestamp=changes.timeOut;
+    if(p.type==='IN'||p.type==='OUT')p.day=todayPH(new Date(p.timestamp));
+   }
+   p.syncError='';
+   store.put(p);
+  }
+  tx.objectStore('outbox').put(op);tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error);tx.onabort=()=>reject(tx.error);
+ });
+ await loadCollections();renderTerminalLogs();renderDashboard();TIPONSync.kick();
+ if(navigator.onLine){
+  const result=await TIPONSync.submitPendingNow(),pending=await getOne('outbox',id);
+  await loadCollections();renderTerminalLogs();renderDashboard();
+  if(!pending)showToast(deleted?'Attendance session deleted and synchronized.':'Attendance correction synchronized.','success');
+  else if(pending.errorCode==='NEEDS_REVIEW')showToast('Needs Review: '+String(pending.error||'Open the Review action for details.').slice(0,220),'error',9000);
+  else showToast(result?.error||'Correction queued for synchronization.','info',7500);
+ }else showToast('Correction saved locally. It will sync when internet returns.','info',7500);
+}
+async function editAttendanceFromLog(event){
+ const button=event.target.closest('[data-attendance-edit]');if(!button||!canCorrectAttendance())return;
+ const row=attendanceRowByKey(button.dataset.attendanceEdit);if(!row)return;
+ const reason=prompt('Reason for correction (required):');if(!reason?.trim())return;
+ const nextIn=prompt('Time In (local YYYY-MM-DDTHH:MM)',button.dataset.in||''),nextOut=prompt('Time Out (local YYYY-MM-DDTHH:MM)',button.dataset.out||'');
+ if(nextIn===null||nextOut===null)return;
+ const valid=value=>!value||/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(value);
+ if(!nextIn||!valid(nextIn)||!valid(nextOut))return showToast('Enter a valid Time In and optional Time Out as YYYY-MM-DDTHH:MM.','error');
+ if(row.timeOut&&!nextOut)return showToast('Time Out cannot be cleared from a completed session.','error');
+ const iso=value=>value?new Date(value+':00+08:00').toISOString():'';
+ const changes={timeIn:iso(nextIn),timeOut:iso(nextOut)};
+ if(changes.timeOut&&Date.parse(changes.timeOut)<Date.parse(changes.timeIn))return showToast('Time Out must be after Time In.','error');
+ if(!await confirmAction('Save attendance correction?',row.memberName+' · '+reason.trim()+'. The change will be audited and synchronized.'))return;
+ try{await saveAttendanceCorrection(row,changes,reason,false);}catch(error){showToast(error.message||String(error),'error',8500);}
+}
+async function deleteAttendanceFromLog(event){
+ const button=event.target.closest('[data-attendance-delete]');if(!button||!canCorrectAttendance())return;
+ const row=attendanceRowByKey(button.dataset.attendanceDelete);if(!row)return;
+ if(!row.timeIn||!row.timeOut)return showToast('Complete Time Out before deleting an attendance session.','error');
+ const reason=prompt('Reason for deleting this attendance session (required):');if(!reason?.trim())return;
+ if(!await confirmAction('Delete attendance session?',row.memberName+' · '+reason.trim()+'. This is an audited soft delete; the raw event history is retained.'))return;
+ try{await saveAttendanceCorrection(row,{},reason,true);}catch(error){showToast(error.message||String(error),'error',8500);}
+}
+function openAttendanceReview(event){
+ const button=event.target.closest('[data-attendance-review]');if(!button)return;
+ const row=attendanceRowByKey(button.dataset.attendanceReview);if(!row)return;
+ const events=state.punches.filter(p=>(row.eventIds||[]).includes(p.id));
+ setText('attendanceReviewName',row.memberName||'Name unavailable');
+ setText('attendanceReviewId',row.memberId);
+ setText('attendanceReviewStatus',attendanceSyncLabel(row));
+ setText('attendanceReviewReason',events.map(p=>p.syncError||p.correctionReason||p.reviewStatus).filter(Boolean).join(' · ')||
+  (events.some(p=>p.requiresSessionResolution)?'Time Out is waiting for the matching Time In from another device.':
+   events.some(p=>p.pendingCorrection==='pending')?'The correction is waiting for synchronization.':'No error details were returned by the server.'));
+ const dialog=$('attendanceReviewDialog');dialog.dataset.sessionId=row.key;dialog.showModal();
+}
+async function retryAttendanceReview(){
+ if(!canCorrectAttendance())return;
+ const sessionId=$('attendanceReviewDialog').dataset.sessionId;
+ const ops=await getAll('outbox'),op=ops.find(item=>item.type==='attendanceCorrections'&&String(item.value?.sessionId)===String(sessionId));
+ if(op){delete op.error;delete op.errorCode;op.everSent=false;await OrgDB.rawSave('outbox',op);}
+ const row=attendanceRowByKey(sessionId);
+ if(row)for(const id of row.eventIds||[]){const p=await getOne('punches',id);if(p){delete p.reviewStatus;delete p.syncError;if(p.pendingCorrection==='review')p.pendingCorrection='pending';await OrgDB.rawSave('punches',p);}}
+ $('attendanceReviewDialog').close();TIPONSync.kick();await loadCollections();renderTerminalLogs();showToast('Retry queued. Check Sync Status after synchronization.','info');
+}
 async function exportTerminalLogs(){
  const btn=$('terminalLogExport');try{
   const rows=filteredTerminalLogRows().filter(row=>(row.eventIds||[]).every(id=>{
@@ -1283,6 +1363,8 @@ function bindEvents(){
  });
  ['terminalLogFrom','terminalLogTo','terminalLogCoop','terminalLogPlatform','terminalLogSite'].forEach(id=>attach(id,'change',renderTerminalLogs));attach('terminalLogReset','click',()=>{['terminalLogFrom','terminalLogTo','terminalLogCoop','terminalLogPlatform','terminalLogSite'].forEach(id=>$(id).value='');renderTerminalLogs();});
  attach('terminalLogExport','click',exportTerminalLogs);attach('terminalLogSync','click',()=>TIPONSync.kick());
+  attach('terminalLogRows','click',editAttendanceFromLog);attach('terminalLogRows','click',deleteAttendanceFromLog);attach('terminalLogRows','click',openAttendanceReview);
+  attach('attendanceReviewRetry','click',retryAttendanceReview);attach('attendanceReviewClose','click',()=> $('attendanceReviewDialog').close());
  attach('kioskFullscreen','click',async()=>{try{if(document.fullscreenElement){await document.exitFullscreen();return;}if(!document.documentElement.requestFullscreen)throw Error('Full screen is unavailable in this browser.');await document.documentElement.requestFullscreen();}catch(e){showToast(e.message,'error');}});
  document.addEventListener('fullscreenchange',()=>document.body.classList.toggle('terminal-fullscreen',!!document.fullscreenElement&&state.page==='scanner'));
  attach('addMember','click',()=>openMemberForm(null));attach('memberRows','click',handleMemberTableClick);
