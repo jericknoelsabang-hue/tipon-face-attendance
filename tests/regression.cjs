@@ -22,6 +22,27 @@ test('Time In/Out pairs across devices; duplicate and early punches are blocked'
   assert.equal(Core.transition([input],'TEST-1','out',Date.parse(output.timestamp)).type,'OUT');
   assert.equal(Org.project([{...input,deleted:true},{...output,deleted:true}]).length,0);
 });
+test('Previous-day Time Out automatically starts the new Philippine day with Time In',()=>{
+  const yesterdayOut=event('out-yesterday','OUT','2026-10-28T08:41:00Z');
+  const now=Date.parse('2026-10-29T05:51:00Z');
+  const tx=Core.transition([yesterdayOut],'TEST-1','out',now);
+  assert.equal(tx.type,'IN');
+  assert.equal(tx.mode,'in');
+  assert.equal(tx.dateSwitched,true);
+  assert.equal(tx.previousDay,'2026-10-28');
+  assert.equal(tx.currentDay,'2026-10-29');
+});
+test('Same-day duplicate Time Out remains blocked after date-aware mode resolution',()=>{
+  const todayOut=event('out-today','OUT','2026-10-29T05:30:00Z');
+  assert.throws(()=>Core.transition([todayOut],'TEST-1','out',Date.parse('2026-10-29T05:51:00Z')),/Already timed out today/);
+});
+test('Open overnight Time In from the previous Philippine date can still be closed with Time Out',()=>{
+  const overnightIn=event('in-overnight','IN','2026-10-28T23:00:00Z');
+  const tx=Core.transition([overnightIn],'TEST-1','out',Date.parse('2026-10-29T08:00:00Z'));
+  assert.equal(tx.type,'OUT');
+  assert.equal(tx.mode,'out');
+  assert.equal(tx.dateSwitched,false);
+});
 test('Open-session attendance correction synchronizes a synthetic Time Out event',async()=>{
   const input={...event('open-in','IN','2026-10-28T01:00:00Z'),sessionId:'session-1'};
   const punches=[input];
@@ -170,7 +191,7 @@ test('Fully closed eyes advance the blink challenge; a stationary face cannot pa
   const staticFace=ctx.TIPONLiveness.challenge();for(let i=1;i<=20;i++)ctx.TIPONLiveness.advance(staticFace,face(.25),staticFace.started+i*150);
   assert.equal(staticFace.passed,false);
 });
-test('Attendance capture restores Oct 28 5 PM flow; enrollment liveness stays separate',()=>{
+test('Attendance capture restores Oct 28 9 AM flow; enrollment liveness stays separate',()=>{
   const app=source('app.js'),liveness=source('liveness-guard.js'),html=source('index.html');
   assert.match(app,/const SCAN_DELAY_MS=650;/);
   const start=app.indexOf('async function scanTick(){'),end=app.indexOf('function canQueueUnresolvedTimeOut(');
@@ -183,7 +204,7 @@ test('Attendance capture restores Oct 28 5 PM flow; enrollment liveness stays se
   assert.match(liveness,/state\.enrollLiveness=challenge\(\)/);
   const record=app.slice(app.indexOf('async function recordRecognizedFace('),app.indexOf('async function recordRecognizedFace(')+500);
   assert.doesNotMatch(record,/Live Verification Required|const proof/);
-  assert.match(html,/liveness-guard\.js\?v=5542/);
+  assert.match(html,/liveness-guard\.js\?v=5543/);
 });
 test('Attendance editor validates real dates and preserves Philippine time and overnight dates',()=>{
   const app=source('app.js'),code=app.slice(app.indexOf('function attendanceInputStamp('),app.indexOf('async function submitAttendanceEdit('));
@@ -196,17 +217,19 @@ test('Attendance editor validates real dates and preserves Philippine time and o
 });
 test('Published assets share one release version and pagination controls cannot overflow',()=>{
   const html=source('index.html'),sw=source('sw.js'),release=JSON.parse(source('release.json'));
-  assert.equal(release.version,'5.5.42');
-  assert.match(sw,/const VERSION='5\.5\.42';/);
-  assert.match(sw,/tipon-face-shell-v5\.5\.42-github-only/);
-  assert.match(html,/app\.js\?v=5542/);
-  assert.match(html,/liveness-guard\.js\?v=5542/);
+  assert.equal(release.version,'5.5.43');
+  assert.match(sw,/const VERSION='5\.5\.43';/);
+  assert.match(sw,/tipon-face-shell-v5\.5\.43-github-only/);
+  assert.match(html,/core\.js\?v=5543/);
+  assert.match(html,/app\.js\?v=5543/);
+  assert.match(html,/liveness-guard\.js\?v=5543/);
+  assert.match(source('app.js'),/const MATCH_LIMIT=\.60;/);
   assert.match(html,/id="captureEnrollmentSample"/);
   assert.match(html,/id="memberSiteSummary"[^>]+aria-required="true"/);
   assert.doesNotMatch(html,/Assigned Work Location <span class="field-optional">\(Optional\)/);
   assert.doesNotMatch(source('app.js'),/prompt\(['"]Reason for deleting this attendance session/);
-  assert.ok(html.includes('style.css?v=5542'));
-  assert.ok(html.includes('polish.css?v=5542'));
+  assert.ok(html.includes('style.css?v=5543'));
+  assert.ok(html.includes('polish.css?v=5543'));
   assert.match(source('polish.css'),/\.admin-list-pager-actions/);
   assert.ok(source('polish.css').includes('#adminMemberDialog input'));
   const reviewStart=html.indexOf('<div class="ab-review-heading">'),reviewEnd=html.indexOf('</section>',reviewStart),review=html.slice(reviewStart,reviewEnd);

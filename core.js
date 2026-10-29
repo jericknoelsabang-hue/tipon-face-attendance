@@ -58,15 +58,30 @@
       return (!from || day >= from) && (!to || day <= to) && (!site || r.siteId === site);
     });
   }
+  function resolveModeForDate(punches, memberId, mode, now = Date.now()) {
+    if (!['in','out'].includes(mode)) throw Error('Choose Time In or Time Out.');
+    const last = punches.filter(p => !p.deleted&&p.reviewStatus!=='rejected'&&String(p.memberId) === String(memberId))
+      .sort((a,b) => epoch(b.timestamp) - epoch(a.timestamp))[0];
+    const currentDay = phStamp(new Date(now).toISOString()).slice(0,10);
+    const previousDay = last ? phStamp(last.timestamp).slice(0,10) : '';
+    // If the previous shift was already closed on an earlier Philippine date,
+    // a stale Time Out selection starts the new day's shift with Time In.
+    // An overnight Time In is intentionally left open so the next-day Time Out remains possible.
+    const switched = mode === 'out' && last?.type === 'OUT' && previousDay < currentDay;
+    return {mode:switched?'in':mode,switched,last,previousDay,currentDay};
+  }
   function transition(punches, memberId, mode, now = Date.now(), cooldown = 90000) {
-    if (!['in','out'].includes(mode)) throw Error('Choose Time In or Time Out. Auto mode is not available.');
-    const last = punches.filter(p => !p.deleted&&p.reviewStatus!=='rejected'&&String(p.memberId) === String(memberId)).sort((a,b) => epoch(b.timestamp) - epoch(a.timestamp))[0];
+    const resolved = resolveModeForDate(punches, memberId, mode, now);
+    mode = resolved.mode;
+    const last = resolved.last;
     const type = mode.toUpperCase();
     if (last && epoch(last.timestamp) > now) throw Error('Device clock is earlier than the previous attendance. Correct the clock first.');
-    if (last?.type === type) throw Error(type === 'IN' ? 'Already timed in. Select Time Out after the shift.' : 'Already timed out. Select Time In for the next shift.');
+    if (last?.type === type) throw Error(type === 'IN' ? 'Already timed in. Select Time Out after the shift.' : 'Already timed out today. Select Time In for the next shift.');
     if (type === 'OUT' && !last) throw Error('No Time In on this device. Use the same attendance phone for both punches.');
-    if (last && now - epoch(last.timestamp) < cooldown) throw Error('Duplicate protection: wait at least 90 seconds between punches.');
-    return {type,last};
+    const lastDay = last ? phStamp(last.timestamp).slice(0,10) : '';
+    if (last && lastDay === resolved.currentDay && now - epoch(last.timestamp) < cooldown)
+      throw Error('Duplicate protection: wait at least 90 seconds between punches.');
+    return {type,last,mode,dateSwitched:resolved.switched,previousDay:resolved.previousDay,currentDay:resolved.currentDay};
   }
-  return {HEADERS, phStamp, serial, normalize, publicEvent, rows, table, filterRows, transition};
+  return {HEADERS, phStamp, serial, normalize, publicEvent, rows, table, filterRows, resolveModeForDate, transition};
 });
