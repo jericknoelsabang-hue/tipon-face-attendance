@@ -1146,7 +1146,7 @@ async function loadFaceModels(){
  try{await state.facePromise;}catch(e){state.facePromise=null;setText('scannerModelState','AI: Setup required');throw e;}
 }
 async function getCameraStream(context='scan'){return TIPONCamera.open(context);}
-function optionsFace(){return new faceapi.TinyFaceDetectorOptions({inputSize:320,scoreThreshold:.45});}
+function optionsFace(){return new faceapi.TinyFaceDetectorOptions({inputSize:256,scoreThreshold:.40});}
 async function detectFaces(video){return await faceapi.detectAllFaces(video,optionsFace()).withFaceLandmarks(true).withFaceDescriptors();}
 function euclidean(a,b){let sum=0;for(let i=0;i<a.length;i++)sum+=(a[i]-b[i])**2;return Math.sqrt(sum);}
 function nearestMember(descriptor){let best,second;for(const member of state.members){if(member.active===false||member.deleted||!(member.descriptors?.length>=3))continue;let distance=Infinity;for(const vector of member.descriptors)distance=Math.min(distance,euclidean(vector,descriptor));const match={member,distance};if(!best||distance<best.distance){second=best;best=match;}else if(!second||distance<second.distance)second=match;}return {best,second};}
