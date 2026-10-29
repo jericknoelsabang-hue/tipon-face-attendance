@@ -1,5 +1,5 @@
 {
   "app": "TIPON Face Attendance",
-  "version": "5.5.41",
-  "label": "Attendance now requires one blink after face matching; transient GPS failures retry once; Time Out fallback no longer converts duplicate Time Outs into new punches; local attendance transitions are scoped to the current organization."
+  "version": "5.5.42",
+  "label": "Restores the Oct 28 5 PM attendance face capture flow: two consecutive enrolled-face matches call attendance recording without a blink challenge. GPS/work-location, account, duplicate-punch and central synchronization checks remain. Enrollment liveness challenge is retained."
 }
