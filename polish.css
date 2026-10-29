@@ -78,3 +78,11 @@
 
 .location-unavailable{opacity:.62}
 .location-unavailable input{cursor:not-allowed}
+
+
+.attendance-live-sync{margin:7px 0 0;font-size:12px;line-height:1.5;color:#526b80}
+.attendance-live-sync[data-state="connected"]{color:#13764c}
+.attendance-live-sync[data-state="offline"],.attendance-live-sync[data-state="waiting"]{color:#9a6510}
+.attendance-live-sync[data-state="syncing"]{color:#1769a4}
+
+.attendance-live-sync[data-state="warning"]{color:#9a6510}
