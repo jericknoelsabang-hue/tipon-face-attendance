@@ -39,6 +39,21 @@ function tp5TransferLocationIds_(coop,platform,value){
   });
   return ids;
 }
+/** Return only the active Work Location fields needed to transfer a member.
+ * This is available only while the requesting User still has access to the source member.
+ */
+function tp5UserMemberTransferLocations_(actor,q){
+  tp5Must_(actor.role==='registrar','An approved User account is required.','FORBIDDEN');
+  var id=TIPONOrgCore.clean(q.memberId,120),member=tp5Find_('members',id);
+  tp5Must_(member&&!member.deleted,'Member was not found. Refresh Member List.','NOT_FOUND');
+  tp5Must_(TIPONOrgCore.inScope(actor,member),'Member is outside your approved scope.','FORBIDDEN');
+  var sites=tp5Read_('sites').filter(function(site){return site&&!site.deleted;}).map(function(site){
+    return {id:site.id,name:site.name,coop:site.coop,platform:site.platform,
+      address:site.address||'',lat:Number(site.lat),lng:Number(site.lng),
+      radius:Number(site.radius)||150,rev:Number(site.rev)||0};
+  });
+  return tp5Reply_({sites:sites,catalogVersion:Number(tp5Props_().getProperty('TP5_CATALOG_VERSION')||0)});
+}
 /** User may transfer a member currently in their approved scope to another MPC/BP.
  * The target Work Location must already exist centrally; attendance and face history
  * remain attached to the same Member ID. The open-session guard prevents mid-shift moves.
