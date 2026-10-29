@@ -1,4 +1,4 @@
-# TIPON KABILANG v5.5.33 — Deployment status and checklist
+# TIPON KABILANG v5.5.34 — Deployment status and checklist
 
 GitHub Pages deploys the public frontend automatically. The private Google Apps Script backend is separate and must be updated in the **existing** Apps Script project.
 
