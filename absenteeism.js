@@ -72,8 +72,8 @@ window.TIPONAbsenteeism=(()=>{
     if(schedule.kind==='REQUIRED'&&Number.isFinite(schedule.end)&&now>schedule.end)awolMembers.push(member);
    }
    const tally=shifts.get(day)||{hours:0,complete:0,open:0};
-   const openSessions=[...sessions.values()].filter(session=>session.start!==null&&session.end===null&&
-    ph(new Date(session.start).toISOString())===day).map(session=>({...session,member:byId.get(session.memberId)})).filter(session=>session.member);
+   const openSessions=day===endDay?[...sessions.values()].filter(session=>session.start!==null&&session.end===null&&
+    ph(new Date(session.start).toISOString())<=day).map(session=>({...session,member:byId.get(session.memberId)})).filter(session=>session.member):[];
    return {day,eligible:roster.length,present,noIn:missing.length,outOnly:outOnly.length,leave:leave.length,
     provisional:awolMembers.length,hours:tally.hours,complete:tally.complete,open:openSessions.length,
     missing,outOnlyMembers:outOnly,awolMembers,openSessions};
@@ -89,9 +89,8 @@ window.TIPONAbsenteeism=(()=>{
    hours:a.hours+row.hours,complete:a.complete+row.complete
   }),{eligibleMemberDays:0,presentMemberDays:0,missingMemberDays:0,leaveMemberDays:0,awolMemberDays:0,hours:0,complete:0});
   const awolIds=new Set(rows.flatMap(row=>row.awolMembers.map(m=>String(m.id))));
-  const open=[...sessions.values()].filter(session=>session.start!==null&&session.end===null).filter(session=>{
-   const day=ph(new Date(session.start).toISOString());return day>=startDay&&day<=endDay;
-  });
+  const open=[...sessions.values()].filter(session=>session.start!==null&&session.end===null&&
+   ph(new Date(session.start).toISOString())<=endDay);
   const summary={...sum,awolCount:awolIds.size,open:open.length};
   return {rows,focus,registered,unenrolled:Math.max(0,registered-(focus?.eligible||0)),
    coverage:pct(sum.presentMemberDays,sum.eligibleMemberDays),noInRate:pct(sum.missingMemberDays,sum.eligibleMemberDays),
