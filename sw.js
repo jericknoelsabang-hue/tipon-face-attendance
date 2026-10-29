@@ -1,7 +1,7 @@
-/* TIPON 5.5.44 GitHub Pages shell. Application/AI caches only; server bridge posts are never intercepted. */
+/* TIPON 5.5.45 GitHub Pages shell. Application/AI caches only; server bridge posts are never intercepted. */
 'use strict';
-const VERSION='5.5.44';
-const SHELL='tipon-face-shell-v5.5.44-github-only',AI='tipon-face-remote-v1';
+const VERSION='5.5.45';
+const SHELL='tipon-face-shell-v5.5.45-github-only',AI='tipon-face-remote-v1';
 const FILES=['./polish.css','./','./index.html','./config.js','./liveness-guard.js','./style.css','./organization.css','./gas-bridge.js','./core.js','./org-core.js','./exporter.js','./app.js','./auth.js','./sync.js','./organization.js','./absenteeism.js','./absenteeism.css','./admin-member-editor.js','./member-location-capability.js','./admin-sites.js','./site-scope.js','./camera.js','./platforms.js','./login-workers.webp','./tipon-login-reference-hd.webp','./logo.png','./icon-192.png','./icon-512.png','./apple-touch-icon.png','./manifest.webmanifest'];
 self.addEventListener('install',event=>event.waitUntil((async()=>{
   const cache=await caches.open(SHELL);
@@ -13,6 +13,14 @@ self.addEventListener('activate',event=>event.waitUntil((async()=>{
   // Never change IndexedDB, localStorage, account keys or offline AI cache here.
   await Promise.all((await caches.keys()).filter(k=>k.startsWith('tipon-face-shell-')&&k!==SHELL).map(k=>caches.delete(k)));
   await self.clients.claim();
+  // A stale open tab can keep executing yesterday's JavaScript even after this
+  // worker controls it. Reload same-origin app tabs once per shell activation so
+  // the new index.html and versioned assets actually run. IndexedDB records remain.
+  const windows=await self.clients.matchAll({type:'window',includeUncontrolled:true});
+  await Promise.all(windows.filter(client=>{
+    try{const url=new URL(client.url);return url.origin===self.location.origin&&!/\\/update\\.html$/.test(url.pathname);}
+    catch{return false;}
+  }).map(async client=>{try{await client.navigate(client.url);}catch(_){}}));
 })()));
 self.addEventListener('message',event=>{
   if(!event.source||new URL(event.source.url).origin!==self.location.origin)return;
