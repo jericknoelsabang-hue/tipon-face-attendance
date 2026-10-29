@@ -134,7 +134,7 @@ window.TIPONAbsenteeism=(()=>{
    const awol=new Set(row.awolMembers.map(m=>String(m.id)));
    row.outOnlyMembers.forEach(member=>add(member,row.day,'Time Out Found — Check Sync'));
    row.missing.forEach(member=>add(member,row.day,awol.has(String(member.id))?'AWOL — Verify Schedule':'Time In Not Verified'));
-   row.openSessions.forEach(session=>add(session.member,row.day,'Open Time In',session.sessionId));
+   row.openSessions.forEach(session=>add(session.member,ph(new Date(session.start).toISOString()),'Open Time In',session.sessionId));
   }
   return [...records.values()].sort((a,b)=>b.day.localeCompare(a.day)||
    String(a.member.name||'').localeCompare(String(b.member.name||''))||a.flag.localeCompare(b.flag));
