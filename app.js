@@ -1300,7 +1300,7 @@ async function recordRecognizedFace(member,faceDistance){
   if(window.TIPONSync)TIPONSync.kick();
  }catch(err){
    const message=String(err?.message||err);
-   const retryableGps=/GPS timed out|Current location unavailable|GPS fix is missing, stale, or invalid|GPS accuracy \\d+ m is too poor|Nearest assigned work location is \\d+ m away/i.test(message);
+   const retryableGps=/GPS timed out|Current location unavailable|GPS fix is missing, stale, or invalid|GPS accuracy \d+ m is too poor|Nearest assigned work location is \d+ m away/i.test(message);
    state.scanArmed=false;state.lastRecognized=member.id;state.scanCandidate=null;
    state.scanCandidateCount=0;state.scanLiveness=null;state.livenessProof=null;
    // Retry a transient GPS reading once. Every retry still runs the full
