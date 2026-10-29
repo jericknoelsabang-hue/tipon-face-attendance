@@ -62,6 +62,14 @@ function toastError(err,prefix='Error'){console.error(prefix,err);showToast(`${p
 function downloadBlob(name,blob){const a=document.createElement('a');const u=URL.createObjectURL(blob);a.href=u;a.download=name;document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(u),15000);}
 function pageIcon(name){return `<svg class="icon"><use href="#i-${name}"/></svg>`;}
 function attach(id,event,fn){const el=$(id);if(el)el.addEventListener(event,fn);}
+async function waitForCameraFrame(video,timeoutMs=8000){
+ const started=Date.now();
+ while(Date.now()-started<timeoutMs){
+  if(video.readyState>=2&&video.videoWidth>0&&video.videoHeight>0)return;
+  await new Promise(resolve=>setTimeout(resolve,120));
+ }
+ throw Error('Camera opened but no video frame arrived. Select another available camera, close other camera apps, and retry.');
+}
 
 function openDB(){return new Promise((resolve,reject)=>{
   const r=indexedDB.open(DB_NAME,2);
@@ -1203,7 +1211,7 @@ async function startScanner(){if(!hasTerminalSession()){showToast('Face Terminal
  startGPSWatch();state.scanBusy=true;$('startCamera').disabled=true;updateScanResult('Preparing camera…','Loading available cameras and automatic GPS verification.','neutral');
  try{
    await loadFaceModels();if(!hasTerminalSession()||state.scanRun!==run||state.page!=='scanner'||document.hidden)return;const stream=await getCameraStream();if(!hasTerminalSession()||state.scanRun!==run||state.page!=='scanner'||document.hidden){stream.getTracks().forEach(t=>t.stop());return;}state.scanStream=stream;
-   const v=$('scanVideo');v.srcObject=stream;await v.play();
+   const v=$('scanVideo');v.srcObject=stream;await v.play();await waitForCameraFrame(v);
    if(!hasTerminalSession()||state.scanRun!==run||state.page!=='scanner'||document.hidden){
      stream.getTracks().forEach(t=>t.stop());if(v.srcObject===stream){v.pause();v.srcObject=null;}if(state.scanStream===stream)state.scanStream=null;return;
    }
@@ -1418,8 +1426,8 @@ async function beginEnrollment(){
  const run=(state.enrollRun||0)+1;state.enrollRun=run;TIPONCamera.render();
  setText('enrollCount','0 / 3 samples');setText('enrollStatus','Preparing live detection. Face the camera, keep both eyes open briefly, then blink slowly (close for one second and reopen).');$('enrollProgress').style.width='0%';$('retryEnrollment').hidden=true;
  try{await loadFaceModels();if(!state.enrollActive||state.enrollRun!==run)return;
-  const stream=await getCameraStream('enroll');if(!state.enrollActive||state.enrollRun!==run||document.hidden){stream.getTracks().forEach(t=>t.stop());return;}state.enrollStream=stream;const v=$('enrollVideo');v.srcObject=stream;await v.play();enrollTick();
- }catch(err){setText('enrollStatus',err.message);$('retryEnrollment').hidden=false;toastError(err,'Enrollment camera');}
+  const stream=await getCameraStream('enroll');if(!state.enrollActive||state.enrollRun!==run||document.hidden){stream.getTracks().forEach(t=>t.stop());return;}state.enrollStream=stream;const v=$('enrollVideo');v.srcObject=stream;await v.play();await waitForCameraFrame(v);enrollTick();
+ }catch(err){state.enrollStream?.getTracks().forEach(track=>track.stop());state.enrollStream=null;$('enrollVideo').pause();$('enrollVideo').srcObject=null;setText('enrollStatus',err.message);$('retryEnrollment').hidden=false;toastError(err,'Enrollment camera');}
 }
 async function enrollTick(){if(!state.enrollActive)return;const run=state.enrollRun;
  try{

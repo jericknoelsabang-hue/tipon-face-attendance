@@ -1,5 +1,5 @@
 {
   "app": "TIPON Face Attendance",
-  "version": "5.5.46",
-  "label": "Aligns face-match checks with the server limit and lets users retry after a rejected punch. Keeps the local attendance event for review, while excluding rejected events from active Time In/Out state."
+  "version": "5.5.47",
+  "label": "Improves camera startup feedback, warns before idle sign-out, requests reconnect sync, and fits mobile viewport safe areas."
 }

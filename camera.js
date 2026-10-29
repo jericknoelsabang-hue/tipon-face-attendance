@@ -9,13 +9,17 @@ window.TIPONCamera=(()=>{
     const stored=await getOne('meta','tp51-camera-preferences');
     for(const context of ['scan','enroll'])if(supported(stored?.[context]))preferences[context]=stored[context];
     try{devices=(await navigator.mediaDevices?.enumerateDevices?.()||[]).filter(d=>d.kind==='videoinput'&&d.deviceId);}catch{}
+    // Prefer an enumerated device on first use; desktop cameras rarely expose
+    // an environment-facing camera even though they are perfectly usable.
+    if(!stored?.scan&&devices[0])preferences.scan='device:'+devices[0].deviceId;
+    if(!stored?.enroll&&devices[0])preferences.enroll='device:'+devices[0].deviceId;
     render();
   }
   function label(context){return actual[context]?.label||friendly(preferences[context]);}
   function render(){
     for(const context of ['scan','enroll']){
       const select=$(ids[context]);if(!select)continue;
-      const options=[{value:'environment',label:'Back camera'},{value:'user',label:'Front camera'},...devices.map((d,i)=>({value:'device:'+d.deviceId,label:d.label||'Camera '+(i+1)}))];
+      const options=devices.length?devices.map((d,i)=>({value:'device:'+d.deviceId,label:d.label||'Camera '+(i+1)})):[{value:preferences[context],label:'Automatic available camera'}];
       if(!options.some(o=>o.value===preferences[context]))options.push({value:preferences[context],label:'Previously selected camera'});
       const html=options.map(o=>`<option value="${esc(o.value)}">${esc(o.label)}</option>`).join('');
       if(select.innerHTML!==html)select.innerHTML=html;
@@ -35,7 +39,7 @@ window.TIPONCamera=(()=>{
     try{devices=(await navigator.mediaDevices.enumerateDevices()).filter(d=>d.kind==='videoinput'&&d.deviceId);render();}catch{}
     const choice=preferences[context]||'environment';
     const base={width:{ideal:640},height:{ideal:480},frameRate:{ideal:15,max:30}};
-    const exact=choice.startsWith('device:')?{deviceId:{exact:choice.slice(7)}}:{facingMode:{exact:choice}};
+    const exact=choice.startsWith('device:')?{deviceId:{exact:choice.slice(7)}}:{facingMode:{ideal:choice}};
     let stream,fallback=false;
     try{
       try{stream=await navigator.mediaDevices.getUserMedia({audio:false,video:{...base,...exact}});}

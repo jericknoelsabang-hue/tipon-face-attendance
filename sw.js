@@ -1,7 +1,7 @@
-/* TIPON 5.5.46 GitHub Pages shell. Application/AI caches only; server bridge posts are never intercepted. */
+/* TIPON 5.5.47 GitHub Pages shell. Application/AI caches only; server bridge posts are never intercepted. */
 'use strict';
-const VERSION='5.5.46';
-const SHELL='tipon-face-shell-v5.5.46-github-only',AI='tipon-face-remote-v1';
+const VERSION='5.5.47';
+const SHELL='tipon-face-shell-v5.5.47-github-only',AI='tipon-face-remote-v1';
 const FILES=['./polish.css','./','./index.html','./config.js','./liveness-guard.js','./style.css','./organization.css','./gas-bridge.js','./core.js','./org-core.js','./exporter.js','./app.js','./auth.js','./sync.js','./organization.js','./absenteeism.js','./absenteeism.css','./admin-member-editor.js','./member-location-capability.js','./admin-sites.js','./site-scope.js','./camera.js','./platforms.js','./login-workers.webp','./tipon-login-reference-hd.webp','./logo.png','./icon-192.png','./icon-512.png','./apple-touch-icon.png','./manifest.webmanifest'];
 self.addEventListener('install',event=>event.waitUntil((async()=>{
   const cache=await caches.open(SHELL);
@@ -26,6 +26,14 @@ self.addEventListener('message',event=>{
   if(!event.source||new URL(event.source.url).origin!==self.location.origin)return;
   if(event.data?.type==='TIPON_RELEASE')event.ports[0]?.postMessage({version:VERSION,shell:SHELL});
   if(event.data?.type==='TIPON_APPLY_UPDATE')event.waitUntil(self.skipWaiting());
+});
+self.addEventListener('sync',event=>{
+  if(event.tag!=='tipon-attendance-sync')return;
+  event.waitUntil((async()=>{
+    // Tokens stay in the active page's memory; wake an open app to upload.
+    const clients=await self.clients.matchAll({type:'window',includeUncontrolled:true});
+    for(const client of clients)client.postMessage({type:'TIPON_SYNC_REQUEST'});
+  })());
 });
 self.addEventListener('fetch',event=>{
   const request=event.request,url=new URL(request.url);

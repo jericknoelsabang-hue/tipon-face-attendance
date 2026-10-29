@@ -6,7 +6,9 @@
 window.TIPONAuth=(()=>{
   let session=null,signing=false,registrationGpsAccuracy=null;
   const INACTIVITY_MS=90*1000;
+  const IDLE_WARNING_MS=75*1000;
   let idleSignoutRunning=false,lastActivityPersist=0,activityPersistTimer=null,logoutInProgress=false;
+  let idleWarningShownFor=0;
   function inactivityExceeded(value,now=Date.now()){
     const last=Number(value?.lastActivityAt||0);
     return !last||!Number.isFinite(last)||last>now+300000||now-last>=INACTIVITY_MS;
@@ -24,6 +26,8 @@ window.TIPONAuth=(()=>{
     const now=Date.now();
     if(inactivityExceeded(session,now)){void checkIdleSession();return;}
     session.lastActivityAt=now;
+    const idleDialog=$('idleWarningDialog');
+    if(idleDialog?.open&&(!event?.target||!idleDialog.contains(event.target))){idleDialog.close();idleWarningShownFor=0;}
     if(now-lastActivityPersist>=7000){lastActivityPersist=now;persistRecentActivity();}
   }
   async function checkIdleSession(){
@@ -31,6 +35,15 @@ window.TIPONAuth=(()=>{
     idleSignoutRunning=true;
     try{await signOut('idle');return true;}
     finally{idleSignoutRunning=false;}
+  }
+  function checkIdleWarning(){
+    if(!session||idleSignoutRunning||document.hidden||!Number.isFinite(Number(session.lastActivityAt)))return;
+    const idleFor=Date.now()-Number(session.lastActivityAt);
+    if(idleFor>=INACTIVITY_MS){void checkIdleSession();return;}
+    if(idleFor>=IDLE_WARNING_MS&&idleWarningShownFor!==Number(session.lastActivityAt)){
+      idleWarningShownFor=Number(session.lastActivityAt);
+      const dialog=$('idleWarningDialog');if(dialog&&!dialog.open)dialog.showModal();
+    }
   }
   const enc=new TextEncoder(),dec=new TextDecoder();
   const hex=a=>Array.from(a,b=>b.toString(16).padStart(2,'0')).join('');
@@ -169,6 +182,7 @@ window.TIPONAuth=(()=>{
     if(!session||logoutInProgress)return;
     logoutInProgress=true;
     const old=session;session=null;
+    idleWarningShownFor=0;
     TIPONSync.stop();
     if(activityPersistTimer){clearTimeout(activityPersistTimer);activityPersistTimer=null;}
     try{await stopScanner();}catch(error){console.warn('Scanner cleanup failed during logout.',error);}
@@ -234,6 +248,8 @@ window.TIPONAuth=(()=>{
     attach('registrationForm','submit',register);attach('registerAccountType','change',updateRegistrationFields);updateRegistrationFields();attach('registerUseGps','click',()=>{if(!navigator.geolocation){setText('registrationStatus','GPS is not available on this device.');return;}setText('registrationStatus','Getting current kiosk GPS...');navigator.geolocation.getCurrentPosition(p=>{$('registerOfficeLat').value=p.coords.latitude.toFixed(7);$('registerOfficeLng').value=p.coords.longitude.toFixed(7);registrationGpsAccuracy=p.coords.accuracy;setText('registrationStatus','Kiosk GPS captured. Accuracy '+Math.round(p.coords.accuracy)+' m.');},e=>setText('registrationStatus',e.message),{enableHighAccuracy:true,timeout:15000,maximumAge:0});});attach('logoutButton','click',signOut);attach('logoutMobile','click',signOut);attach('changePasswordForm','submit',changePassword);
     attach('showPassword','click',()=>{$('loginPassword').type=$('loginPassword').type==='password'?'text':'password';});
     attach('authDiagnostics','click',verifyOrganizationConnection);
+    attach('idleContinueButton','click',()=>{touchActivity();});
+    attach('idleSignOutButton','click',()=>{void signOut();});
     const restored=await restoreSession();if(restored){try{await signedIn(restored,{freshLogin:false});status('');return;}catch(error){console.warn('Could not resume the saved session.',error);}}
     $('appShell').hidden=true;$('mobileNav').hidden=true;$('loginPage').hidden=false;
     // Only perform a health request when the connection card is clicked:
@@ -248,7 +264,7 @@ window.TIPONAuth=(()=>{
     await originalInit();
     // Only actual user interactions extend the login session.
     // Camera frames, synchronization, and background refreshes do not extend it.
-    for(const type of ['pointerdown','keydown','touchstart','wheel','scroll']){
+    for(const type of ['pointerdown','pointermove','keydown','touchstart','wheel','scroll']){
       document.addEventListener(type,touchActivity,{capture:true,passive:true});
     }
     document.addEventListener('visibilitychange',()=>{
@@ -264,6 +280,7 @@ window.TIPONAuth=(()=>{
         return;
       }
       void checkIdleSession();
+      checkIdleWarning();
     },2000);
   };
   return {init,login,signOut,ensureOnline,current:()=>session,seal,unseal,randomSalt,proof,touchActivity,checkIdleSession,inactivityExceeded};

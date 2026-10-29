@@ -47,7 +47,12 @@ window.TIPONSync=(()=>{
     const seconds=siteFastRetry>0&&siteFastRetry<=3&&attempt===0?4200:Math.min(300000,base*2**attempt)+Math.floor(Math.random()*3000);
     timer=setTimeout(run,seconds);
   }
-  function kick(){clearTimeout(timer);if(!stopped)timer=setTimeout(run,100);render();}
+  function requestBackgroundSync(){
+    const hasPendingAttendance=state.punches.some(p=>p.orgId===state.orgId&&!p.cloudAck&&!p.reviewStatus&&p.deviceId===state.deviceId);
+    if(!hasPendingAttendance||!('serviceWorker' in navigator)||!('SyncManager' in window))return;
+    navigator.serviceWorker.ready.then(registration=>registration.sync?.register('tipon-attendance-sync')).catch(()=>{});
+  }
+  function kick(){clearTimeout(timer);if(!stopped)timer=setTimeout(run,100);requestBackgroundSync();render();}
   async function markOps(reply){
     const all=await getAll('outbox');
     for(const id of reply.ackOps||[]){const item=all.find(x=>x.id===id);if(!item)continue;const receipt=(reply.receipts||[]).find(x=>x.type===item.type&&x.id===item.value.id);
@@ -496,7 +501,8 @@ window.TIPONSync=(()=>{
   }
   async function init(){
     attach('syncNow','click',kick);attach('syncRecordsNow','click',kick);
-    window.addEventListener('online',kick);window.addEventListener('offline',render);document.addEventListener('visibilitychange',()=>{if(!document.hidden)kick();});render();
+    window.addEventListener('online',kick);window.addEventListener('offline',render);document.addEventListener('visibilitychange',()=>{if(!document.hidden)kick();});
+    navigator.serviceWorker?.addEventListener('message',event=>{if(event.data?.type==='TIPON_SYNC_REQUEST')kick();});render();
   }
   return {init,start,stop,kick,render,run,submitPendingNow,pauseSite,waitUntilIdle,isBusy:()=>busy,lastSuccessfulSync:()=>lastSync};
 })();
