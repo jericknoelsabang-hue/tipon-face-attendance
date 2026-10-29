@@ -1,4 +1,4 @@
-/* TIPON 5.5.31 GitHub Pages shell. Application/AI caches only; server bridge posts are never intercepted. */
+/* TIPON 5.5.32 GitHub Pages shell. Application/AI caches only; server bridge posts are never intercepted. */
 'use strict';
 const VERSION='5.5.31';
 const SHELL='tipon-face-shell-v5.5.31-github-only',AI='tipon-face-remote-v1';
