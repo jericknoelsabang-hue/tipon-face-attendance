@@ -159,6 +159,9 @@
   beginEnrollment=async function(...args){
     state.enrollLiveness=challenge();
     state.enrollFaceMissing=0;
+    state.enrollReadyDescriptor=null;
+    const capture=$('captureEnrollmentSample');
+    if(capture){capture.disabled=true;capture.textContent='Capture Sample 1';}
     return originalBeginEnrollment(...args);
   };
   async function captureEnrollmentSample(){
