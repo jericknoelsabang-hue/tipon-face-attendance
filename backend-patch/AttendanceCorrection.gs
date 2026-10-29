@@ -11,14 +11,14 @@
 function tp5ProjectAttendanceSafe_(events){
   var sessions=new Map(),seenIds=new Set();
   (events||[]).forEach(function(event){
-    if(!event||event.deleted||event.reviewStatus==='rejected'||seenIds.has(String(event.id)))return;
+    if(!event||event.deleted||event.reviewStatus==='rejected'||!['IN','OUT'].includes(event.type)||seenIds.has(String(event.id)))return;
     seenIds.add(String(event.id));
     var key=String(event.sessionId||event.id),current=sessions.get(key);
     if(!current){sessions.set(key,[event]);return;}
     var sameDirection=current.find(function(item){return item.type===event.type;});
     if(!sameDirection){current.push(event);return;}
     var previous=Date.parse(sameDirection.timestamp),next=Date.parse(event.timestamp);
-    if(event.type==='IN'?next<previous:next>previous){
+    if(!Number.isFinite(previous)||Number.isFinite(next)&&(event.type==='IN'?next<previous:next>previous)){
       current[current.indexOf(sameDirection)]=event;
     }
   });
