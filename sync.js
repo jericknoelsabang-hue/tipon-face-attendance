@@ -14,7 +14,7 @@ window.TIPONAPI=(()=>{
   return {raw,call};
 })();
 window.TIPONSync=(()=>{
-  let busy=false,timer=null,attempt=0,message='Sign in to enable organization sync.',lastSync='',stopped=true,activeRun=null,siteFastRetry=0;
+  let busy=false,timer=null,attempt=0,message='Sign in to enable organization sync.',lastSync='',stopped=true,activeRun=null,siteFastRetry=0,eventVersionSupported=null;
   // Pause a single Work Location while an Administrator resolves a stale outbox
   // operation against an authoritative central snapshot. Other locations and
   // attendance events continue to synchronize normally.
@@ -33,12 +33,12 @@ window.TIPONSync=(()=>{
   function render(){
     const s=TIPONAuth.current();const pending=state.punches.filter(p=>p.orgId===state.orgId&&!p.cloudAck&&!p.reviewStatus).length;
     const review=state.punches.filter(p=>p.reviewStatus).length;
-    const liveStatus=!s?'Sign in to connect this device to central attendance.':!navigator.onLine?'Offline. New punches stay saved on this device until it reconnects.':busy?'Syncing attendance, members, and work locations…':lastSync?'Last central sync: '+lastSync+'. Automatic updates run while this app is open.':message;
+    const liveStatus=!s?'Sign in to connect this device to central attendance.':!navigator.onLine?'Offline. New punches stay saved on this device until it reconnects.':eventVersionSupported===false?'Connected, but the server does not report attendance correction updates. Cross-device edits/deletes may need an Apps Script update.':busy?'Syncing attendance, members, and work locations…':lastSync?'Last central sync: '+lastSync+'. Automatic updates run while this app is open.':message;
     setText('attendanceLogSyncStatus',liveStatus);
-    if($('attendanceLogSyncStatus'))$('attendanceLogSyncStatus').dataset.state=!navigator.onLine?'offline':busy?'syncing':s&&lastSync?'connected':'waiting';
+    if($('attendanceLogSyncStatus'))$('attendanceLogSyncStatus').dataset.state=!navigator.onLine?'offline':eventVersionSupported===false?'warning':busy?'syncing':s&&lastSync?'connected':'waiting';
     setText('syncConnectionState',s?(busy?'Syncing organization data...':navigator.onLine?'Account connected; automatic retry enabled':'Offline: using this device\'s saved data'):'Sign in required');
     setText('syncQueueState',pending+' local attendance events pending'+(review?' | '+review+' require review':''));
-    setText('syncLastState',message+(lastSync?' | Last successful sync: '+lastSync:''));setText('recordSyncState',message);
+    setText('syncLastState',message+(lastSync?' | Last successful sync: '+lastSync:'')+(eventVersionSupported===false?' | Backend does not report attendance correction updates.':''));setText('recordSyncState',message);
     if($('syncNow'))$('syncNow').disabled=busy||!s;if($('syncRecordsNow'))$('syncRecordsNow').disabled=busy||!s;
     setText('orgSyncStamp',lastSync?'Last received: '+lastSync:'No central snapshot received yet.');
   }
@@ -427,7 +427,9 @@ window.TIPONSync=(()=>{
     // reconcile edits/deletions made on another device.
     if(eventVersion===undefined&&cursor>0)cursor=0;
     for(let pages=0;pages<8;pages++){
-      const r=await TIPONAPI.call({action:'poll',cursor}),remoteVersion=Number(r.eventVersion||0);
+      const r=await TIPONAPI.call({action:'poll',cursor});
+      eventVersionSupported=Object.prototype.hasOwnProperty.call(r,'eventVersion')&&Number.isFinite(Number(r.eventVersion));
+      const remoteVersion=Number(r.eventVersion||0);
       if(eventVersion!==undefined&&Number(eventVersion)!==remoteVersion&&cursor!==0){
         cursor=0;eventVersion=remoteVersion;
         await OrgDB.rawSave('meta',{id,cursor,eventVersion,orgId:state.orgId});

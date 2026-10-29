@@ -1,5 +1,5 @@
 {
   "app": "TIPON Face Attendance",
-  "version": "5.5.49",
-  "label": "Improves multi-device sync visibility, persists each account\u2019s last successful sync, and makes Attendance Logs Sync Now wait for confirmation."
+  "version": "5.5.50",
+  "label": "Improves sync feedback and warns when the Apps Script backend omits the event version needed to refresh attendance corrections across devices."
 }
