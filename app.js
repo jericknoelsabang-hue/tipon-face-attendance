@@ -1470,7 +1470,7 @@ async function registerWorker(){
   if(!workerUpdateNoticeBound){
    workerUpdateNoticeBound=true;
    navigator.serviceWorker.addEventListener('controllerchange',()=>{
-    if(wasControlled){setText('appUpdateStatus','New app files are ready. Finish current work, then use Check published app update.');showToast('App files updated. Finish current work, then reopen the app. Local records are retained.','info',9000);}
+    if(wasControlled){setText('appUpdateStatus','New app files activated. The page is refreshing; local attendance records are retained.');showToast('App updated. Reopen only if this page does not refresh automatically. Local attendance records are retained.','info',9000);}
    });
   }
   const registration=await navigator.serviceWorker.register('./sw.js',{scope:'./',updateViaCache:'none'});
