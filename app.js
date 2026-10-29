@@ -389,7 +389,7 @@ async function saveMemberForm(e){
    showToast('Member ID is already registered.','error');return;
  }
  const old=state.editMember;
- if(old&&!state.faceReplacementPending){
+ if(old&&!state.faceReplacementPending&&!state.enrollmentProof){
   const previousIds=Array.isArray(old.siteIds)&&old.siteIds.length?old.siteIds:[old.siteId].filter(Boolean);
   const sameSites=previousIds.length===siteIds.length&&previousIds.every(site=>siteIds.includes(site));
   const changed=name!==old.name||coop!==old.coop||
