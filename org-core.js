@@ -109,8 +109,8 @@
       // Keep the projection readable when older/offline devices uploaded the
       // same direction twice under one session ID. Preserve every event ID so
       // an administrator correction can reconcile the complete session.
-      if(e.type==='IN')r.timeIn=r.timeIn?new Date(Math.min(Date.parse(r.timeIn),Date.parse(e.timestamp))).toISOString():e.timestamp;
-      else if(e.type==='OUT')r.timeOut=r.timeOut?new Date(Math.max(Date.parse(r.timeOut),Date.parse(e.timestamp))).toISOString():e.timestamp;
+      if(e.type==='IN'){const prev=Date.parse(r.timeIn),next=Date.parse(e.timestamp);r.timeIn=!r.timeIn||!Number.isFinite(prev)||Number.isFinite(next)&&next<prev?e.timestamp:r.timeIn;}
+      else if(e.type==='OUT'){const prev=Date.parse(r.timeOut),next=Date.parse(e.timestamp);r.timeOut=!r.timeOut||!Number.isFinite(prev)||Number.isFinite(next)&&next>prev?e.timestamp:r.timeOut;}
       else return;
       r.eventIds.push(e.id);m.set(key,r);
     });
