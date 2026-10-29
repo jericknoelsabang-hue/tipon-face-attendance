@@ -15,7 +15,7 @@ const OFFLINE_ASSETS = [FACE_SCRIPT, ...MODEL_FILES.map((f)=>`${MODEL_ROOT}/${f}
 const REMOTE_CACHE = 'tipon-face-remote-v1';
 const DB_NAME='tipon-face-local-v1';
 const DB_STORE=['users','members','sites','punches','meta','outbox','offices','schedules'];
-const MATCH_LIMIT=.52;
+const MATCH_LIMIT=.60;
 const AMBIGUITY_GAP=.035;
 const SCAN_DELAY_MS=650;
 const COOLDOWN_MS=90000;
@@ -1239,7 +1239,7 @@ async function recordRecognizedFace(member,faceDistance){
  // after two consecutive enrolled-face matches. Enrollment liveness remains separate.
  if(member.active===false||member.deleted){playTerminalSound('error');speakTerminal('Attendance error. This member is inactive.','error','inactive');showToast('This member is inactive.','error');return;}
  if(!hasTerminalSession()){speakTerminal('Attendance error. Sign in or authorize this kiosk again.','error','session');showToast('Sign in or authorize this kiosk again.','error');return;}
- if(state.scanBusy)return;state.scanBusy=true;const mode=state.scanMode,run=state.scanRun,actorId=state.user.id;
+ if(state.scanBusy)return;state.scanBusy=true;let mode=state.scanMode;const run=state.scanRun,actorId=state.user.id;
  let centralReadOk=false;
  document.querySelectorAll('.mode-option').forEach(b=>b.disabled=true);
  try{
@@ -1263,8 +1263,18 @@ async function recordRecognizedFace(member,faceDistance){
      .sort((a,b)=>Date.parse(b.timestamp)-Date.parse(a.timestamp))[0];
    const sameDay=latest&&todayPH(new Date(latest.timestamp))===todayPH();
    if(canQueueUnresolvedTimeOut(mode,navigator.onLine,centralReadOk,sameDay,error)){
-    tx={type:'OUT',last:null};needsSessionResolution=true;
+    tx={type:'OUT',last:null,mode:'out'};needsSessionResolution=true;
    }else throw error;
+  }
+  mode=tx.mode||mode;
+  if(tx.dateSwitched){
+   state.scanMode=mode;
+   document.querySelectorAll('.mode-option').forEach(button=>{
+    const active=button.dataset.mode===mode;
+    button.classList.toggle('active',active);button.setAttribute('aria-pressed',String(active));
+   });
+   setText('cameraBottomTag','New Philippine date detected. Starting today with TIME IN.');
+   showToast('Your previous Time Out was '+tx.previousDay+'. Switched to Time In for '+tx.currentDay+'.','info',7000);
   }
   let assignedSites=sitesForMember(member);
   if(!assignedSites.length)throw Error('This member has no assigned work location.');
