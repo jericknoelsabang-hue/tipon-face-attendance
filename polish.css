@@ -75,3 +75,6 @@
 #adminMemberDialog .dialog-actions .btn{height:38px;min-height:38px;min-width:104px}
 #adminMemberDialog .dialog-body>p{text-align:left}
 @media(max-width:640px){#adminMemberDialog .form-row.two{grid-template-columns:1fr}}
+
+.location-unavailable{opacity:.62}
+.location-unavailable input{cursor:not-allowed}
