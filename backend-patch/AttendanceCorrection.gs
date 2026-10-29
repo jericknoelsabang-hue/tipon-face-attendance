@@ -1,5 +1,5 @@
 /**
- * TIPON KABILANG — Attendance correction helpers, v5.5.33
+ * TIPON KABILANG — Attendance correction helpers, v5.5.34
  * PRIVATE Google Apps Script file. Add to the existing attendance project only
  * after confirming the live Code.gs does not already define these functions.
  * Never publish Script Properties, credentials, face data or the private /exec URL.
