@@ -102,82 +102,7 @@
   startScanner=async function(...args){state.scanLiveness=null;return baseStart(...args);};
   const baseStop=stopScanner;
   stopScanner=async function(...args){state.scanLiveness=null;return baseStop(...args);};
-  // A face match is never sufficient: require a fresh, randomly ordered
-  // blink/pose challenge before writing Time In or Time Out.
-  scanTick=async function(){
-    if(!state.scanning)return;
-    if(!hasTerminalSession()){
-      await stopScanner();
-      updateScanResult('Sign In Required','Use an approved terminal account.','error');
-      return;
-    }
-    const run=state.scanRun;
-    if(state.scanRetryAt&&Date.now()>=state.scanRetryAt){
-      state.scanRetryAt=0;state.scanArmed=true;state.lastRecognized=null;
-      state.scanCandidate=null;state.scanCandidateCount=0;state.scanLiveness=null;state.livenessProof=null;
-    }
-    try{
-      const video=$('scanVideo');
-      if(video.readyState>=2&&!state.scanBusy){
-        const faces=await detectFaces(video);
-        if(!state.scanning||state.scanRun!==run)return;
-        if(faces.length===0){
-          state.scanCandidate=null;state.scanCandidateCount=0;state.scanLiveness=null;
-          state.scanAbsentCount++;
-          if(state.scanAbsentCount>=3){state.scanArmed=true;state.lastRecognized=null;state.scanRetryAt=0;state.scanRetryCount=0;}
-          setText('cameraBottomTag','Position one live face in the frame.');
-        }else if(faces.length!==1){
-          state.scanCandidate=null;state.scanCandidateCount=0;state.scanLiveness=null;state.scanAbsentCount=0;
-          updateScanResult('One Face Required','Only one person may be visible.','error');
-        }else{
-          state.scanAbsentCount=0;
-          const found=nearestMember(faces[0].descriptor);
-          const identified=found.best&&found.best.distance<=MATCH_LIMIT&&
-            !(found.second&&found.second.distance-found.best.distance<AMBIGUITY_GAP);
-          if(!identified){
-            state.scanCandidate=null;state.scanCandidateCount=0;state.scanLiveness=null;
-            if(found.best){
-              updateScanResult('Face Not Recognized','Please try again.','error');
-              speakOnce('Face Not Recognized','error','face');
-            }else updateScanResult('No Enrolled Faces','Refresh the Member List.','error');
-            setText('cameraBottomTag','Face Not Recognized');
-          }else{
-            const member=found.best.member;
-            if(!state.scanArmed&&state.lastRecognized!==member.id)state.scanArmed=true;
-            if(!state.scanArmed){
-              setText('cameraBottomTag',state.scanRetryAt?'GPS retry scheduled. Keep your face in frame.':'Move away before the next scan.');
-            }else{
-              if(!state.scanArmed&&state.lastRecognized!==member.id){state.scanArmed=true;state.scanRetryAt=0;state.scanRetryCount=0;}
-              if(state.scanCandidate===member.id)state.scanCandidateCount++;
-              else {state.scanCandidate=member.id;state.scanCandidateCount=1;state.scanLiveness=null;}
-              if(state.scanCandidateCount>=2){
-                state.scanLiveness ||= blinkChallenge();
-                const live=advance(state.scanLiveness,faces[0]);
-                if(live.expired){
-                  state.scanLiveness=blinkChallenge();
-                  updateScanResult('Live Check Timed Out','Follow the new instructions.','error');
-                }else if(live.ok){
-                  state.scanArmed=false;state.lastRecognized=member.id;
-                  state.scanCandidate=null;state.scanCandidateCount=0;state.scanLiveness=null;
-                  playTerminalSound('face');
-                  state.livenessProof={memberId:member.id,scanRun:state.scanRun,at:Date.now()};
-                  await recordRecognizedFace(member,found.best.distance);
-                }else{
-                  updateScanResult(member.name+' · Live Face Check',live.prompt);
-                  setText('cameraBottomTag',live.prompt);
-                }
-              }else setText('cameraBottomTag','Verifying face identity...');
-            }
-          }
-        }
-      }
-    }catch(error){
-      console.error('Live face verification',error);
-      updateScanResult('Camera Error','Please try again.','error');
-    }finally{
-      if(state.scanning&&state.scanRun===run)state.scanTimer=setTimeout(scanTick,120);
-    }
-  };
+  // Attendance scanning uses the original two-consecutive-frame flow in app.js.
   // Enrollment uses the same random two-step challenge.
   const originalBeginEnrollment=beginEnrollment;
   beginEnrollment=async function(...args){
@@ -293,5 +218,5 @@
   if(captureButton&&!captureButton.dataset.bound){
     captureButton.dataset.bound='1';captureButton.addEventListener('click',captureEnrollmentSample);
   }
-  window.TIPONLiveness={version:'5.5.41',challenge,blinkChallenge,advance};
+  window.TIPONLiveness={version:'5.5.42',challenge,blinkChallenge,advance};
 })();

@@ -17,7 +17,7 @@ const DB_NAME='tipon-face-local-v1';
 const DB_STORE=['users','members','sites','punches','meta','outbox','offices','schedules'];
 const MATCH_LIMIT=.52;
 const AMBIGUITY_GAP=.035;
-const SCAN_DELAY_MS=250;
+const SCAN_DELAY_MS=650;
 const COOLDOWN_MS=90000;
 const GPS_MIN_RADIUS=20;
 const GPS_MAX_ACCURACY=80;
@@ -1235,13 +1235,8 @@ function canQueueUnresolvedTimeOut(mode,online,centralReadOk,sameDay,error){
   /No Time In on this device/.test(String(error?.message||''));
 }
 async function recordRecognizedFace(member,faceDistance){
- const proof=state.livenessProof;
- state.livenessProof=null;
- if(!proof||proof.memberId!==member.id||proof.scanRun!==state.scanRun||
-    !Number.isFinite(proof.at)||Date.now()-proof.at>10000||proof.at>Date.now()){
-   updateScanResult('Live Verification Required','Blink once to verify the live face, then attendance will be checked.','error');
-   return;
- }
+ // Restored the Oct 28, 5 PM attendance capture flow: scanTick calls this
+ // after two consecutive enrolled-face matches. Enrollment liveness remains separate.
  if(member.active===false||member.deleted){playTerminalSound('error');speakTerminal('Attendance error. This member is inactive.','error','inactive');showToast('This member is inactive.','error');return;}
  if(!hasTerminalSession()){speakTerminal('Attendance error. Sign in or authorize this kiosk again.','error','session');showToast('Sign in or authorize this kiosk again.','error');return;}
  if(state.scanBusy)return;state.scanBusy=true;const mode=state.scanMode,run=state.scanRun,actorId=state.user.id;
