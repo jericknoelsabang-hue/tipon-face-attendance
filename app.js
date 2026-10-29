@@ -1002,7 +1002,7 @@ function attendanceMemberName(row,memberNames){
 function attendanceSyncLabel(row){
  const ids=new Set(row.eventIds||[]);
  const events=state.punches.filter(p=>ids.has(p.id));
- if(events.some(p=>p.reviewStatus||p.pendingCorrection==='review'))return 'Needs Review';
+ if(events.some(p=>p.reviewStatus||p.pendingCorrection==='review'))return 'Sync Error';
  if(events.some(p=>p.pendingCorrection==='pending'||p.requiresSessionResolution||!p.cloudAck))return 'Pending Sync';
  return 'Synced';
 }
@@ -1030,7 +1030,7 @@ function renderTerminalLogs(){
   $('terminalLogRows').innerHTML=rows.length?rows.map(row=>{
    const location=row.location||sitesById.get(row.siteId)||'—';
    const stamp=row.timeIn||row.timeOut;
-   const status=row.projectionIssue?'Needs Review':attendanceSyncLabel(row);
+   const status=row.projectionIssue?'Sync Error':attendanceSyncLabel(row);
    const localInput=value=>value?TIPONCore.phStamp(value).replace(' ','T').slice(0,16):'';
    const action=canCorrectAttendance()?'<div class="row-inline">'+
      '<button type="button" class="tiny-button" data-attendance-edit="'+esc(row.key)+'" data-in="'+esc(localInput(row.timeIn))+'" data-out="'+esc(localInput(row.timeOut))+'">Edit</button>'+
@@ -1064,36 +1064,44 @@ function attendanceRowByKey(key){
 }
 async function saveAttendanceCorrection(row,changes,reason,deleted=false){
  if(!canCorrectAttendance())throw Error('An approved Administrator or User session is required.');
- const events=state.punches.filter(p=>(row.eventIds||[]).includes(p.id));
- if(!events.length)throw Error('Attendance events are not available on this device.');
- if(events.some(p=>p.pendingCorrection==='pending'))throw Error('This session already has a pending correction.');
- if(events.some(p=>p.requiresSessionResolution&&!p.cloudAck))throw Error('Sync this cross-device Time Out before editing or deleting the session.');
- const id=uuid(),op={id,type:'attendanceCorrections',value:{sessionId:String(row.key),memberId:String(row.memberId),
-   eventIds:events.map(p=>p.id),changes:changes||{},delete:!!deleted,reason:String(reason||'').trim(),original:{timeIn:row.timeIn||'',timeOut:row.timeOut||''}},
-   baseRev:Number(row.correctionRev)||0,orgId:state.orgId,ownerId:state.user.id,createdAt:new Date().toISOString(),everSent:false};
+ const sessionId=String(row.key);
+ let queued=(await getAll('outbox')).find(item=>item.type==='attendanceCorrections'&&String(item.value?.sessionId)===sessionId&&item.orgId===state.orgId);
+ // Reconcile an earlier edit before retrying it. This refreshes the central
+ // revision and reuses one operation per session instead of duplicating edits.
+ if(queued&&navigator.onLine){try{await TIPONSync.submitPendingNow();}catch(_){/* Keep the updated correction queued below. */}await loadCollections();}
+ const latest=attendanceRowByKey(sessionId)||row;
+ const events=state.punches.filter(p=>(latest.eventIds||row.eventIds||[]).includes(p.id));
+ if(!events.length)throw Error('Attendance events are not available on this device. Refresh the Attendance Logs and try again.');
+ if(events.some(p=>p.requiresSessionResolution&&!p.cloudAck))throw Error('This cross-device session is still downloading. Sync the Attendance Logs, then save again.');
+ queued=(await getAll('outbox')).find(item=>item.type==='attendanceCorrections'&&String(item.value?.sessionId)===sessionId&&item.orgId===state.orgId)||queued;
+ const reuse=!!queued;
+ const op=queued||{id:uuid(),type:'attendanceCorrections',orgId:state.orgId,ownerId:state.user.id,createdAt:new Date().toISOString(),everSent:false};
+ op.value={sessionId,memberId:String(latest.memberId),eventIds:events.map(p=>p.id),changes:changes||{},delete:!!deleted,
+   reason:String(reason||'').trim(),original:{timeIn:latest.timeIn||'',timeOut:latest.timeOut||''}};
+ op.baseRev=Number(latest.correctionRev)||0;op.orgId=state.orgId;op.ownerId=state.user.id;
+ if(reuse&&navigator.onLine)op.everSent=false;
+ delete op.error;delete op.errorCode;
  await new Promise((resolve,reject)=>{
   const tx=db.transaction(['punches','outbox'],'readwrite'),store=tx.objectStore('punches');
   for(const original of events){
    const p={...original,pendingCorrection:'pending',correctionReason:op.value.reason,correctionRev:op.baseRev};
    if(deleted)p.deleted=true;
    else{
-    if(changes.timeIn){p.timestamp=p.type==='IN'?changes.timeIn:p.timestamp;}
+    if(changes.timeIn&&p.type==='IN')p.timestamp=changes.timeIn;
     if(changes.timeOut&&p.type==='OUT')p.timestamp=changes.timeOut;
     if(p.type==='IN'||p.type==='OUT')p.day=todayPH(new Date(p.timestamp));
    }
-   p.syncError='';
-   store.put(p);
+   p.syncError='';delete p.reviewStatus;store.put(p);
   }
   tx.objectStore('outbox').put(op);tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error);tx.onabort=()=>reject(tx.error);
  });
  await loadCollections();renderTerminalLogs();renderDashboard();TIPONSync.kick();
  if(navigator.onLine){
-  const result=await TIPONSync.submitPendingNow(),pending=await getOne('outbox',id);
+  const result=await TIPONSync.submitPendingNow(),pending=await getOne('outbox',op.id);
   await loadCollections();renderTerminalLogs();renderDashboard();
   if(!pending)showToast(deleted?'Attendance session deleted and synchronized.':'Attendance correction synchronized.','success');
-  else if(pending.errorCode==='NEEDS_REVIEW')showToast('Needs Review: '+String(pending.error||'Refresh the attendance log and retry.').slice(0,220),'error',9000);
-  else showToast(result?.error||'Correction queued for synchronization.','info',7500);
- }else showToast('Correction saved locally. It will sync when internet returns.','info',7500);
+  else showToast('Sync Error: '+String(pending.error||result?.error||'Correction is queued and will retry when the connection is available.').slice(0,220),'error',9000);
+ }else showToast('Correction saved on this device. It will sync automatically when internet returns.','info',7500);
 }
 function editAttendanceFromLog(event){
  const button=event.target.closest('[data-attendance-edit]');if(!button||!canCorrectAttendance())return;
@@ -1137,34 +1145,14 @@ async function deleteAttendanceFromLog(event){
  if(!await confirmAction('Delete attendance session?','Delete this attendance session for '+row.memberName+'?'))return;
  try{await saveAttendanceCorrection(row,{},'Attendance deleted',true);}catch(error){showToast(error.message||String(error),'error',8500);}
 }
-function openAttendanceReview(event){
- const button=event.target.closest('[data-attendance-review]');if(!button)return;
- const row=attendanceRowByKey(button.dataset.attendanceReview);if(!row)return;
- const events=state.punches.filter(p=>(row.eventIds||[]).includes(p.id));
- setText('attendanceReviewName',row.memberName||'Name unavailable');
- setText('attendanceReviewId',row.memberId);
- setText('attendanceReviewStatus',attendanceSyncLabel(row));
- setText('attendanceReviewReason',row.projectionIssue||events.map(p=>p.syncError||p.correctionReason||p.reviewStatus).filter(Boolean).join(' · ')||
-  (events.some(p=>p.requiresSessionResolution)?'Time Out is waiting for the matching Time In from another device.':
-   events.some(p=>p.pendingCorrection==='pending')?'The correction is waiting for synchronization.':'This session has no reported synchronization errors.'));
- const dialog=$('attendanceReviewDialog');dialog.dataset.sessionId=row.key;$('attendanceReviewRetry').hidden=!!row.projectionIssue;dialog.showModal();
-}
-async function retryAttendanceReview(){
- if(!canCorrectAttendance())return;
- const sessionId=$('attendanceReviewDialog').dataset.sessionId;
- const ops=await getAll('outbox'),op=ops.find(item=>item.type==='attendanceCorrections'&&String(item.value?.sessionId)===String(sessionId));
- if(op){delete op.error;delete op.errorCode;op.everSent=false;await OrgDB.rawSave('outbox',op);}
- const row=attendanceRowByKey(sessionId);
- if(row)for(const id of row.eventIds||[]){const p=await getOne('punches',id);if(p){delete p.reviewStatus;delete p.syncError;if(p.pendingCorrection==='review')p.pendingCorrection='pending';await OrgDB.rawSave('punches',p);}}
- $('attendanceReviewDialog').close();TIPONSync.kick();await loadCollections();renderTerminalLogs();showToast('Retry queued. Check Sync Status after synchronization.','info');
-}
+
 async function exportTerminalLogs(){
  const btn=$('terminalLogExport');try{
   const rows=filteredTerminalLogRows().filter(row=>(row.eventIds||[]).every(id=>{
       const event=state.punches.find(p=>p.id===id);
       return event&&!event.reviewStatus;
     }));
-    if(!rows.length){showToast('No valid attendance records to export. Review rejected events first.','error');return;}
+    if(!rows.length){showToast('No valid attendance records to export. Resolve rows marked Sync Error first.','error');return;}
   btn.disabled=true;await new Promise(resolve=>setTimeout(resolve,0));
   const bytes=TIPONExport.xlsx(rows.map(r=>({...r,memberId:memberNumberFor(r.memberId)})));downloadBlob('TIPON_Attendance_'+todayPH()+'.xlsx',new Blob([bytes],{type:TIPONExport.MIME}));
   showToast('Exported '+rows.length+' attendance session(s).','success');
@@ -1622,7 +1610,7 @@ function bindEvents(){
  attach('terminalLogExport','click',exportTerminalLogs);attach('terminalLogSync','click',()=>refreshDirectoryView('logs','terminalLogSync'));
   attach('terminalLogRows','click',editAttendanceFromLog);attach('terminalLogRows','click',deleteAttendanceFromLog);
   attach('attendanceEditForm','submit',submitAttendanceEdit);
- attach('attendanceReviewRetry','click',retryAttendanceReview);attach('attendanceReviewClose','click',()=> $('attendanceReviewDialog').close());
+
  document.addEventListener('fullscreenchange',()=>document.body.classList.toggle('terminal-fullscreen',!!document.fullscreenElement&&state.page==='scanner'));
  attach('addMember','click',()=>openMemberForm(null));attach('memberRows','click',handleMemberTableClick);
  attach('memberForm','submit',saveMemberForm);
