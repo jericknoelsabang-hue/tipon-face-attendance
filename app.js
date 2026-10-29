@@ -1416,16 +1416,24 @@ function bindEvents(){
  document.querySelectorAll('[data-page]').forEach(el=>el.addEventListener('click',()=>showPage(el.dataset.page)));
  document.querySelectorAll('[data-jump]').forEach(el=>el.addEventListener('click',()=>showPage(el.dataset.jump)));
  attach('topStartScan','click',()=>showPage('scanner'));
- attach('memberSearch','input',renderMembers);
+ attach('memberSearch','input',()=>{state.memberPage=1;renderMembers();});
  attach('memberRefresh','click',()=>refreshDirectoryView('members'));
  attach('terminalLogRefresh','click',()=>refreshDirectoryView('logs'));
- attach('memberFilterFace','change',renderMembers);
+ attach('memberFilterFace','change',()=>{state.memberPage=1;renderMembers();});
  attach('memberResetFilters','click',()=>{
-  $('memberSearch').value='';
-  $('memberFilterFace').value='';
-  renderMembers();
+  $('memberSearch').value='';$('memberFilterFace').value='';state.memberPage=1;renderMembers();
  });
- ['terminalLogFrom','terminalLogTo','terminalLogCoop','terminalLogPlatform','terminalLogSite'].forEach(id=>attach(id,'change',renderTerminalLogs));attach('terminalLogReset','click',()=>{['terminalLogFrom','terminalLogTo','terminalLogCoop','terminalLogPlatform','terminalLogSite'].forEach(id=>$(id).value='');renderTerminalLogs();});
+ attach('memberPrev','click',()=>{state.memberPage=Math.max(1,(state.memberPage||1)-1);renderMembers();});
+ attach('memberNext','click',()=>{state.memberPage=(state.memberPage||1)+1;renderMembers();});
+ const rerenderLogFilters=()=>{state.attendancePage=1;renderTerminalLogs();};
+ attach('terminalLogSearch','input',rerenderLogFilters);
+ ['terminalLogFrom','terminalLogTo','terminalLogCoop','terminalLogPlatform','terminalLogSite'].forEach(id=>attach(id,'change',rerenderLogFilters));
+ attach('terminalLogReset','click',()=>{
+  ['terminalLogSearch','terminalLogFrom','terminalLogTo','terminalLogCoop','terminalLogPlatform','terminalLogSite'].forEach(id=>$(id).value='');
+  state.attendancePage=1;renderTerminalLogs();
+ });
+ attach('terminalLogPrev','click',()=>{state.attendancePage=Math.max(1,(state.attendancePage||1)-1);renderTerminalLogs();});
+ attach('terminalLogNext','click',()=>{state.attendancePage=(state.attendancePage||1)+1;renderTerminalLogs();});
  attach('terminalLogExport','click',exportTerminalLogs);attach('terminalLogSync','click',()=>TIPONSync.kick());
   attach('terminalLogRows','click',editAttendanceFromLog);attach('terminalLogRows','click',deleteAttendanceFromLog);attach('terminalLogRows','click',openAttendanceReview);
   attach('attendanceReviewRetry','click',retryAttendanceReview);attach('attendanceReviewClose','click',()=> $('attendanceReviewDialog').close());
