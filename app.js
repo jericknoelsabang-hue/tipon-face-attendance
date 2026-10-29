@@ -406,7 +406,7 @@ async function saveMemberForm(e){
   try{
    const result=await saveMemberMetadata(old,{name,coop,platform,siteIds});
    $('memberDialog').close();await loadCollections();renderMembers();renderDashboard();
-   showToast(result.pending?'Member changes saved locally. Pending Sync.':'Member changes saved and synchronized.','success',6500);
+   showToast(result.pending?'Transfer saved locally. Pending Sync; the member may leave your list if moved outside your scope.':'Member changes saved and synchronized.','success',8000);
   }catch(error){showToast(error.message||String(error),'error',8500);}
   finally{if(submit)submit.disabled=false;}
   return;
