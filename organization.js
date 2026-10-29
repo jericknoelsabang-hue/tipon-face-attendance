@@ -181,9 +181,13 @@ openMemberForm=function(member){
  if(!canEdit())return;
  originalOpenMember(member);
  if(state.user.role==='registrar'){
-  $('memberCoop').value=state.user.coop;$('memberCoop').disabled=true;
-  TIPONPlatforms.fill('memberPlatform',state.user.platform);
-  $('memberPlatform').disabled=true;
+  // Users may transfer an in-scope member. The server validates the current
+  // member scope, target Cooperative/BP and target Work Location atomically.
+  fillCoopSelect('memberCoop');
+  $('memberCoop').value=member?.coop||state.user.coop||'';
+  TIPONPlatforms.fill('memberPlatform',member?.platform||state.user.platform||'');
+  $('memberCoop').disabled=false;
+  $('memberPlatform').disabled=false;
   fillMemberSites(member?.siteIds||member?.siteId);
  }else{$('memberCoop').disabled=false;$('memberPlatform').disabled=false;}
 };
