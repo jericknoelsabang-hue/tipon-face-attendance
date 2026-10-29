@@ -220,8 +220,10 @@ test('Published assets share one release version and pagination controls cannot 
   assert.equal(release.version,'5.5.43');
   assert.match(sw,/const VERSION='5\.5\.42';/);
   assert.match(sw,/tipon-face-shell-v5\.5\.42-github-only/);
+  assert.match(html,/core\.js\?v=5543/);
   assert.match(html,/app\.js\?v=5543/);
   assert.match(html,/liveness-guard\.js\?v=5543/);
+  assert.match(source('app.js'),/const MATCH_LIMIT=\.60;/);
   assert.match(html,/id="captureEnrollmentSample"/);
   assert.match(html,/id="memberSiteSummary"[^>]+aria-required="true"/);
   assert.doesNotMatch(html,/Assigned Work Location <span class="field-optional">\(Optional\)/);
