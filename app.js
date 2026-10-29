@@ -176,7 +176,7 @@ function renderMembers(){
  const data=state.members.filter(m=>{
   if(m.deleted||(!isAdmin()&&!TIPONOrgCore.inScope(state.user,m)))return false;
   const enrolled=m.active!==false&&!!(m.template||m.descriptors?.length>=3);
-  return (!q||[m.id,m.name,m.coop,m.platform].join(' ').toLowerCase().includes(q))&&(!face||(face==='enrolled')===enrolled);
+  return (!q||[m.id,m.memberNumber,m.name,m.coop,m.platform].join(' ').toLowerCase().includes(q))&&(!face||(face==='enrolled')===enrolled);
  }).sort((x,y)=>(x.name||'').localeCompare(y.name||''));
  const pageSize=10,totalPages=Math.max(1,Math.ceil(data.length/pageSize));
  state.memberPage=Math.max(1,Math.min(totalPages,Number(state.memberPage)||1));
@@ -186,7 +186,7 @@ function renderMembers(){
   const sites=sitesForMember(m),enrolled=m.active!==false&&!!(m.template||m.descriptors?.length>=3),pending=!!(m._pendingOp||m.pendingEdit||m.pendingFaceUpdate==='review'),names=sites.map(s=>s.name).join(', ');
   const faceLabel=pending?'PENDING SYNC':enrolled?'ENROLLED':'NOT ENROLLED';
   const faceClass=pending?'amber':enrolled?'green':'red';
-  return '<tr><td><div class="row-inline"><div class="initial-avatar">'+esc(initial(m.name))+'</div><div><b>'+esc(m.name)+'</b><small>ID: '+esc(m.id)+'</small></div></div></td>'+
+  return '<tr><td><div class="row-inline"><div class="initial-avatar">'+esc(initial(m.name))+'</div><div><b>'+esc(m.name)+'</b><small>ID: '+esc(m.memberNumber||m.id)+'</small></div></div></td>'+
    '<td>'+esc(m.coop)+'</td><td>'+esc(m.platform||sites[0]?.platform||'—')+'</td>'+
    '<td><b>'+esc(names||'Unassigned')+'</b><small>'+(sites.length?'GPS verification at assigned work location':'Assign a Work Location before attendance')+'</small></td>'+
    '<td>'+esc(memberEnrollerLabel(m))+'</td><td><span class="badge '+faceClass+'">'+faceLabel+'</span></td>'+
@@ -222,6 +222,8 @@ async function findUserSiteAddress(){
  finally{button.disabled=false;}
 }
 
+function enrollmentMemberKey(){return state.editMember?.id||$('memberId').value.trim();}
+function memberNumberFor(id){return state.members.find(m=>String(m.id)===String(id))?.memberNumber||id;}
 function memberSiteCatalog(){return state.user?.role==='registrar'&&state.memberTransferTargetMode&&Array.isArray(state.memberSiteOptions)?state.memberSiteOptions:state.sites;}
 function fillMemberSites(preferred){
  const coop=$('memberCoop').value,ids=(Array.isArray(preferred)?preferred:[preferred]).filter(Boolean),platform=$('memberPlatform')?.value||state.user?.platform||'';
@@ -280,8 +282,8 @@ function openMemberForm(member){
  $('memberMiddleInitial').value=state.memberNameSeed.middle;
  $('memberCoop').disabled=identityLocked;
  setText('memberFormTitle',identityLocked?'Assign Work Location / Enroll Face':member?'Edit Member':'Add Member');
- $('memberId').disabled=!!member;
- if(member){$('memberId').value=member.id;$('memberName').value=member.name;$('memberCoop').value=member.coop;}
+ $('memberId').disabled=false;
+ if(member){$('memberId').value=member.memberNumber||member.id;$('memberName').value=member.name;$('memberCoop').value=member.coop;}
  fillMemberSites(member?.siteIds||member?.siteId);
  const enrolled=!!member&&member.active!==false&&!!(member.template||state.pendingDescriptors.length>=3);
  const mayReplace=!enrolled||TIPONOrgCore.inScope(state.user,member)||member.workLocationReassignmentRequired===true;
@@ -340,13 +342,13 @@ async function addExistingEnrolledMemberLocations(old,siteIds){
 
 async function saveMemberMetadata(member,changes){
  if(!member||(!isAdmin()&&!canEdit()))throw Error('An approved Administrator or User session is required.');
- const clean={name:String(changes.name||'').trim(),coop:String(changes.coop||''),platform:String(changes.platform||'').trim(),
+ const clean={memberNumber:String(changes.memberNumber||member.memberNumber||member.id).trim(),name:String(changes.name||'').trim(),coop:String(changes.coop||''),platform:String(changes.platform||'').trim(),
   siteIds:[...new Set((changes.siteIds||[]).map(String).filter(Boolean))]};
  if(!clean.name||!clean.coop||!clean.platform||!clean.siteIds.length)throw Error('Member name, Cooperative, Business Platform and at least one Assigned Work Location are required.');
  if(clean.siteIds.length>40)throw Error('Maximum 40 Assigned Work Locations.');
  if(clean.siteIds.some(id=>{const site=memberSiteCatalog().find(x=>x.id===id&&!x.deleted);return !site||site.coop!==clean.coop||TIPONOrgCore.platformKey(site.platform)!==TIPONOrgCore.platformKey(clean.platform);}))
   throw Error('Choose only synced Work Locations matching the selected Cooperative and Business Platform.');
- const opId=uuid(),payload={memberId:member.id,changes:clean,original:{name:member.name,coop:member.coop,platform:member.platform,siteIds:Array.isArray(member.siteIds)&&member.siteIds.length?member.siteIds:[member.siteId].filter(Boolean)}};
+ const opId=uuid(),payload={memberId:member.id,changes:clean,original:{memberNumber:member.memberNumber||member.id,name:member.name,coop:member.coop,platform:member.platform,siteIds:Array.isArray(member.siteIds)&&member.siteIds.length?member.siteIds:[member.siteId].filter(Boolean)}};
  const queue=async()=>{
   const stored=await getOne('members',member.id);
   if(stored?._pendingOp)throw Error('This member already has a pending change.');
@@ -357,7 +359,7 @@ async function saveMemberMetadata(member,changes){
  };
  if(!navigator.onLine)return queue();
  try{
-  const action=isAdmin()?'adminMemberUpdateV2':'memberTransferUpdateV2';
+  const action='memberTransferUpdateV2';
   const reply=await TIPONAPI.call({action,memberId:member.id,baseRev:Number(member.rev)||0,changes:clean});
   const saved=reply.member;
   if(!saved||String(saved.id)!==String(member.id)||!Array.isArray(saved.siteIds)||saved.siteIds.length!==clean.siteIds.length||!saved.siteIds.every(id=>clean.siteIds.includes(id)))
@@ -374,12 +376,16 @@ async function saveMemberMetadata(member,changes){
 }
 window.TIPONMemberMetadataSave=saveMemberMetadata;
 async function saveMemberForm(e){
- e.preventDefault();if(!canEdit())return;
- const id=$('memberId').value.trim(),name=memberNameFromFields(),
+ e.preventDefault();if(!canEdit()||state.memberSaveBusy)return;
+ state.memberSaveBusy=true;const saveButton=$('memberForm').querySelector('[type="submit"]');if(saveButton)saveButton.disabled=true;
+ try{return await persistMemberForm();}finally{state.memberSaveBusy=false;if(saveButton)saveButton.disabled=false;}
+}
+async function persistMemberForm(){
+ const memberNumber=$('memberId').value.trim(),id=state.editMember?.id||memberNumber,name=memberNameFromFields(),
    coop=$('memberCoop').value,platform=$('memberPlatform').value.trim(),
    siteIds=[...$('memberSite').selectedOptions].map(o=>o.value),
    sites=siteIds.map(id=>memberSiteCatalog().find(x=>x.id===id&&!x.deleted));
- if(!id||!name||!TIPONOrgCore.COOPS.includes(coop)||!TIPONPlatforms.names().some(v=>TIPONOrgCore.platformKey(v)===TIPONOrgCore.platformKey(platform))){
+ if(!memberNumber||!id||!name||!TIPONOrgCore.COOPS.includes(coop)||!TIPONPlatforms.names().some(v=>TIPONOrgCore.platformKey(v)===TIPONOrgCore.platformKey(platform))){
    showToast('Enter Member ID, Last Name, First Name, Cooperative and Business Platform.','error');return;
  }
  if(!siteIds.length){$('memberSitePicker').open=true;$('memberSiteSummary').focus();$('memberSiteSummary').setAttribute('aria-invalid','true');showToast('Select at least one Assigned Work Location.','error');return;}
@@ -393,11 +399,12 @@ async function saveMemberForm(e){
  if(!state.editMember&&state.members.some(m=>m.id.toLowerCase()===id.toLowerCase())){
    showToast('Member ID is already registered.','error');return;
  }
+ if(state.members.some(m=>m.id!==id&&String(m.memberNumber||m.id).toLowerCase()===memberNumber.toLowerCase()))return showToast('Member ID is already registered.','error');
  const old=state.editMember;
  if(old&&!state.faceReplacementPending&&!state.enrollmentProof){
   const previousIds=Array.isArray(old.siteIds)&&old.siteIds.length?old.siteIds:[old.siteId].filter(Boolean);
   const sameSites=previousIds.length===siteIds.length&&previousIds.every(site=>siteIds.includes(site));
-  const changed=name!==old.name||coop!==old.coop||
+  const changed=memberNumber!==(old.memberNumber||old.id)||name!==old.name||coop!==old.coop||
     TIPONOrgCore.platformKey(platform)!==TIPONOrgCore.platformKey(old.platform)||!sameSites;
   if(!changed){$('memberDialog').close();return;}
   if(old._pendingOp){showToast('This member already has a pending change. Sync before editing again.','error');return;}
@@ -405,7 +412,7 @@ async function saveMemberForm(e){
   if(openSession){showToast('Complete Time Out before editing member details or Assigned Location.','error');return;}
   const submit=$('memberForm').querySelector('[type="submit"]');if(submit)submit.disabled=true;
   try{
-   const result=await saveMemberMetadata(old,{name,coop,platform,siteIds});
+   const result=await saveMemberMetadata(old,{name,coop,platform,siteIds,memberNumber});
    $('memberDialog').close();await loadCollections();renderMembers();renderDashboard();
    showToast(result.pending?'Transfer saved locally. Pending Sync; the member may leave your list if moved outside your scope.':'Member changes saved and synchronized.','success',8000);
   }catch(error){showToast(error.message||String(error),'error',8500);}
@@ -534,7 +541,7 @@ async function saveMemberForm(e){
    const descriptors=state.pendingDescriptors.map(vector=>Array.from(vector));
    const template=await TIPONAuth.seal(descriptors,session.faceKey,'member:'+id);
    const now=new Date().toISOString();
-   const record={...(old||{}),id,name,coop,platform,siteId:siteIds[0],siteIds,
+   const record={...(old||{}),id,memberNumber,name,coop,platform,siteId:siteIds[0],siteIds,
      descriptors,template,consentAt,enrolledBy:state.user.id,
      enrolledByUsername:state.user.username||'',
      createdAt:old?.createdAt||now,updatedAt:now,active:true,faceEnrollmentStatus:'enrolled',
@@ -545,13 +552,13 @@ async function saveMemberForm(e){
    let operation;
    if(old){
      const original={
-       name:old.name,coop:old.coop,platform:old.platform,siteId:old.siteId||'',
+       memberNumber:old.memberNumber||old.id,name:old.name,coop:old.coop,platform:old.platform,siteId:old.siteId||'',
        siteIds:Array.isArray(old.siteIds)&&old.siteIds.length?old.siteIds:[old.siteId].filter(Boolean),
        template:old.template||null,consentAt:old.consentAt||null,enrolledBy:old.enrolledBy||'',
        enrolledByUsername:old.enrolledByUsername||'',active:old.active!==false,
        faceEnrollmentStatus:old.faceEnrollmentStatus||''
      };
-     const changes={name,coop,platform,siteIds,template,consentAt,enrolledBy:state.user.id,
+     const changes={name,coop,platform,siteIds,memberNumber,template,consentAt,enrolledBy:state.user.id,
        enrolledByUsername:state.user.username||''};
      operation={id:opId,type:'memberFaceUpdates',value:{memberId:id,changes,original},
        baseRev,orgId:state.orgId,ownerId:state.user.id,createdAt:now,everSent:false};
@@ -914,7 +921,7 @@ function filteredTerminalLogRows(){
   // or a Physical Kiosk's GPS-approved site list.
   const allowed=admin||TIPONOrgCore.inScope(state.user,r);
   return allowed&&(!from||day>=from)&&(!to||day<=to)&&
-   (!search||[r.memberName,r.memberId].join(' ').toLowerCase().includes(search))&&
+   (!search||[r.memberName,r.memberId,memberNumberFor(r.memberId)].join(' ').toLowerCase().includes(search))&&
    (!coop||r.coop===coop)&&(!platform||TIPONOrgCore.platformKey(r.platform)===TIPONOrgCore.platformKey(platform))&&
    (!siteId||r.siteId===siteId);
  });
@@ -964,7 +971,7 @@ function renderTerminalLogs(){
      '<button type="button" class="tiny-button" data-attendance-review="'+esc(row.key)+'">Review</button>'+
      '</div>':'—';
    const data=[
-    attendanceMemberName(row,memberNames),row.memberId,
+    attendanceMemberName(row,memberNames),memberNumberFor(row.memberId),
     stamp?TIPONCore.phStamp(stamp).slice(0,10):'—',
     row.timeIn?TIPONCore.phStamp(row.timeIn).slice(-8):'—',
     row.timeOut?TIPONCore.phStamp(row.timeOut).slice(-8):'—',
@@ -1022,29 +1029,44 @@ async function saveAttendanceCorrection(row,changes,reason,deleted=false){
   else showToast(result?.error||'Correction queued for synchronization.','info',7500);
  }else showToast('Correction saved locally. It will sync when internet returns.','info',7500);
 }
-async function editAttendanceFromLog(event){
+function editAttendanceFromLog(event){
  const button=event.target.closest('[data-attendance-edit]');if(!button||!canCorrectAttendance())return;
  const row=attendanceRowByKey(button.dataset.attendanceEdit);if(!row)return;
- const reason=prompt('Reason for correction (at least 5 characters):');if(reason===null)return;if(reason.trim().length<5)return showToast('Enter a reason of at least five characters.','error');
- const nextIn=prompt('Time In (local YYYY-MM-DDTHH:MM)',button.dataset.in||''),nextOut=prompt('Time Out (local YYYY-MM-DDTHH:MM)',button.dataset.out||'');
- if(nextIn===null||nextOut===null)return;
- const valid=value=>!value||/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(value);
- if(!nextIn||!valid(nextIn)||!valid(nextOut))return showToast('Enter a valid Time In and optional Time Out as YYYY-MM-DDTHH:MM.','error');
- if(row.timeOut&&!nextOut)return showToast('Time Out cannot be cleared from a completed session.','error');
- if(!row.timeOut&&nextOut)return showToast('Use Face Terminal to record a missing Time Out. Review can correct existing timestamps, but cannot create a new attendance event.','error',8000);
- const iso=value=>value?new Date(value+':00+08:00').toISOString():'';
- const changes={timeIn:iso(nextIn)};if(row.timeOut)changes.timeOut=iso(nextOut);
- if(changes.timeOut&&Date.parse(changes.timeOut)<Date.parse(changes.timeIn))return showToast('Time Out must be after Time In.','error');
- if(!await confirmAction('Save attendance correction?',row.memberName+' · '+reason.trim()+'. The change will be audited and synchronized.'))return;
- try{await saveAttendanceCorrection(row,changes,reason,false);}catch(error){showToast(error.message||String(error),'error',8500);}
+ const stamp=value=>value?TIPONCore.phStamp(value):'';
+ const ti=stamp(row.timeIn),to=stamp(row.timeOut),dialog=$('attendanceEditDialog');
+ dialog.dataset.sessionId=String(row.key);
+ setText('attendanceEditMember',row.memberName||row.memberId);
+ $('attendanceEditDate').value=ti.slice(0,10);$('attendanceEditTimeIn').value=ti.slice(11,19);
+ $('attendanceEditDateOut').value=to.slice(0,10);$('attendanceEditTimeOut').value=to.slice(11,19);
+ for(const id of ['attendanceEditDateOut','attendanceEditTimeOut']){$(id).disabled=!row.timeOut;$(id).required=!!row.timeOut;}
+ setText('attendanceEditStatus','');dialog.showModal();$('attendanceEditDate').focus();
+}
+function attendanceInputStamp(day,time){
+ if(!/^\d{4}-\d{2}-\d{2}$/.test(day)||!/^\d{2}:\d{2}(:\d{2})?$/.test(time))throw Error('Enter a valid date and time.');
+ const input=day+' '+(time.length===5?time+':00':time),date=new Date(input.replace(' ','T')+'+08:00');
+ if(!Number.isFinite(date.getTime())||TIPONCore.phStamp(date.toISOString())!==input)throw Error('Enter a valid calendar date and time.');
+ return date.toISOString();
+}
+async function submitAttendanceEdit(event){
+ event.preventDefault();if(!canCorrectAttendance())return;
+ const row=attendanceRowByKey($('attendanceEditDialog').dataset.sessionId);if(!row)return;
+ const button=$('attendanceEditSave');button.disabled=true;
+ try{
+  const changes={timeIn:attendanceInputStamp($('attendanceEditDate').value,$('attendanceEditTimeIn').value)};
+  if(row.timeOut)changes.timeOut=attendanceInputStamp($('attendanceEditDateOut').value,$('attendanceEditTimeOut').value);
+  if(changes.timeOut&&Date.parse(changes.timeOut)<=Date.parse(changes.timeIn))throw Error('Time Out must be after Time In.');
+  if(changes.timeOut&&Date.parse(changes.timeOut)-Date.parse(changes.timeIn)<COOLDOWN_MS)throw Error('Time Out must be at least 90 seconds after Time In.');
+  if(Object.values(changes).some(t=>Date.parse(t)>Date.now()+300000))throw Error('Attendance cannot be set in the future.');
+  setText('attendanceEditStatus','Saving…');await saveAttendanceCorrection(row,changes,'Attendance edited',false);$('attendanceEditDialog').close();
+ }catch(error){setText('attendanceEditStatus',error.message||'Unable to save.');}
+ finally{button.disabled=false;}
 }
 async function deleteAttendanceFromLog(event){
  const button=event.target.closest('[data-attendance-delete]');if(!button||!canCorrectAttendance())return;
  const row=attendanceRowByKey(button.dataset.attendanceDelete);if(!row)return;
  if(!row.timeIn||!row.timeOut)return showToast('Complete Time Out before deleting an attendance session.','error');
- const reason=prompt('Reason for deleting this attendance session (at least 5 characters):');if(reason===null)return;if(reason.trim().length<5)return showToast('Enter a reason of at least five characters.','error');
- if(!await confirmAction('Delete attendance session?',row.memberName+' · '+reason.trim()+'. This is an audited soft delete; the raw event history is retained.'))return;
- try{await saveAttendanceCorrection(row,{},reason,true);}catch(error){showToast(error.message||String(error),'error',8500);}
+ if(!await confirmAction('Delete attendance session?','Delete this attendance session for '+row.memberName+'?'))return;
+ try{await saveAttendanceCorrection(row,{},'Attendance deleted',true);}catch(error){showToast(error.message||String(error),'error',8500);}
 }
 function openAttendanceReview(event){
  const button=event.target.closest('[data-attendance-review]');if(!button)return;
@@ -1075,7 +1097,7 @@ async function exportTerminalLogs(){
     }));
     if(!rows.length){showToast('No valid attendance records to export. Review rejected events first.','error');return;}
   btn.disabled=true;await new Promise(resolve=>setTimeout(resolve,0));
-  const bytes=TIPONExport.xlsx(rows);downloadBlob('TIPON_Attendance_'+todayPH()+'.xlsx',new Blob([bytes],{type:TIPONExport.MIME}));
+  const bytes=TIPONExport.xlsx(rows.map(r=>({...r,memberId:memberNumberFor(r.memberId)})));downloadBlob('TIPON_Attendance_'+todayPH()+'.xlsx',new Blob([bytes],{type:TIPONExport.MIME}));
   showToast('Exported '+rows.length+' attendance session(s).','success');
  }catch(err){toastError(err,'Attendance export');}finally{btn.disabled=false;}
 }
@@ -1113,7 +1135,7 @@ async function getCameraStream(context='scan'){return TIPONCamera.open(context);
 function optionsFace(){return new faceapi.TinyFaceDetectorOptions({inputSize:320,scoreThreshold:.45});}
 async function detectFaces(video){return await faceapi.detectAllFaces(video,optionsFace()).withFaceLandmarks(true).withFaceDescriptors();}
 function euclidean(a,b){let sum=0;for(let i=0;i<a.length;i++)sum+=(a[i]-b[i])**2;return Math.sqrt(sum);}
-function nearestMember(descriptor){const matches=state.members.filter(m=>m.active!==false&&!m.deleted&&m.descriptors?.length>=3).map(m=>({member:m,distance:Math.min(...m.descriptors.map(arr=>euclidean(arr,descriptor)))})).sort((a,b)=>a.distance-b.distance);return {best:matches[0],second:matches[1]};}
+function nearestMember(descriptor){let best,second;for(const member of state.members){if(member.active===false||member.deleted||!(member.descriptors?.length>=3))continue;let distance=Infinity;for(const vector of member.descriptors)distance=Math.min(distance,euclidean(vector,descriptor));const match={member,distance};if(!best||distance<best.distance){second=best;best=match;}else if(!second||distance<second.distance)second=match;}return {best,second};}
 
 /* Duplicate checks for enrollment use available synced templates; attendance matching is unchanged. */
 const ENROLLMENT_DUPLICATE_FACE_DISTANCE=0.45;
@@ -1236,7 +1258,7 @@ async function recordRecognizedFace(member,faceDistance){
     siteLat:site.lat,siteLng:site.lng,radius:150,lat:gps.latitude,lng:gps.longitude,
     accuracy:gps.accuracy,distance,faceDistance,performedBy:state.user.username||state.user.name};
   await commitPunch(punch,mode);TIPONAuth?.touchActivity?.();await loadCollections();renderTerminal();renderTerminalLogs();renderDashboard();
-  updateScanResult(`TIME ${punch.type} saved`,`${member.name} | ${member.id} | ${site.name} | ${displayTime(stamp)}. Saved on this phone.`,'success');
+  updateScanResult(`TIME ${punch.type} saved`,`${member.name} | ${member.memberNumber||member.id} | ${site.name} | ${displayTime(stamp)}. Saved on this phone.`,'success');
   playTerminalSound('success');speakTerminal('Time '+(punch.type==='IN'?'in':'out')+' recorded for '+member.name+'.','success','punch:'+punch.id);showToast(`${member.name}: TIME ${punch.type} recorded.`,'success');
   if(navigator.vibrate){try{navigator.vibrate(80);}catch{}}
   if(window.TIPONSync)TIPONSync.kick();
@@ -1331,7 +1353,7 @@ async function enrollTick(){if(!state.enrollActive)return;const run=state.enroll
    if(faces.length!==1){setText('enrollStatus',faces.length?'Only one face may be in view.':'Center one face inside the frame.');}
    else{
      const descriptor=Array.from(faces[0].descriptor);
-     if(findEnrolledFaceConflict([descriptor],$('memberId').value.trim())){
+     if(findEnrolledFaceConflict([descriptor],enrollmentMemberKey())){
        setText('enrollStatus','Face is already enrolled under another Member ID. Enrollment blocked.');
        showToast('This face cannot be enrolled under another name.','error',8000);
        $('retryEnrollment').hidden=false;await stopEnrollment(true);return;
@@ -1349,7 +1371,7 @@ async function enrollTick(){if(!state.enrollActive)return;const run=state.enroll
          setText('enrollStatus',state.enrollCollected.length===1?'Sample 1 saved. Turn slightly right.':state.enrollCollected.length===2?'Sample 2 saved. Look toward the camera again.':'3 samples collected.');
          $('enrollProgress').style.width=`${state.enrollCollected.length/3*100}%`;
          if(state.enrollCollected.length===3){
-           if(findEnrolledFaceConflict(state.enrollCollected,$('memberId').value.trim())){
+           if(findEnrolledFaceConflict(state.enrollCollected,enrollmentMemberKey())){
              setText('enrollStatus','Duplicate face detected. Enrollment blocked.');
              $('retryEnrollment').hidden=false;await stopEnrollment(true);return;
            }
@@ -1478,7 +1500,8 @@ function bindEvents(){
  attach('terminalLogNext','click',()=>{state.attendancePage=(state.attendancePage||1)+1;renderTerminalLogs();});
  attach('terminalLogExport','click',exportTerminalLogs);attach('terminalLogSync','click',()=>TIPONSync.kick());
   attach('terminalLogRows','click',editAttendanceFromLog);attach('terminalLogRows','click',deleteAttendanceFromLog);attach('terminalLogRows','click',openAttendanceReview);
-  attach('attendanceReviewRetry','click',retryAttendanceReview);attach('attendanceReviewClose','click',()=> $('attendanceReviewDialog').close());
+  attach('attendanceEditForm','submit',submitAttendanceEdit);
+ attach('attendanceReviewRetry','click',retryAttendanceReview);attach('attendanceReviewClose','click',()=> $('attendanceReviewDialog').close());
  document.addEventListener('fullscreenchange',()=>document.body.classList.toggle('terminal-fullscreen',!!document.fullscreenElement&&state.page==='scanner'));
  attach('addMember','click',()=>openMemberForm(null));attach('memberRows','click',handleMemberTableClick);
  attach('memberForm','submit',saveMemberForm);

@@ -40,7 +40,7 @@
   }
   if(member._pendingOp){showToast('This member has a pending change. Sync or review it before editing.','error');return;}
   current=member.id;$('adminMemberForm').reset();
-  $('adminMemberId').value=member.id;$('adminMemberName').value=member.name||'';
+  $('adminMemberId').value=member.memberNumber||member.id;$('adminMemberName').value=member.name||'';
   const coop=$('adminMemberCoop'),platform=$('adminMemberPlatform');
   coop.innerHTML='<option value="">Select cooperative</option>'+
     [...new Set([...TIPONOrgCore.COOPS,member.coop])].filter(Boolean).map(v=>'<option value="'+esc(v)+'">'+esc(v)+'</option>').join('');
@@ -60,7 +60,7 @@
   event.preventDefault();if(!isAdmin()||!current)return;
   const member=state.members.find(x=>x.id===current);
   if(!member||member._pendingOp){setText('adminMemberEditStatus','Sync pending member changes before editing.');return;}
-  const name=$('adminMemberName').value.trim(),coop=$('adminMemberCoop').value,
+  const memberNumber=$('adminMemberId').value.trim(),name=$('adminMemberName').value.trim(),coop=$('adminMemberCoop').value,
     platform=$('adminMemberPlatform').value,siteIds=selected();
   if(!name||name.length>120||!TIPONOrgCore.COOPS.includes(coop)||
      !TIPONPlatforms.names().some(v=>key(v)===key(platform))){
@@ -73,13 +73,13 @@
   })){setText('adminMemberEditStatus','Choose synced locations matching the selected Cooperative and Business Platform.');return;}
   const scopeChanged=coop!==member.coop||key(platform)!==key(member.platform);
   const locationChanged=!same(ids(member),siteIds),nameChanged=name!==member.name;
-  if(!scopeChanged&&!locationChanged&&!nameChanged){$('adminMemberDialog').close();return;}
+  if(memberNumber===(member.memberNumber||member.id)&&!scopeChanged&&!locationChanged&&!nameChanged){$('adminMemberDialog').close();return;}
   if(scopeChanged||locationChanged){
    if(!await confirmAction('Confirm Member Assignment','Update '+member.name+'? Complete open Time Out first. Existing face data and attendance history remain unchanged.'))return;
   }
   const button=$('adminMemberSave');button.disabled=true;setText('adminMemberEditStatus','Saving member changes...');
   try{
-   const result=await window.TIPONMemberMetadataSave(member,{name,coop,platform,siteIds});
+   const result=await window.TIPONMemberMetadataSave(member,{name,coop,platform,siteIds,memberNumber});
    await loadCollections();$('adminMemberDialog').close();renderMembers();renderDashboard();
    showToast(result.pending?'Changes saved locally. Pending Sync.':'Member changes synchronized.','success',7000);
   }catch(error){

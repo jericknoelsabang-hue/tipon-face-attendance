@@ -97,6 +97,7 @@ loadCollections=async function(){
           const fingerprint=JSON.stringify(m.template),cached=decryptedFaces.get(m.id);
           m.descriptors=cached?.fingerprint===fingerprint?cached.descriptors:await TIPONAuth.unseal(m.template,faceKey,'member:'+m.id);
           if(!Array.isArray(m.descriptors)||m.descriptors.length<3||m.descriptors.some(v=>!Array.isArray(v)||v.length!==128||v.some(n=>!Number.isFinite(n))))throw Error('Invalid facial template');
+          delete m.templateError;
           decryptedFaces.set(m.id,{fingerprint,descriptors:m.descriptors});
         }
         catch{m.descriptors=[];m.templateError='Face template could not be decrypted; re-enroll after review.';}

@@ -5,9 +5,9 @@
   else root.TIPONOrgCore = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this, function() {
   'use strict';
-  const VERSION='5.5.36', PROTOCOL='tipon-org-v5', PBKDF2_ITERATIONS=600000;
+  const VERSION='5.5.37', PROTOCOL='tipon-org-v5', PBKDF2_ITERATIONS=600000;
   const COOPS=['Asiapro','Gawa at Kalinga','Kaakbay sa Kinabukasan','Kadayawan','Kaamulan','Tnalak','Victory','Worklife'];
-  const DEFAULT_PLATFORMS=['IMG','MSG-SM','MSG-NM','MSG-NW','OCG','Contracting','AP Cons','GAK'];
+  const DEFAULT_PLATFORMS=['IMG','MSG-SM','MSG-NM','MSG-NW','OCG','Contracting','AP Cons','GAK','ATS'];
   const EXPORT_HEADERS=['MemberId','Date','Time In','Time Out','Date Time Out'];
   // The payroll extract stays at five columns. Only the central report adds context.
   const REPORT_HEADERS=[...EXPORT_HEADERS,'Work location','MPC','BP'];

@@ -37,7 +37,7 @@
     let success=false;
     if(s.order[s.step]==='blink'){
       const ratio=blinkRatio(face);
-      if(!Number.isFinite(ratio)||ratio<.045||ratio>.60)return {ok:false,prompt:'Keep your eyes clearly visible.'};
+      if(!Number.isFinite(ratio)||ratio<0||ratio>.60)return {ok:false,prompt:'Keep your eyes clearly visible.'};
       if(!s.closed){
         if(ratio>=.09){s.openRatio=Math.max(s.openRatio*.98,ratio);s.openFrames++;}
         if(s.openFrames<2)return {ok:false,prompt:'Look straight at the camera.'};
@@ -157,7 +157,7 @@
       console.error('Live face verification',error);
       updateScanResult('Camera Error','Please try again.','error');
     }finally{
-      if(state.scanning&&state.scanRun===run)state.scanTimer=setTimeout(scanTick,220);
+      if(state.scanning&&state.scanRun===run)state.scanTimer=setTimeout(scanTick,120);
     }
   };
   // Enrollment uses the same random two-step challenge.
@@ -175,7 +175,7 @@
     const button=$('captureEnrollmentSample');
     if(!button||!state.enrollActive||!state.enrollReadyDescriptor||!state.enrollLiveness?.passed||state.enrollConflictMemberId)return;
     if(!state.enrollReadyAt||Date.now()-state.enrollReadyAt>2000){button.disabled=true;state.enrollReadyDescriptor=null;setText('enrollStatus','Wait for a fresh live camera frame, then capture.');return;}
-    const memberId=$('memberId').value.trim(),descriptor=state.enrollReadyDescriptor.slice();
+    const memberId=enrollmentMemberKey(),descriptor=state.enrollReadyDescriptor.slice();
     const conflict=findEnrolledFaceConflict([descriptor],memberId);
     if(conflict){
       state.enrollConflictMemberId=conflict.member.id;state.enrollReadyDescriptor=null;button.disabled=true;
@@ -210,7 +210,9 @@
     setText('enrollFaceLabel','Verified · Three Live Samples Ready');
     setText('enrollStatus','Three samples captured. Save the member record.');
     playTerminalSound('success');showToast('Three face samples captured. Save the member record.','success');
+    const autoSave=!!state.editMember;
     await finishEnrollment(false);
+    if(autoSave)await saveMemberForm({preventDefault(){}});
   }
   enrollTick=async function(){
     if(!state.enrollActive)return;
@@ -231,7 +233,7 @@
           setText('enrollStatus',faces.length?'One face at a time.':'Position one face in the frame.');
         }else{
           state.enrollFaceMissing=0;
-          const descriptor=Array.from(faces[0].descriptor),memberId=$('memberId').value.trim();
+          const descriptor=Array.from(faces[0].descriptor),memberId=enrollmentMemberKey();
           const conflict=findEnrolledFaceConflict([descriptor],memberId);
           if(conflict){
             state.enrollConflictMemberId=conflict.member.id;state.enrollReadyDescriptor=null;
@@ -256,7 +258,6 @@
               if(button)button.disabled=true;setText('enrollStatus',live.prompt);
             }else{
               state.enrollReadyDescriptor=descriptor;state.enrollReadyAt=Date.now();
-              state.enrollReadyDescriptor=descriptor;state.enrollReadyAt=Date.now();
               if(button){button.disabled=false;button.textContent='Capture Sample '+(state.enrollCollected.length+1)+' of 3';}
               setText('enrollStatus','Live check passed. Click Capture Sample.');
             }
@@ -268,11 +269,11 @@
       setText('enrollStatus','Enrollment error. Check camera permission and try again.');
       $('retryEnrollment').hidden=false;
     }
-    if(state.enrollActive&&state.enrollRun===run)state.enrollTimer=setTimeout(enrollTick,220);
+    if(state.enrollActive&&state.enrollRun===run)state.enrollTimer=setTimeout(enrollTick,120);
   };
   const captureButton=$('captureEnrollmentSample');
   if(captureButton&&!captureButton.dataset.bound){
     captureButton.dataset.bound='1';captureButton.addEventListener('click',captureEnrollmentSample);
   }
-  window.TIPONLiveness={version:'5.5.36',challenge,advance};
+  window.TIPONLiveness={version:'5.5.37',challenge,advance};
 })();

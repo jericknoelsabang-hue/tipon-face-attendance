@@ -12,20 +12,20 @@ window.TIPONPlatforms=(()=>{
     {name:'Asiapro Trucking System',code:'ATS'},
     {name:'Asiapro Contracting',code:'Contracting'},
     {name:'Gawa At Kalinga',code:'GAK'},
-    {name:'Independent Manufactoring Group',code:'IMG'},
+    {name:'Independent Manufacturing Group',code:'IMG'},
     {name:'Managed Services Group - North Mindanao',code:'MSG-NM'},
-    {name:'Managed Services Group - Nation Wide',code:'MSG-NW'},
+    {name:'Managed Services Group - Nationwide',code:'MSG-NW'},
     {name:'Managed Services Group - South Mindanao',code:'MSG-SM'},
     {name:'Other Construction Group',code:'OCG'}
   ]);
   const captions=new Map(STARTER_DIRECTORY.map(x=>[x.code.toLowerCase(),x.name]));
   const norm=s=>TIPONOrgCore.platformKey(String(s||''));
-  const clean=s=>String(s||'').normalize('NFKC').trim().replace(/\s+/g,' ');
+  const clean=s=>String(s||'').normalize('NFKC').trim().replace(/\s+/g,' ').replace('Independent Manufactoring Group','Independent Manufacturing Group').replace('Managed Services Group - Nation Wide','Managed Services Group - Nationwide');
   let target='',busy=false,editingCode='',page=1;
   function defaultNames(){return TIPONOrgCore.DEFAULT_PLATFORMS||[];}
   function names(){
     return TIPONOrgCore.platformNames([
-      ...defaultNames(),...(state.platforms||[]),
+      ...defaultNames(),...STARTER_DIRECTORY.map(x=>x.code),...(state.platforms||[]),...(state.members||[]).filter(m=>!m.deleted).map(m=>m.platform),
       ...(state.sites||[]).filter(x=>!x.deleted).map(x=>x.platform),
       state.user?.platform||''
     ]);
@@ -71,7 +71,7 @@ window.TIPONPlatforms=(()=>{
   function fill(id,preferred){
     const el=$(id);if(!el)return;
     const value=preferred===undefined?el.value:clean(preferred);
-    const scoped=state.user?.role==='registrar'&&['sitePlatform','memberPlatform'].includes(id);
+    const scoped=state.user?.role==='registrar'&&id==='sitePlatform';
     const options=scoped?[state.user.platform]:TIPONOrgCore.platformNames([...names(),value]);
     const html='<option value="">Select business platform</option>'+
       options.filter(Boolean).map(name=>'<option value="'+esc(name)+'">'+esc(name)+'</option>').join('');

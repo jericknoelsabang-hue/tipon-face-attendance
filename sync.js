@@ -18,6 +18,7 @@ window.TIPONSync=(()=>{
   // Pause a single Work Location while an Administrator resolves a stale outbox
   // operation against an authoritative central snapshot. Other locations and
   // attendance events continue to synchronize normally.
+  let recoveredCompatibleOperations=false;
   const suspendedSiteIds=new Set();
   function pauseSite(id){
     const key=String(id||'');if(!key)throw Error('Work Location ID is required.');
@@ -42,11 +43,11 @@ window.TIPONSync=(()=>{
   function stop(){stopped=true;clearTimeout(timer);}
   function schedule(){clearTimeout(timer);if(stopped)return;
     const localEventsQueued=state.punches.some(p=>p.orgId===state.orgId&&!p.cloudAck&&!p.reviewStatus&&p.deviceId===state.deviceId);
-     const base=localEventsQueued?7000:state.user?.role==='admin'&&state.page==='dashboard'?15000:25000;
+     const base=localEventsQueued?7000:state.user?.role==='admin'?15000:5000;
     const seconds=siteFastRetry>0&&siteFastRetry<=3&&attempt===0?4200:Math.min(300000,base*2**attempt)+Math.floor(Math.random()*3000);
     timer=setTimeout(run,seconds);
   }
-  function kick(){clearTimeout(timer);if(!stopped)timer=setTimeout(run,500+Math.floor(Math.random()*1500));render();}
+  function kick(){clearTimeout(timer);if(!stopped)timer=setTimeout(run,100);render();}
   async function markOps(reply){
     const all=await getAll('outbox');
     for(const id of reply.ackOps||[]){const item=all.find(x=>x.id===id);if(!item)continue;const receipt=(reply.receipts||[]).find(x=>x.type===item.type&&x.id===item.value.id);
@@ -197,13 +198,13 @@ window.TIPONSync=(()=>{
       }else if(op.type==='memberEdits'){
         const id=op.value.memberId,current=await getOne('members',id),original=op.value.original;
         if(current&&original){
-          Object.assign(current,{name:original.name,coop:original.coop,platform:original.platform,siteId:original.siteIds?.[0]||'',siteIds:original.siteIds||[]});
+          Object.assign(current,{memberNumber:original.memberNumber||current.memberNumber||current.id,name:original.name,coop:original.coop,platform:original.platform,siteId:original.siteIds?.[0]||'',siteIds:original.siteIds||[]});
           delete current._pendingOp;delete current.pendingEdit;current.syncIssue=latest.error;await OrgDB.rawSave('members',current);
         }
       }else if(op.type==='memberFaceUpdates'){
         const current=await getOne('members',op.value.memberId),original=op.value.original;
         if(current&&original){
-          Object.assign(current,{name:original.name,coop:original.coop,platform:original.platform,
+          Object.assign(current,{memberNumber:original.memberNumber||current.memberNumber||current.id,name:original.name,coop:original.coop,platform:original.platform,
             siteId:original.siteId||original.siteIds?.[0]||'',siteIds:original.siteIds||[],
             template:original.template||null,consentAt:original.consentAt||null,
             enrolledBy:original.enrolledBy||'',enrolledByUsername:original.enrolledByUsername||'',
@@ -229,7 +230,7 @@ window.TIPONSync=(()=>{
     for(const op of special){
       try{
         if(op.type==='memberEdits'){
-          const reply=await TIPONAPI.call({action:actor.role==='admin'?'adminMemberUpdateV2':'memberTransferUpdateV2',
+          const reply=await TIPONAPI.call({action:'memberTransferUpdateV2',
             memberId:op.value.memberId,baseRev:Number(op.baseRev)||0,changes:op.value.changes});
           if(!reply.member||String(reply.member.id)!==String(op.value.memberId))throw Error('Server did not confirm member changes.');
           const current=await getOne('members',op.value.memberId);
@@ -246,7 +247,7 @@ window.TIPONSync=(()=>{
           if(current?._pendingOp&&current._pendingOp!==op.id)
             throw Object.assign(Error('A concurrent member update is pending.'),{code:'CONFLICT'});
           const updated={...current,...reply.member,orgId:state.orgId};
-          delete updated._pendingOp;delete updated.pendingEdit;delete updated.syncIssue;
+          delete updated._pendingOp;delete updated.pendingEdit;delete updated.pendingFaceUpdate;delete updated.templateError;delete updated.syncIssue;
           await OrgDB.rawSave('members',updated);await OrgDB.rawDelete('outbox',op.id);
         }else if(op.type==='memberDeletes'){
           const action=actor.role==='admin'?'adminMemberDelete':'memberUserDelete';
@@ -384,6 +385,16 @@ window.TIPONSync=(()=>{
     let result={ok:false,error:'Synchronization did not complete.'};
     try{
       await TIPONAuth.ensureOnline();
+      if(!recoveredCompatibleOperations){
+       try{
+        const caps=await TIPONAPI.raw({action:'memberLocationCapabilities'});
+        if(caps.memberFaceUpdate&&caps.memberTransferUpdate){
+         const oldOps=await getAll('outbox');
+         for(const op of oldOps.filter(o=>o.orgId===state.orgId&&o.ownerId===state.user.id&&['memberFaceUpdates','memberEdits'].includes(o.type)&&/unknown action|unsupported action|not implemented/i.test(o.error||''))){delete op.error;delete op.errorCode;op.everSent=false;await OrgDB.rawSave('outbox',op);}
+         recoveredCompatibleOperations=true;
+        }
+       }catch(error){console.warn('Backend capability check:',error.message);}
+      }
        await loadCollections();
        let uploadFailure=null;
        try{await reconcileLegacyAdminDeletes();await flush();}

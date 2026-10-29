@@ -1,0 +1,33 @@
+/* Consistent workspace controls and readable tables. */
+#appShell .page-head h1{font-size:28px;line-height:1.2;letter-spacing:-.5px}
+#appShell .page-head{gap:16px;align-items:center}
+#appShell .page-head p{font-size:13px;line-height:1.5;text-align:left}
+#appShell table{width:100%;border-collapse:collapse}
+#appShell table th{font-size:12px!important;font-weight:700!important;line-height:1.4!important;letter-spacing:0!important;text-align:left!important;text-transform:none!important;padding:13px 14px!important;white-space:nowrap}
+#appShell table td{font-size:12px!important;line-height:1.5!important;text-align:left!important;vertical-align:middle!important;padding:12px 14px!important;word-spacing:normal!important}
+#appShell table td small{font-size:11px;line-height:1.4}
+#appShell .btn,dialog .btn{min-height:38px;height:38px;padding:0 16px;font-size:12px;display:inline-flex;align-items:center;justify-content:center;gap:6px;white-space:nowrap}
+#appShell .tiny-button{min-height:32px;padding:6px 10px;font-size:11px;display:inline-flex;align-items:center;justify-content:center;white-space:nowrap}
+#appShell .row-inline{gap:8px;flex-wrap:wrap}
+#appShell .filter-bar,#appShell .table-toolbar{gap:12px;align-items:end}
+#appShell .filter-bar label,#appShell .table-toolbar label{font-size:12px;line-height:1.4;gap:6px;text-align:left}
+#appShell .filter-bar input,#appShell .filter-bar select,#appShell .table-toolbar input,#appShell .table-toolbar select{box-sizing:border-box;height:40px;min-height:40px;padding:8px 12px;font-size:12px}
+.admin-list-pager{display:flex!important;align-items:center!important;justify-content:space-between!important;gap:16px!important;flex-wrap:wrap!important;padding:16px 20px!important;border-top:1px solid #e4ebf4}
+.admin-list-pager-actions{display:flex!important;align-items:center!important;justify-content:flex-end!important;gap:12px!important}
+.admin-list-pager .text-count{font-size:12px!important;line-height:1.5!important;white-space:nowrap}
+.admin-list-pager .btn{height:36px!important;min-height:36px!important;min-width:84px!important}
+#page-members .table-toolbar{grid-template-columns:minmax(220px,1fr) minmax(180px,240px) auto!important}
+#memberDialog .form-row.three{grid-template-columns:repeat(3,minmax(0,1fr))!important;align-items:start!important;gap:12px!important}
+#memberDialog #memberCoop,#memberDialog #memberPlatform,#memberDialog #memberSitePicker{height:44px!important;min-height:44px!important;max-height:44px!important;font-size:12px!important}
+#memberDialog #memberSiteSummary{height:42px!important;min-height:42px!important;max-height:42px!important;padding:0 32px 0 12px!important;font-size:12px!important}
+#memberDialog #memberSiteSummary:after{width:5px!important;height:5px!important;padding:0!important;margin-left:0!important;box-sizing:content-box!important;border-width:0 1.5px 1.5px 0!important}
+#cameraBottomTag{font-size:14px!important;line-height:1.5!important;padding:10px 16px!important;max-width:90%!important;text-align:center!important;white-space:normal!important;background:#102839ed!important;color:#fff!important}
+#scanResult b{font-size:17px!important}#scanResult p{font-size:14px!important;line-height:1.5!important}
+#enrollStatus{font-size:13px!important;line-height:1.5!important;color:#17364b!important}
+#attendanceEditStatus{min-height:20px;color:#b42318;font-size:13px}
+#attendanceEditDialog .form-row{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+#attendanceEditDialog label{display:flex;flex-direction:column;gap:6px;font-size:12px}
+#attendanceEditDialog input{height:42px;font-size:14px;min-width:0;width:100%;box-sizing:border-box}
+@media(max-width:640px){#appShell .page-head h1{font-size:24px}#page-members .table-toolbar{grid-template-columns:1fr!important}#memberDialog .form-row.three{grid-template-columns:1fr!important}.admin-list-pager{padding:12px!important}.admin-list-pager-actions{justify-content:space-between!important;width:100%}#attendanceEditDialog .form-row{grid-template-columns:1fr}}
+
+.btn.confirm-success{background:#15803d!important;border-color:#15803d!important;color:#fff!important}

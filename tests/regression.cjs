@@ -60,9 +60,51 @@ test('Existing-member face update validates role, revision, consent, encrypted t
 });
 test('No duplicate Edit or Full Screen handlers; three-capture control and required picker exist',()=>{
   const app=source('app.js'),html=source('index.html');
-  assert.equal((app.match(/async function editAttendanceFromLog\(/g)||[]).length,1);
+  assert.equal((app.match(/(?:async )?function editAttendanceFromLog\(/g)||[]).length,1);
   assert.equal((app.match(/attach\('kioskFullscreen','click'/g)||[]).length,0);
   assert.match(html,/id="memberSiteSummary"[^>]+aria-required="true"/);
   assert.match(html,/id="captureEnrollmentSample"/);
   assert.match(app,/if\(!siteIds.length\)/);
+});
+test('Fully closed eyes advance the blink challenge; a stationary face cannot pass',()=>{
+  const ctx={console,Date,Math,Number,Array,crypto:{getRandomValues:a=>{a[0]=0;return a;}},state:{},navigator:{onLine:true},$:()=>null,speakTerminal:()=>{},loadFaceModels:async()=>{},startScanner:async()=>{},stopScanner:async()=>{},beginEnrollment:async()=>{},scanTick:()=>{},enrollTick:()=>{},blinkRatio:f=>f.ratio};
+  ctx.window=ctx;vm.createContext(ctx);vm.runInContext(source('liveness-guard.js'),ctx);
+  const face=(ratio,yaw=0)=>{const positions=Array.from({length:68},()=>({x:0,y:0}));positions[36]={x:0,y:0};positions[45]={x:100,y:0};positions[30]={x:50+yaw*100,y:20};return {ratio,landmarks:{positions}};};
+  const c=ctx.TIPONLiveness.challenge(),t=c.started;
+  ctx.TIPONLiveness.advance(c,face(.25),t+100);ctx.TIPONLiveness.advance(c,face(.25),t+250);
+  ctx.TIPONLiveness.advance(c,face(.02),t+450);assert.equal(c.closed,true);
+  ctx.TIPONLiveness.advance(c,face(.25),t+750);assert.equal(c.step,1);
+  ctx.TIPONLiveness.advance(c,face(.25),t+900);ctx.TIPONLiveness.advance(c,face(.25),t+1050);
+  assert.equal(ctx.TIPONLiveness.advance(c,face(.25,.16),t+1300).ok,true);
+  const staticFace=ctx.TIPONLiveness.challenge();for(let i=1;i<=20;i++)ctx.TIPONLiveness.advance(staticFace,face(.25),staticFace.started+i*150);
+  assert.equal(staticFace.passed,false);
+});
+test('Attendance editor validates real dates and preserves Philippine time and overnight dates',()=>{
+  const app=source('app.js'),code=app.slice(app.indexOf('function attendanceInputStamp('),app.indexOf('async function submitAttendanceEdit('));
+  const ctx={TIPONCore:Core,Date,Number,Error};vm.createContext(ctx);vm.runInContext(code,ctx);
+  assert.equal(ctx.attendanceInputStamp('2026-10-29','06:15:23'),'2026-10-28T22:15:23.000Z');
+  assert.throws(()=>ctx.attendanceInputStamp('2026-02-31','06:15'),/calendar date/);
+  assert.throws(()=>ctx.attendanceInputStamp('2026-10-29','25:15'),/calendar date/);
+  assert.equal(Date.parse(ctx.attendanceInputStamp('2026-10-30','06:00'))-Date.parse(ctx.attendanceInputStamp('2026-10-29','22:00')),8*3600000);
+  assert.doesNotMatch(app.slice(app.indexOf('function editAttendanceFromLog('),app.indexOf('function openAttendanceReview(')),/prompt\(/);
+});
+test('Member dropdown includes all known Business Platforms and remains editable for Users',()=>{
+  const controls={memberPlatform:{value:'AP Cons',innerHTML:'',disabled:false},sitePlatform:{value:'AP Cons',innerHTML:'',disabled:false}};
+  const ctx={TIPONOrgCore:Org,state:{user:{...actor,platform:'AP Cons'},platforms:['CUSTOM'],sites:[],members:[]},$:id=>controls[id],esc:x=>x,console};ctx.window=ctx;vm.createContext(ctx);vm.runInContext(source('platforms.js'),ctx);
+  ctx.TIPONPlatforms.fill('memberPlatform','AP Cons');assert.equal(controls.memberPlatform.disabled,false);
+  for(const code of ['ATS','IMG','MSG-SM','CUSTOM','OCG'])assert.ok(controls.memberPlatform.innerHTML.includes('value="'+code+'"'));
+  ctx.TIPONPlatforms.fill('sitePlatform','AP Cons');assert.equal(controls.sitePlatform.disabled,true);
+});
+test('Editable Member ID preserves the internal record/template key and rejects duplicates',()=>{
+  const {ctx,members}=backend();members.push({id:'other',memberNumber:'BUSINESS-2'});
+  const result=ctx.tp5TransferUpdate_(actor,{memberId:'TEST-1',baseRev:2,changes:{name:'Synthetic Member',memberNumber:'BUSINESS-1',coop:'Asiapro',platform:'IMG',siteIds:['site-1']}});
+  assert.equal(result.member.id,'TEST-1');assert.equal(result.member.memberNumber,'BUSINESS-1');assert.equal(result.member.template,members[0].template);
+  assert.throws(()=>ctx.tp5TransferUpdate_(actor,{memberId:'TEST-1',baseRev:2,changes:{name:'Synthetic Member',memberNumber:'business-2',coop:'Asiapro',platform:'IMG',siteIds:['site-1']}}),/already registered/);
+});
+test('Three manual re-enrollment captures trigger one immediate save with a fresh proof',async()=>{
+  let capture,saves=0;const button={dataset:{},addEventListener:(name,fn)=>capture=fn},nodes={captureEnrollmentSample:button,enrollProgress:{style:{}},retryEnrollment:{}};
+  const ctx={console,Date,Math,Number,Array,crypto:{getRandomValues:a=>{a[0]=0;return a;}},state:{enrollActive:true,enrollCollected:[],editMember:{id:'STABLE-KEY',template:{}}},navigator:{onLine:true},$:id=>nodes[id],speakTerminal:()=>{},loadFaceModels:async()=>{},startScanner:async()=>{},stopScanner:async()=>{},beginEnrollment:async()=>{},scanTick:()=>{},enrollTick:()=>{},blinkRatio:f=>f.ratio,enrollmentMemberKey:()=>'STABLE-KEY',findEnrolledFaceConflict:()=>false,euclidean:(a,b)=>Math.sqrt(a.reduce((n,x,i)=>n+(x-b[i])**2,0)),setText:()=>{},playTerminalSound:()=>{},showToast:()=>{},finishEnrollment:async()=>{},saveMemberForm:async()=>{saves++;}};
+  ctx.window=ctx;vm.createContext(ctx);vm.runInContext(source('liveness-guard.js'),ctx);
+  for(let i=0;i<3;i++){ctx.state.enrollReadyDescriptor=Array(128).fill(.1+i*.01);ctx.state.enrollReadyAt=Date.now();ctx.state.enrollLiveness={passed:true};await capture();}
+  assert.equal(ctx.state.pendingDescriptors.length,3);assert.equal(ctx.state.enrollmentProof.memberId,'STABLE-KEY');assert.equal(saves,1);
 });
