@@ -11,7 +11,7 @@
   function serial(value) { return value ? (epoch(value) + 28800000) / 86400000 + 25569 : ''; }
   function normalize(punches, deviceId) {
     const open = new Map();
-    return [...punches].sort((a,b) => epoch(a.timestamp) - epoch(b.timestamp) || String(a.id).localeCompare(String(b.id))).map(p => {
+    return [...punches].filter(p=>!p.deleted&&p.reviewStatus!=='rejected').sort((a,b) => epoch(a.timestamp) - epoch(b.timestamp) || String(a.id).localeCompare(String(b.id))).map(p => {
       const item = {...p, deviceId:p.deviceId || deviceId, memberId:String(p.memberId)};
       const key = JSON.stringify([item.deviceId, item.memberId, item.siteId || item.siteName || item.location]);
       if (item.type === 'IN') {
@@ -60,7 +60,7 @@
   }
   function transition(punches, memberId, mode, now = Date.now(), cooldown = 90000) {
     if (!['in','out'].includes(mode)) throw Error('Choose Time In or Time Out. Auto mode is not available.');
-    const last = punches.filter(p => String(p.memberId) === String(memberId)).sort((a,b) => epoch(b.timestamp) - epoch(a.timestamp))[0];
+    const last = punches.filter(p => !p.deleted&&p.reviewStatus!=='rejected'&&String(p.memberId) === String(memberId)).sort((a,b) => epoch(b.timestamp) - epoch(a.timestamp))[0];
     const type = mode.toUpperCase();
     if (last && epoch(last.timestamp) > now) throw Error('Device clock is earlier than the previous attendance. Correct the clock first.');
     if (last?.type === type) throw Error(type === 'IN' ? 'Already timed in. Select Time Out after the shift.' : 'Already timed out. Select Time In for the next shift.');
