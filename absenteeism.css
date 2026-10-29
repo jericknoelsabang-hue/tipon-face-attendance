@@ -43,3 +43,11 @@
 @media(max-width:1310px){#absPanel .ab-charts{grid-template-columns:repeat(2,minmax(0,1fr))}#absPanel .ab-charts .ab-status{grid-column:1/-1}#absPanel .ab-status .ab-donut-box{grid-template-columns:175px minmax(0,1fr);justify-items:stretch;align-items:center}#absPanel .ab-status #absDonut{width:160px}}
 @media(max-width:950px){#absPanel .ab-kpi-grid{grid-template-columns:repeat(3,minmax(0,1fr))}#absPanel .ab-charts{grid-template-columns:1fr}#absPanel .ab-charts .ab-status{grid-column:auto}}
 @media(max-width:600px){#absPanel{padding:16px 12px;border-radius:12px}#absPanel .ab-header{flex-direction:column}#absPanel .ab-actions{width:100%;justify-content:space-between}#absPanel #absConnection{text-align:left}#absPanel .ab-kpi-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}#absPanel .ab-kpi{padding:12px 10px;min-height:112px}#absPanel .ab-status .ab-donut-box{grid-template-columns:1fr;justify-items:center}}
+
+/* v5.5.40: Attendance Review shows all flagged records with pagination. */
+#absPanel .ab-review-pager{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-top:14px}
+#absPanel .ab-review-pager .ab-review-count,#absPanel #absReviewMore{font-size:11px;color:#6f849b}
+#absPanel .ab-review-pager .admin-list-pager-actions{display:flex;align-items:center;gap:10px}
+#absPanel .ab-review-pager .btn{min-height:36px;height:36px;padding:0 14px}
+#absPanel .ab-review-pager .btn:disabled{opacity:.5;cursor:not-allowed}
+@media(max-width:600px){#absPanel .ab-review-pager{align-items:stretch;flex-direction:column}#absPanel .ab-review-pager .admin-list-pager-actions{justify-content:space-between}}
