@@ -141,13 +141,28 @@ window.TIPONAdminSites=(()=>{
     deletingSites.add(site.id);
     let releasePause=null;
     try{
-      if(!navigator.onLine)throw Object.assign(Error('Connect to the internet to delete Work Locations.'),{code:'NETWORK'});
       if(assignedMembers(state.members,site.id))
         throw Object.assign(Error('This Work Location still has assigned members. Reassign them before deletion.'),{code:'DEPENDENCY'});
 
       const approve=await confirmAction('Delete Work Location?',
-        'Delete '+String(site.name||'this Work Location')+' from the central organization? The app will verify and remove any matching pending site change, and keep all historical attendance. Assigned members or open Time In sessions block deletion.');
+        'Delete '+String(site.name||'this Work Location')+'? The organization will verify dependencies and retain attendance history.');
       if(!approve)return;
+
+      if(!navigator.onLine){
+        const local=await getOne('sites',site.id);
+        if(!local||local.deleted)return;
+        if(local._pendingOp)throw Error('Sync the existing Work Location edit before deleting it.');
+        const opId=uuid(),original={...local};
+        const value={...local,id:site.id,deleted:true,active:false,updatedAt:new Date().toISOString()};
+        for(const fieldName of ['_row','_pendingOp','syncIssue','descriptors','templateError','pendingDelete'])delete value[fieldName];
+        const op={id:opId,type:'siteDeletes',value:{siteId:site.id,site:value,original},baseRev:Number(local.rev)||0,
+          orgId:state.orgId,ownerId:state.user.id,createdAt:new Date().toISOString(),everSent:false};
+        const pending={...local,deleted:true,active:false,pendingDelete:true,_pendingOp:opId};
+        await new Promise((resolve,reject)=>{const tx=db.transaction(['sites','outbox'],'readwrite');tx.objectStore('sites').put(pending);tx.objectStore('outbox').put(op);tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error);tx.onabort=()=>reject(tx.error);});
+        await loadCollections();render();TIPONSync.kick();
+        showToast('Deletion queued locally. The organization will verify assignments when online.','info',8500);
+        return;
+      }
 
       // Pausing this site's outbox is essential: unrelated rejected member
       // changes must not block deletion or cause a second in-flight create.
