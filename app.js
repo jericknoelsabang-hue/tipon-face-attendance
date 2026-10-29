@@ -121,7 +121,13 @@ function renderDashboard(){const today=todayPH();const todayPunches=state.punche
  const ready=[['Work locations',state.sites.length>0,`${state.sites.length} configured`],['Member facial enrollment',state.members.some(m=>m.active!==false&&!m.deleted&&m.descriptors?.length>=3),`${state.members.filter(m=>m.active!==false&&!m.deleted&&m.descriptors?.length>=3).length} enrolled`],['Offline AI resources',state.offlineReady,state.offlineReady?'Downloaded':'Setup required'],['Attendance stored locally',true,'Device-local database']];
  $('readinessList').innerHTML=ready.map(([label,ok,sub])=>`<div class="readiness-row"><span class="readiness-icon ${ok?'':'warn'}">${pageIcon(ok?'check':'alert')}</span><div class="desc"><b>${esc(label)}</b><small>${esc(sub)}</small></div></div>`).join('');
 }
-function renderTerminal(){const d=state.lastGPS;
+function renderTerminal(){
+  document.querySelectorAll('.mode-option').forEach(button=>{
+    const active=button.dataset.mode===state.scanMode;
+    button.classList.toggle('active',active);
+    button.setAttribute('aria-pressed',String(active));
+  });
+  const d=state.lastGPS;
   setText('currentLat',d?d.latitude.toFixed(6):'—');setText('currentLng',d?d.longitude.toFixed(6):'—');setText('currentAccuracy',d?`${Math.round(d.accuracy)} m`:'—');setText('currentGpsTime',d?displayTime(d.timestamp):'—');setText('gpsStatusBadge',d?'GPS received':'Not checked');
   $('gpsStatusBadge').className=`badge ${d?'green':'gray'}`;
   setText('scannerModelState',state.modelReady?'AI: Loaded':'AI: Not loaded');
@@ -190,7 +196,7 @@ function renderMembers(){
    '<td>'+esc(m.coop)+'</td><td>'+esc(m.platform||sites[0]?.platform||'—')+'</td>'+
    '<td><b>'+esc(names||'Unassigned')+'</b><small>'+(sites.length?'GPS verification at assigned work location':'Assign a Work Location before attendance')+'</small></td>'+
    '<td>'+esc(memberEnrollerLabel(m))+'</td><td><span class="badge '+faceClass+'">'+faceLabel+'</span></td>'+
-   '<td><button class="tiny-button" data-member-edit="'+esc(m.id)+'">Edit</button> <button class="tiny-button delete" data-member-delete="'+esc(m.id)+'">Delete</button> <button class="tiny-button" data-member-review="'+esc(m.id)+'">Review</button></td></tr>';
+   '<td><div class="row-inline"><button class="tiny-button" data-member-edit="'+esc(m.id)+'">Edit</button><button class="tiny-button delete" data-member-delete="'+esc(m.id)+'">Delete</button></div></td></tr>';
  }).join(''):'<tr><td colspan="7"><div class="empty-state">'+pageIcon('users')+'No matching members found.</div></td></tr>';
  setText('memberPageCount','Showing '+(data.length?offset+1:0)+'–'+Math.min(offset+pageSize,data.length)+' of '+data.length+' members');
  setText('memberPage','Page '+state.memberPage+' of '+totalPages);
@@ -614,17 +620,6 @@ async function persistMemberForm(){
  }
 }
 async function handleMemberTableClick(event){
- const review=event.target.closest('[data-member-review]');
- if(review){
-  const member=state.members.find(m=>m.id===review.dataset.memberReview);
-  if(!member)return;
-  const ops=(await getAll('outbox')).filter(op=>op.orgId===state.orgId&&(op.value?.memberId===member.id||op.type==='members'&&op.value?.id===member.id));
-  setText('memberReviewName',member.name+' · '+member.id);
-  setText('memberReviewStatus',member.templateError?'Face template needs review':ops.length?'Pending Sync':member.template&&member.active!==false?'Enrolled · Synced':'Not Enrolled');
-  setText('memberReviewDetails',ops.map(op=>op.error||'Saved on this device; waiting for central acknowledgement.').join(' · ')||member.syncIssue||member.templateError||'No reported synchronization errors.');
-  $('memberReviewDialog').showModal();return;
- }
-
  const edit=event.target.closest('[data-member-edit]'),
    del=event.target.closest('[data-member-delete]');
  if(edit){
@@ -1294,7 +1289,11 @@ async function recordRecognizedFace(member,faceDistance){
   playTerminalSound('success');speakTerminal('Time '+(punch.type==='IN'?'in':'out')+' recorded for '+member.name+'.','success','punch:'+punch.id);showToast(`${member.name}: TIME ${punch.type} recorded.${syncPending?' Sync pending.':''}`,'success');
   if(navigator.vibrate){try{navigator.vibrate(80);}catch{}}
   if(window.TIPONSync)TIPONSync.kick();
- }catch(err){state.scanArmed=true;state.scanCandidate=null;state.scanCandidateCount=0;state.scanLiveness=null;
+ }catch(err){
+   // Do not retry the same failed punch on every camera frame. Require the face
+   // to leave the frame or the User to change attendance mode before another attempt.
+   state.scanArmed=false;state.lastRecognized=member.id;state.scanCandidate=null;
+   state.scanCandidateCount=0;state.scanLiveness=null;state.livenessProof=null;
    playTerminalSound('error');updateScanResult('Attendance NOT recorded',err.message,'error');
    if(/assigned work location|nearest assigned|150 m|same assigned work location/i.test(String(err.message||'')))speakTerminal('Not In Assigned Location','error','location');
    showToast(err.message,'error',6500);}
@@ -1550,7 +1549,20 @@ function bindEvents(){
  attach('confirmCancel','click',()=>resolveConfirm(false));attach('confirmYes','click',()=>resolveConfirm(true));
  attach('confirmDialog','cancel',e=>{e.preventDefault();resolveConfirm(false);});
  attach('startCamera','click',startScanner);attach('stopCamera','click',stopScanner);
- document.querySelectorAll('.mode-option').forEach(btn=>btn.addEventListener('click',()=>{if(state.scanBusy||!['in','out'].includes(btn.dataset.mode))return;state.scanMode=btn.dataset.mode;document.querySelectorAll('.mode-option').forEach(el=>(el.classList.toggle('active',el===btn),el.setAttribute('aria-pressed',String(el===btn))));showToast(`Attendance mode: ${btn.textContent}`);}));
+ document.querySelectorAll('.mode-option').forEach(btn=>btn.addEventListener('click',()=>{
+  const mode=btn.dataset.mode;if(!['in','out'].includes(mode))return;
+  if(state.scanBusy){showToast('Wait for the current attendance check to finish before changing mode.','info');return;}
+  state.scanMode=mode;
+  state.scanArmed=true;state.lastRecognized=null;state.scanCandidate=null;state.scanCandidateCount=0;
+  state.scanAbsentCount=0;state.scanLiveness=null;state.livenessProof=null;
+  document.querySelectorAll('.mode-option').forEach(el=>{
+    const active=el.dataset.mode===mode;el.classList.toggle('active',active);el.setAttribute('aria-pressed',String(active));
+  });
+  const label=mode==='in'?'TIME IN':'TIME OUT';
+  updateScanResult('Attendance mode: '+label,'Face scanning will attempt '+label+' only. Keep one face centered and remain within 150 m of the assigned Work Location.','neutral');
+  setText('cameraBottomTag','Attendance mode: '+label+' · Looking for one face…');
+  showToast('Attendance mode: '+btn.textContent.trim(),'info');
+ }));
  attach('refreshGps','click',async()=>{try{await readGPS();showToast('Current GPS location refreshed.','success');}catch(err){toastError(err,'GPS check failed');}});
  ['recordFrom','recordTo','recordSite'].forEach(id=>attach(id,'change',renderRecords));
  attach('clearRecordFilters','click',()=>{$('recordFrom').value='';$('recordTo').value='';$('recordSite').value='';renderRecords();});
