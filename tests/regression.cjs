@@ -127,7 +127,7 @@ test('Absenteeism with blank filters includes all history and flags open session
     document:{readyState:'complete',getElementById:()=>null}};
   ctx.window=ctx;vm.createContext(ctx);vm.runInContext(source('absenteeism.js'),ctx);
   const data=ctx.TIPONAbsenteeism.compute(members,sites,events,[],'','',Date.parse('2026-10-29T12:00:00Z'),'');
-  assert.deepEqual(data.rows.map(row=>row.day),['2026-10-26','2026-10-27','2026-10-28','2026-10-29']);
+  assert.equal(JSON.stringify(data.rows.map(row=>row.day)),JSON.stringify(['2026-10-26','2026-10-27','2026-10-28','2026-10-29']));
   assert.equal(data.summary.open,1);
   assert.equal(data.summary.awolCount,1);
   assert.ok(data.rows[3].openSessions.some(session=>session.member.id==='M1'));
