@@ -177,19 +177,36 @@ showPage=async function(page){
   if(page==='settings')OrgUI.renderSettings();if(page==='scanner')TIPONCamera.render();if(page==='terminalLogs')renderTerminalLogs();
 };
 const originalOpenMember=openMemberForm,originalOpenSite=openSiteForm;
-openMemberForm=function(member){
+openMemberForm=async function(member){
  if(!canEdit())return;
+ const user=state.user?.role==='registrar';
+ state.memberTransferTargetMode=!!(user&&member);
+ state.memberSiteOptions=state.sites;
  originalOpenMember(member);
- if(state.user.role==='registrar'){
-  // Users may transfer an in-scope member. The server validates the current
-  // member scope, target Cooperative/BP and target Work Location atomically.
-  fillCoopSelect('memberCoop');
-  $('memberCoop').value=member?.coop||state.user.coop||'';
-  TIPONPlatforms.fill('memberPlatform',member?.platform||state.user.platform||'');
-  $('memberCoop').disabled=false;
-  $('memberPlatform').disabled=false;
-  fillMemberSites(member?.siteIds||member?.siteId);
- }else{$('memberCoop').disabled=false;$('memberPlatform').disabled=false;}
+ if(!user){$('memberCoop').disabled=false;$('memberPlatform').disabled=false;return;}
+ fillCoopSelect('memberCoop');
+ $('memberCoop').value=member?.coop||state.user.coop||'';
+ TIPONPlatforms.fill('memberPlatform',member?.platform||state.user.platform||'');
+ $('memberCoop').disabled=false;$('memberPlatform').disabled=false;
+ if(!member){fillMemberSites();return;}
+ const save=$('memberForm').querySelector('[type="submit"]');
+ if(save)save.disabled=true;
+ try{
+  const cacheId='tp5-member-transfer-sites:'+state.orgId;
+  const cached=await getOne('meta',cacheId);
+  if(Array.isArray(cached?.sites)&&cached.sites.length)state.memberSiteOptions=cached.sites;
+  fillMemberSites(member.siteIds||member.siteId);
+  if(navigator.onLine){
+   try{
+    const reply=await TIPONAPI.call({action:'memberTransferLocations',memberId:member.id});
+    if(Array.isArray(reply.sites)){
+     state.memberSiteOptions=reply.sites;
+     await OrgDB.rawSave('meta',{id:cacheId,orgId:state.orgId,sites:reply.sites,updatedAt:new Date().toISOString()});
+     fillMemberSites(member.siteIds||member.siteId);
+    }
+   }catch(error){console.warn('Transfer Work Location list unavailable:',error.message||error);}
+  }
+ }finally{if(save)save.disabled=false;}
 };
 openSiteForm=function(site){
   if(!canEdit()&&!isAdmin())return;
