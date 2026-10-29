@@ -22,6 +22,19 @@ test('Time In/Out pairs across devices; duplicate and early punches are blocked'
   assert.equal(Core.transition([input],'TEST-1','out',Date.parse(output.timestamp)).type,'OUT');
   assert.equal(Org.project([{...input,deleted:true},{...output,deleted:true}]).length,0);
 });
+test('Backend correction normalizer removes duplicate directions before strict projection',()=>{
+  const patch=source('backend-patch/AttendanceCorrection.gs');
+  const start=patch.indexOf('function tp5ProjectAttendanceSafe_('),end=patch.indexOf('/** Apply the audited correction overlay',start);
+  assert.ok(start>=0&&end>start);
+  const ctx={TIPONOrgCore:{project(events){
+    const keys=new Set();for(const item of events){const key=item.sessionId+'|'+item.type;assert.equal(keys.has(key),false);keys.add(key);}
+    return events;
+  }},Date,Map,Array,String,Number};
+  vm.createContext(ctx);vm.runInContext(patch.slice(start,end),ctx);
+  const events=[event('a','IN','2026-10-29T00:00:00Z'),event('b','IN','2026-10-29T00:01:00Z'),event('c','OUT','2026-10-29T08:00:00Z')];
+  const projected=ctx.tp5ProjectAttendanceSafe_(events);
+  assert.equal(projected.length,2);assert.equal(projected[0].id,'a');assert.equal(projected[1].id,'c');
+});
 test('Duplicate directions in one legacy session remain projectable for correction',()=>{
   const first={...event('in-first','IN','2026-10-29T00:00:00Z')};
   const duplicate={...event('in-duplicate','IN','2026-10-29T00:01:00Z')};
