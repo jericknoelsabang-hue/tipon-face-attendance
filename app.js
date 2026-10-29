@@ -909,7 +909,10 @@ function renderTerminalLogs(){
   [...sitesById].map(([id,name])=>'<option value="'+esc(id)+'">'+esc(name||id)+'</option>').join('');
  if(sitesById.has(selected))selector.value=selected;
  try{
-  const rows=filteredTerminalLogRows();
+  const filteredRows=filteredTerminalLogRows(),pageSize=10;
+  const totalPages=Math.max(1,Math.ceil(filteredRows.length/pageSize));
+  state.attendancePage=Math.max(1,Math.min(totalPages,Number(state.attendancePage)||1));
+  const offset=(state.attendancePage-1)*pageSize,rows=filteredRows.slice(offset,offset+pageSize);
   const memberNames=new Map((state.members||[]).filter(m=>m&&m.id).map(m=>[String(m.id),String(m.name||'').trim()]));
   $('terminalLogRows').innerHTML=rows.length?rows.map(row=>{
    const location=row.location||sitesById.get(row.siteId)||'—';
@@ -918,8 +921,8 @@ function renderTerminalLogs(){
    const localInput=value=>value?TIPONCore.phStamp(value).replace(' ','T').slice(0,16):'';
    const action=canCorrectAttendance()?'<div class="row-inline">'+
      '<button type="button" class="tiny-button" data-attendance-edit="'+esc(row.key)+'" data-in="'+esc(localInput(row.timeIn))+'" data-out="'+esc(localInput(row.timeOut))+'">Edit</button>'+
-     (row.timeIn&&row.timeOut?'<button type="button" class="tiny-button delete" data-attendance-delete="'+esc(row.key)+'">Delete</button>':'')+
-     (status!=='Synced'?'<button type="button" class="tiny-button" data-attendance-review="'+esc(row.key)+'">Review</button>':'')+
+     '<button type="button" class="tiny-button delete" data-attendance-delete="'+esc(row.key)+'" '+(!(row.timeIn&&row.timeOut)?'disabled title="Complete Time Out before deleting this session."':'')+'>Delete</button>'+
+     '<button type="button" class="tiny-button" data-attendance-review="'+esc(row.key)+'">Review</button>'+
      '</div>':'—';
    const data=[
     attendanceMemberName(row,memberNames),row.memberId,
@@ -930,9 +933,17 @@ function renderTerminalLogs(){
     row.coop||'—',row.platform||'—',location,status
    ];
    return '<tr>'+data.map(value=>'<td>'+esc(value)+'</td>').join('')+'<td>'+action+'</td></tr>';
-  }).join(''):'<tr><td colspan="11">No attendance records match these filters or your approved account scope.</td></tr>';
+  }).join(''):'<tr><td colspan="11"><div class="empty-state">No attendance records match the current filters. Use Reset Filters to show all available records. Stored attendance has not been deleted.</div></td></tr>';
+  setText('terminalLogPageCount','Showing '+(filteredRows.length?offset+1:0)+'–'+Math.min(offset+pageSize,filteredRows.length)+' of '+filteredRows.length+' attendance records');
+  setText('terminalLogPage','Page '+state.attendancePage+' of '+totalPages);
+  if($('terminalLogPrev'))$('terminalLogPrev').disabled=state.attendancePage<=1;
+  if($('terminalLogNext'))$('terminalLogNext').disabled=state.attendancePage>=totalPages;
  }catch(err){
   setText('terminalLogCount',err.message);
+  setText('terminalLogPageCount','Showing 0 attendance records');
+  setText('terminalLogPage','Page 1 of 1');
+  if($('terminalLogPrev'))$('terminalLogPrev').disabled=true;
+  if($('terminalLogNext'))$('terminalLogNext').disabled=true;
   $('terminalLogRows').innerHTML='<tr><td colspan="11">'+esc(err.message)+'</td></tr>';
  }
 }
