@@ -887,12 +887,30 @@ function confirmAction(title,body){
 }
 function resolveConfirm(answer){if($('confirmDialog').open)$('confirmDialog').close();const r=state.confirmResolver;state.confirmResolver=null;if(r)r(answer);}
 
-// GPS reading on demand. Attendance *always* obtains a fresh reading at punch time.
+// Prefer the live GPS-watch fix already shown on screen when it is recent and accurate.
+// Only request another fix when the cached reading is stale or too inaccurate.
+function usableAttendanceGPS(gps,now=Date.now(),maxAge=25000){
+ return !!gps&&Number.isFinite(gps.latitude)&&Math.abs(gps.latitude)<=90&&
+  Number.isFinite(gps.longitude)&&Math.abs(gps.longitude)<=180&&
+  Number.isFinite(gps.accuracy)&&gps.accuracy>=0&&gps.accuracy<=GPS_MAX_ACCURACY&&
+  Number.isFinite(gps.timestamp)&&Math.abs(now-gps.timestamp)<=maxAge;
+}
 function readGPS(){return new Promise((resolve,reject)=>{
+ const cached=state.lastGPS;
+ if(usableAttendanceGPS(cached)){resolve({...cached});return;}
  if(!navigator.geolocation)return reject(Error('This phone/browser has no geolocation capability.'));
- navigator.geolocation.getCurrentPosition(pos=>{const gps={latitude:pos.coords.latitude,longitude:pos.coords.longitude,accuracy:pos.coords.accuracy,timestamp:pos.timestamp};state.lastGPS=gps;if(state.page==='scanner')renderTerminal();resolve(gps);},(error)=>{
- const reason={1:'GPS permission denied. Allow location access in browser settings.',2:'Current location unavailable. Try outdoors.',3:'GPS timed out; move to an open area and try again.'}[error.code]||error.message||'GPS failed';reject(Error(reason));
- },{enableHighAccuracy:true,timeout:18000,maximumAge:0});
+ navigator.geolocation.getCurrentPosition(pos=>{
+  const gps={latitude:pos.coords.latitude,longitude:pos.coords.longitude,accuracy:pos.coords.accuracy,timestamp:pos.timestamp};
+  state.lastGPS=gps;if(state.page==='scanner')renderTerminal();
+  // A recent, accurate watch fix is preferable to a newly returned low-accuracy fix.
+  if(!usableAttendanceGPS(gps)&&usableAttendanceGPS(cached,Date.now(),30000)){resolve({...cached});return;}
+  resolve(gps);
+ },error=>{
+  // GPS watchPosition may already have delivered a usable fix while this request timed out.
+  if(usableAttendanceGPS(state.lastGPS,Date.now(),30000)){resolve({...state.lastGPS});return;}
+  const reason={1:'GPS permission denied. Allow location access in browser settings.',2:'Current location unavailable. Try outdoors.',3:'GPS timed out; move to an open area and try again.'}[error.code]||error.message||'GPS failed';
+  reject(Error(reason));
+ },{enableHighAccuracy:true,timeout:8000,maximumAge:5000});
  });}
 function startGPSWatch(){if(!navigator.geolocation){setText('gpsStatusBadge','GPS unavailable');return;}if(state.gpsWatchId!==null)return;state.gpsWatchId=navigator.geolocation.watchPosition(pos=>{state.lastGPS={latitude:pos.coords.latitude,longitude:pos.coords.longitude,accuracy:pos.coords.accuracy,timestamp:pos.timestamp};if(state.page==='scanner')renderTerminal();},err=>{const reason={1:'Allow location access for automatic kiosk verification.',2:'Current location unavailable; move to an open area.',3:'GPS timed out; retry or use Refresh GPS reading.'}[err.code]||'GPS reading unavailable.';setText('gpsStatusBadge','GPS waiting');setText('cameraBottomTag',reason);},{enableHighAccuracy:true,timeout:18000,maximumAge:5000});readGPS().catch(err=>setText('cameraBottomTag',err.message));}
 function stopGPSWatch(){if(state.gpsWatchId!==null&&navigator.geolocation){navigator.geolocation.clearWatch(state.gpsWatchId);state.gpsWatchId=null;}}
