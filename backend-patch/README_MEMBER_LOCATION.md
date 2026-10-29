@@ -1,4 +1,4 @@
-# TIPON KABILANG v5.5.39 — Private Apps Script compatibility patch
+# TIPON KABILANG v5.5.40 — Private Apps Script compatibility patch
 
 This patch is for the **existing private Google Apps Script project** behind the TIPON Face Attendance `/exec` URL. GitHub Pages cannot deploy Apps Script. Do not paste credentials, Script Properties, tokens, deployment IDs, member data, or face data into this public repository.
 
@@ -7,7 +7,7 @@ This patch is for the **existing private Google Apps Script project** behind the
 - Admin/User member editing: edit Member ID, Full Name, Cooperative, Business Platform and required Assigned Work Location in one revision-checked operation. Member ID is a unique business identifier; the internal record key and historical attendance remain unchanged.
 - User member transfer: the source member must be in the User's current scope; the destination site must exist centrally and match the selected Cooperative/BP. After transfer, the User loses access if the member leaves their scope.
 - User face re-enrollment: save the newly encrypted AES-GCM face template, consent timestamp and Member ID without replacing the internal record key or attendance history. The server records the enrolling account itself.
-- Attendance Logs Edit/Delete: audited correction overlays, server-side scope checks, revision checks, open-session protection and cross-device refresh.
+- Attendance Logs Edit/Delete: audited correction overlays, server-side scope checks, revision checks and cross-device refresh. Admins and authorized Users can edit Date, Time In, Date Time Out and Time Out, including adding a missing Time Out to an open session, or delete an open or completed session.
 - Existing member soft delete and Work Location operations remain separate.
 
 ## 1. Back up the live project
@@ -127,8 +127,10 @@ Use synthetic member IDs and test accounts first:
 - Change a test member's Member ID through both Admin Edit and User Transfer; confirm the immutable internal key and attendance history are unchanged, and duplicate IDs are rejected.
 - Re-enroll a test member's face; confirm the Member ID, attendance history and consent are retained and the encrypted template changes.
 - Transfer a member to another Cooperative/BP with a valid destination Work Location. Confirm the old User loses access after the member leaves their scope.
-- Edit, delete and review a completed attendance session. Confirm correction reason, server revision and second-device view.
-- Confirm open Time In deletion/reassignment is blocked.
+- Edit all four date/time fields on a completed session and confirm the corrected times appear on a second device.
+- Add a Time Out to a test open session through Edit Attendance; confirm the audited synthetic OUT appears in the central report and on a second device.
+- Delete a test open session and a completed session; confirm raw events remain in the ledger while the corrected view hides the deleted session.
+- Confirm overlapping sessions, future times, duplicate corrections and unauthorized scope changes remain blocked.
 - Turn off internet, queue a test change, restore internet and verify the queue resolves to **Synced** or displays a specific **Needs Review** reason.
 - Verify a filter with no matching date/member shows an empty-state explanation; use Reset Filters to view all records.
 
