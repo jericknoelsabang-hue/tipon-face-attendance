@@ -1,5 +1,5 @@
 {
   "app": "TIPON Face Attendance",
-  "version": "5.5.50",
-  "label": "Improves sync feedback and warns when the Apps Script backend omits the event version needed to refresh attendance corrections across devices."
+  "version": "5.5.52",
+  "label": "Prevents stale cross-device punches, allows multiple duty sessions, and enforces an eight-hour daily work limit."
 }
