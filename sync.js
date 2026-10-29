@@ -57,7 +57,7 @@ window.TIPONSync=(()=>{
       if(!item)continue;
       item.error=issue.error;
       const code=String(issue.code||'SERVER').toUpperCase();
-      item.errorCode=['FORBIDDEN','AUTHZ','PERMISSION','CONFLICT','NOT_FOUND','VALIDATION'].includes(code)||
+      item.errorCode=['ACTION','FORBIDDEN','AUTHZ','PERMISSION','CONFLICT','NOT_FOUND','VALIDATION'].includes(code)||
         /only an approved user|permission denied|not authorized|revision conflict/i.test(String(issue.error||''))
         ?'NEEDS_REVIEW':code;
       await OrgDB.rawSave('outbox',item);
@@ -139,7 +139,7 @@ window.TIPONSync=(()=>{
       const latest=await getOne('outbox',op.id);if(!latest)return;
       latest.error=String(error.message||error).slice(0,400);
       const code=String(error.code||'SERVER').toUpperCase();
-      latest.errorCode=['FORBIDDEN','AUTHZ','PERMISSION','CONFLICT','NOT_FOUND','VALIDATION','OVERLAP','OPEN_SESSION'].includes(code)||
+      latest.errorCode=['ACTION','FORBIDDEN','AUTHZ','PERMISSION','CONFLICT','NOT_FOUND','VALIDATION','OVERLAP','OPEN_SESSION'].includes(code)||
         /only an approved user|permission denied|not authorized|revision conflict/i.test(latest.error)?'NEEDS_REVIEW':code;
       await OrgDB.rawSave('outbox',latest);
       if(op.type==='sites'){
@@ -183,7 +183,7 @@ window.TIPONSync=(()=>{
     const failSpecial=async(op,error)=>{
       const latest=await getOne('outbox',op.id);if(!latest)return;
       latest.error=String(error.message||error).slice(0,400);
-      latest.errorCode=['CONFLICT','FORBIDDEN','NOT_FOUND','VALIDATION','OPEN_SESSION','OVERLAP'].includes(String(error.code||'').toUpperCase())?'NEEDS_REVIEW':String(error.code||'SERVER').toUpperCase();
+      latest.errorCode=['ACTION','CONFLICT','FORBIDDEN','NOT_FOUND','VALIDATION','OPEN_SESSION','OVERLAP'].includes(String(error.code||'').toUpperCase())?'NEEDS_REVIEW':String(error.code||'SERVER').toUpperCase();
       await OrgDB.rawSave('outbox',latest);
       if(op.type==='attendanceCorrections'){
         for(const eventId of op.value.eventIds||[]){
