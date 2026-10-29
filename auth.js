@@ -148,7 +148,9 @@ window.TIPONAuth=(()=>{
       const profile=TIPONOrgCore.profile({username:$('registerUsername').value,name:$('registerName').value,position:$('registerPosition').value,email:$('registerEmail').value,coop:$('registerCoop').value,platform:$('registerPlatform').value,office:$('registerOffice').value,accountType,officeLat:$('registerOfficeLat').value,officeLng:$('registerOfficeLng').value,gpsAccuracy:registrationGpsAccuracy});
       const salt=randomSalt(),derived=await proof(password,salt);
       const reply=await TIPONAPI.raw({action:'register',profile,salt,proof:derived});
-      $('registerPassword').value='';$('registrationDialog').close();status(reply.message);showToast(reply.message,'success',8000);
+      $('registerPassword').value='';$('registrationDialog').close();
+      const confirmation=(reply.message||'Registration submitted.')+' Your account is pending Admin approval. An Admin must approve it before you can sign in.';
+      status(confirmation);showToast(confirmation,'success',10000);
     }catch(err){setText('registrationStatus',err.message);showToast(err.message,'error');}finally{button.disabled=false;}
   }
   async function ensureOnline(){

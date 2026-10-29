@@ -11,7 +11,9 @@
   function serial(value) { return value ? (epoch(value) + 28800000) / 86400000 + 25569 : ''; }
   function normalize(punches, deviceId) {
     const open = new Map();
-    return [...punches].filter(p=>!p.deleted&&p.reviewStatus!=='rejected').sort((a,b) => epoch(a.timestamp) - epoch(b.timestamp) || String(a.id).localeCompare(String(b.id))).map(p => {
+    // A server-rejected event remains in the audit/review list, but it must not
+    // block a fresh Time In/Out attempt as if it were an accepted punch.
+    return [...punches].filter(p=>!p.deleted&&!p.reviewStatus).sort((a,b) => epoch(a.timestamp) - epoch(b.timestamp) || String(a.id).localeCompare(String(b.id))).map(p => {
       const item = {...p, deviceId:p.deviceId || deviceId, memberId:String(p.memberId)};
       const key = JSON.stringify([item.deviceId, item.memberId, item.siteId || item.siteName || item.location]);
       if (item.type === 'IN') {
@@ -60,7 +62,7 @@
   }
   function resolveModeForDate(punches, memberId, mode, now = Date.now()) {
     if (!['in','out'].includes(mode)) throw Error('Choose Time In or Time Out.');
-    const last = punches.filter(p => !p.deleted&&p.reviewStatus!=='rejected'&&String(p.memberId) === String(memberId))
+    const last = punches.filter(p => !p.deleted&&!p.reviewStatus&&String(p.memberId) === String(memberId))
       .sort((a,b) => epoch(b.timestamp) - epoch(a.timestamp))[0];
     const currentDay = phStamp(new Date(now).toISOString()).slice(0,10);
     const previousDay = last ? phStamp(last.timestamp).slice(0,10) : '';

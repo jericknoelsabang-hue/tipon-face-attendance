@@ -1,5 +1,5 @@
 {
   "app": "TIPON Face Attendance",
-  "version": "5.5.45",
-  "label": "Fixes stale open tabs after deployment: the service worker now reloads same-origin app tabs once the new shell activates, then loads versioned 5.5.45 assets. Date-aware next-shift logic and fast GPS reuse remain."
+  "version": "5.5.46",
+  "label": "Aligns face-match checks with the server limit and lets users retry after a rejected punch. Keeps the local attendance event for review, while excluding rejected events from active Time In/Out state."
 }

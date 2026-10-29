@@ -15,7 +15,9 @@ const OFFLINE_ASSETS = [FACE_SCRIPT, ...MODEL_FILES.map((f)=>`${MODEL_ROOT}/${f}
 const REMOTE_CACHE = 'tipon-face-remote-v1';
 const DB_NAME='tipon-face-local-v1';
 const DB_STORE=['users','members','sites','punches','meta','outbox','offices','schedules'];
-const MATCH_LIMIT=.60;
+// Keep client matching aligned with Apps Script's strict faceDistance < 0.47
+// acceptance rule so a locally "recognized" face is never silently rejected.
+const MATCH_LIMIT=.47;
 const AMBIGUITY_GAP=.035;
 const SCAN_DELAY_MS=650;
 const COOLDOWN_MS=90000;
@@ -1225,10 +1227,10 @@ async function scanTick(){if(!state.scanning)return;if(!hasTerminalSession()){aw
    else if(faces.length!==1){state.scanCandidate=null;state.scanCandidateCount=0;state.scanAbsentCount=0;updateScanResult('Multiple faces detected','Only one member may appear in the frame at a time.','error');setText('cameraBottomTag','Only one face is allowed');}
    else{
     state.scanAbsentCount=0;const found=nearestMember(faces[0].descriptor);
-    if(!found.best||found.best.distance>MATCH_LIMIT||(found.second&&found.second.distance-found.best.distance<AMBIGUITY_GAP)){
+    if(!found.best||found.best.distance>=MATCH_LIMIT||(found.second&&found.second.distance-found.best.distance<AMBIGUITY_GAP)){
       state.scanCandidate=null;state.scanCandidateCount=0;
       const closest=found.best?('Closest registered face: '+found.best.member.name+' (distance '+found.best.distance.toFixed(2)+'; limit '+MATCH_LIMIT.toFixed(2)+').'):'No active enrolled face templates are available on this kiosk.';
-      const reason=!found.best?'No enrolled faces':found.best.distance>MATCH_LIMIT?'Face detected, but match confidence is low.':'Face detected, but the closest registered matches are too similar.';
+      const reason=!found.best?'No enrolled faces':found.best.distance>=MATCH_LIMIT?'Face detected, but match confidence is low.':'Face detected, but the closest registered matches are too similar.';
       updateScanResult(reason,closest+' Office GPS is checked after a registered face is identified.','error');
       setText('cameraBottomTag',found.best?('Face detected · closest match '+found.best.member.name+' · '+found.best.distance.toFixed(2)):'Face detected · no enrolled members');
     }else{
