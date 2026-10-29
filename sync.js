@@ -116,38 +116,31 @@ window.TIPONSync=(()=>{
     const actor=state.user;
     const outbox=(await getAll('outbox')).filter(op=>op.orgId===state.orgId&&op.ownerId===actor.id)
       .sort((a,b)=>String(a.createdAt||'').localeCompare(String(b.createdAt||'')));
-    // Older Admin builds could queue edits to biometric members. The backend
-    // correctly denies those operations. Quarantine ONLY those legacy Admin
-    // member writes rather than continually sending them in the same batch
-    // as valid Work Location changes.
     if(actor.role==='admin'){
       for(const op of outbox.filter(x=>x.type==='members'&&!x.value?.deleted&&x.errorCode!=='NEEDS_REVIEW')){
-        op.error='This legacy Admin member edit requires review by an authorized User. Work Locations remain eligible for synchronization.';
-        op.errorCode='NEEDS_REVIEW';
-        await OrgDB.rawSave('outbox',op);
+        op.error='Legacy member edit needs review. Use the current Member List editor.';
+        op.errorCode='NEEDS_REVIEW';await OrgDB.rawSave('outbox',op);
       }
     }
+    const specialTypes=['memberEdits','memberDeletes','attendanceCorrections','siteDeletes'];
     const eligible=outbox.filter(op=>
       !['NEEDS_REVIEW','CONFLICT','FORBIDDEN','NOT_FOUND'].includes(op.errorCode)&&
-      !(actor.role==='admin'&&op.type==='members')&&
+      !specialTypes.includes(op.type)&&!(actor.role==='admin'&&op.type==='members')&&
       !(op.type==='sites'&&suspendedSiteIds.has(String(op.value?.id||''))));
     const siteQueue=eligible.filter(op=>op.type==='sites');
-    const operations=actor.role==='kiosk'?[]:
-      (siteQueue.length?siteQueue.slice(0,3):eligible.slice(0,5));
-    // Attendance is always submitted separately and before site/member writes.
-    // A stale work-location operation must never starve accepted Time In/Time Out.
+    const operations=actor.role==='kiosk'?[]:(siteQueue.length?siteQueue.slice(0,3):eligible.slice(0,5));
     const events=state.punches.filter(p=>
       p.orgId===state.orgId&&!p.cloudAck&&!p.reviewStatus&&p.deviceId===state.deviceId)
       .sort((a,b)=>Date.parse(a.timestamp)-Date.parse(b.timestamp)).slice(0,8);
-    if(!operations.length&&!events.length)return;
+    const special=outbox.filter(op=>specialTypes.includes(op.type)&&
+      !['NEEDS_REVIEW','CONFLICT','FORBIDDEN','NOT_FOUND'].includes(op.errorCode));
+    if(!operations.length&&!events.length&&!special.length)return;
     const reportError=async(op,error)=>{
-      const latest=await getOne('outbox',op.id);
-      if(!latest)return;
+      const latest=await getOne('outbox',op.id);if(!latest)return;
       latest.error=String(error.message||error).slice(0,400);
       const code=String(error.code||'SERVER').toUpperCase();
-      latest.errorCode=['FORBIDDEN','AUTHZ','PERMISSION','CONFLICT','NOT_FOUND','VALIDATION'].includes(code)
-        ||/only an approved user|permission denied|not authorized|revision conflict/i.test(latest.error)
-          ?'NEEDS_REVIEW':code;
+      latest.errorCode=['FORBIDDEN','AUTHZ','PERMISSION','CONFLICT','NOT_FOUND','VALIDATION','OVERLAP','OPEN_SESSION'].includes(code)||
+        /only an approved user|permission denied|not authorized|revision conflict/i.test(latest.error)?'NEEDS_REVIEW':code;
       await OrgDB.rawSave('outbox',latest);
       if(op.type==='sites'){
         const site=await getOne('sites',op.value.id);
@@ -163,18 +156,11 @@ window.TIPONSync=(()=>{
           operations:ops.map(op=>({id:op.id,type:op.type,value:op.value,baseRev:op.baseRev})),
           events:punches.map(wire)});
       }catch(error){
-        // Diagnose one offending site without starving its valid neighbors.
-        // Never retry a failed batch blindly with member/attendance operations.
         if(allowSplit&&ops.length>1&&ops.every(op=>op.type==='sites')&&!punches.length&&
-            !['AUTH','ACCOUNT','DEVICE_DISABLED'].includes(String(error.code||''))){
+          !['AUTH','ACCOUNT','DEVICE_DISABLED'].includes(String(error.code||''))){
           let confirmed=0;
-          for(const op of ops){
-            try{await send([op],[],false);confirmed++;}
-            catch(individualError){await reportError(op,individualError);}
-          }
-          message=confirmed
-            ?confirmed+' Work Location(s) accepted; other Work Locations will be retried or need review.'
-            :'Work Location synchronization could not be confirmed. Check Settings & Offline.';
+          for(const op of ops){try{await send([op],[],false);confirmed++;}catch(e){await reportError(op,e);}}
+          message=confirmed?confirmed+' Work Location(s) accepted; other locations need review or retry.':'Work Location sync failed. Check Sync Status.';
           return;
         }
         for(const op of ops)await reportError(op,error);
@@ -182,8 +168,7 @@ window.TIPONSync=(()=>{
       }
       await markOps(reply);
       const sent=new Set(punches.map(p=>p.id));
-      if((reply.ackIds||[]).some(id=>!sent.has(id)))
-        throw Error('Unexpected attendance acknowledgement. No other events were marked synced.');
+      if((reply.ackIds||[]).some(id=>!sent.has(id)))throw Error('Unexpected attendance acknowledgement.');
       for(const id of reply.ackIds||[]){
         const p=await getOne('punches',id);
         if(p){p.cloudAck=true;delete p.syncError;delete p.reviewStatus;await OrgDB.rawSave('punches',p);}
@@ -193,9 +178,84 @@ window.TIPONSync=(()=>{
         if(p){p.syncError=rejected.error;if(!['DEPENDENCY','SERVER','BUSY'].includes(rejected.code))p.reviewStatus=rejected.code;await OrgDB.rawSave('punches',p);}
       }
       const errors=(reply.operationErrors||[]).concat(reply.rejected||[]);
-      if(errors.length)message='Some organization records need review: '+String(errors[0].error||'Rejected').slice(0,220);
+      if(errors.length)message='Some records need review: '+String(errors[0].error||'Rejected').slice(0,180);
+    };
+    const failSpecial=async(op,error)=>{
+      const latest=await getOne('outbox',op.id);if(!latest)return;
+      latest.error=String(error.message||error).slice(0,400);
+      latest.errorCode=['CONFLICT','FORBIDDEN','NOT_FOUND','VALIDATION','OPEN_SESSION','OVERLAP'].includes(String(error.code||'').toUpperCase())?'NEEDS_REVIEW':String(error.code||'SERVER').toUpperCase();
+      await OrgDB.rawSave('outbox',latest);
+      if(op.type==='attendanceCorrections'){
+        for(const eventId of op.value.eventIds||[]){
+          const p=await getOne('punches',eventId);if(!p)continue;
+          const original=op.value.original||{};
+          if(op.value.delete)p.deleted=false;
+          else if(p.type==='IN'&&original.timeIn)p.timestamp=original.timeIn;
+          else if(p.type==='OUT'&&original.timeOut)p.timestamp=original.timeOut;
+          p.pendingCorrection='review';p.syncError=latest.error;await OrgDB.rawSave('punches',p);
+        }
+      }else if(op.type==='memberEdits'){
+        const id=op.value.memberId,current=await getOne('members',id),original=op.value.original;
+        if(current&&original){
+          Object.assign(current,{name:original.name,coop:original.coop,platform:original.platform,siteId:original.siteIds?.[0]||'',siteIds:original.siteIds||[]});
+          delete current._pendingOp;delete current.pendingEdit;current.syncIssue=latest.error;await OrgDB.rawSave('members',current);
+        }
+      }else if(op.type==='memberDeletes'){
+        const current=await getOne('members',op.value.memberId);
+        if(current){current.deleted=false;current.active=op.value.wasActive!==false;delete current._pendingOp;current.pendingDelete='review';current.syncIssue=latest.error;await OrgDB.rawSave('members',current);}
+      }else if(op.type==='siteDeletes'){
+        const original=op.value.original,current=await getOne('sites',op.value.siteId);
+        if(current){current.deleted=false;delete current._pendingOp;current.pendingDelete='review';current.syncIssue=latest.error;await OrgDB.rawSave('sites',current);}
+      }
     };
     if(events.length)await send([],events);
+    for(const op of special){
+      try{
+        if(op.type==='memberEdits'){
+          const reply=await TIPONAPI.call({action:actor.role==='admin'?'adminMemberUpdateV2':'memberUpdateV2',
+            memberId:op.value.memberId,baseRev:Number(op.baseRev)||0,changes:op.value.changes});
+          if(!reply.member||String(reply.member.id)!==String(op.value.memberId))throw Error('Server did not confirm member changes.');
+          const current=await getOne('members',op.value.memberId);
+          if(current?._pendingOp&&current._pendingOp!==op.id)throw Object.assign(Error('A concurrent member edit is pending.'),{code:'CONFLICT'});
+          const updated={...current,...reply.member,orgId:state.orgId};delete updated._pendingOp;delete updated.pendingEdit;delete updated.syncIssue;
+          await OrgDB.rawSave('members',updated);await OrgDB.rawDelete('outbox',op.id);
+        }else if(op.type==='memberDeletes'){
+          const action=actor.role==='admin'?'adminMemberDelete':'memberUserDelete';
+          const reply=await TIPONAPI.call({action,memberId:op.value.memberId,baseRev:Number(op.baseRev)||0});
+          if(!reply.member?.deleted||String(reply.member.id)!==String(op.value.memberId))throw Error('Server did not confirm member deletion.');
+          const current=await getOne('members',op.value.memberId);
+          if(current){const deleted={...current,...reply.member,orgId:state.orgId,deleted:true,active:false,template:null,faceEnrollmentStatus:'deleted'};delete deleted.descriptors;delete deleted._pendingOp;delete deleted.pendingDelete;await OrgDB.rawSave('members',deleted);}
+          await OrgDB.rawDelete('outbox',op.id);
+        }else if(op.type==='siteDeletes'){
+          const site=op.value.site;
+          const reply=await TIPONAPI.call({action:'submit',operations:[{id:op.id,type:'sites',value:site,baseRev:Number(op.baseRev)||0}],events:[]});
+          if(!(reply.ackOps||[]).includes(op.id))throw Error('Server did not confirm Work Location deletion.');
+          const receipt=(reply.receipts||[]).find(x=>x.type==='sites'&&x.id===op.value.siteId);
+          const current=await getOne('sites',op.value.siteId);
+          if(current){const deleted={...current,deleted:true,rev:Number(receipt?.rev)||Number(current.rev||0)+1};delete deleted._pendingOp;delete deleted.pendingDelete;delete deleted.syncIssue;await OrgDB.rawSave('sites',deleted);}
+          await OrgDB.rawDelete('outbox',op.id);
+        }else if(op.type==='attendanceCorrections'){
+          const ids=op.value.eventIds||[],eventsForCorrection=await Promise.all(ids.map(getOne));
+          if(!eventsForCorrection.length||eventsForCorrection.some(p=>!p||!p.cloudAck||p.requiresSessionResolution))continue;
+          const reply=await TIPONAPI.call({action:'attendanceCorrect',sessionId:op.value.sessionId,
+            baseRev:Number(op.baseRev)||0,changes:op.value.changes||{},delete:!!op.value.delete,reason:op.value.reason});
+          const correction=reply.correction;
+          if(!correction||String(correction.sessionId)!==String(op.value.sessionId))throw Error('Server did not confirm attendance correction.');
+          for(const eventId of ids){
+            const p=await getOne('punches',eventId);if(!p)continue;
+            if(correction.deleted)p.deleted=true;
+            else{
+              if(p.type==='IN'&&correction.timeIn)p.timestamp=correction.timeIn;
+              if(p.type==='OUT'&&correction.timeOut)p.timestamp=correction.timeOut;
+              p.deleted=false;
+            }
+            p.correctionRev=Number(correction.rev)||0;delete p.pendingCorrection;delete p.syncError;delete p.reviewStatus;
+            await OrgDB.rawSave('punches',p);
+          }
+          await OrgDB.rawDelete('outbox',op.id);
+        }
+      }catch(error){await failSpecial(op,error);}
+    }
     if(operations.length)await send(operations,[]);
   }
   async function pullCatalog(version){
