@@ -31,7 +31,7 @@ const state={ user:null, page:'dashboard', members:[], sites:[], users:[], punch
 
 function uuid(){return crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`;}
 function esc(v){return String(v??'').replace(/[&<>"']/g,(c)=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
-function roleName(role){return {admin:'Administrator',supervisor:'Member Supervisor',processor:'Processor'}[role]||'Staff';}
+function roleName(role){return {admin:'Administrator',registrar:'User',kiosk:'Physical Kiosk',supervisor:'Member Supervisor',processor:'Processor'}[role]||'Staff';}
 function initial(name){return String(name??'?').trim().slice(0,1).toUpperCase()||'?';}
 function pad(v){return String(v).padStart(2,'0');}
 function todayPH(value=new Date()){
