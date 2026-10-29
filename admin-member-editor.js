@@ -1,6 +1,4 @@
-/* TIPON 5.5.20 — Admin member metadata and optional Assigned Location.
- * Work Location mutations require server acknowledgement, never local-only.
- */
+/* TIPON 5.5.32 — Admin member edits use the shared central/offline queue. */
 'use strict';
 (()=>{
  const $=id=>document.getElementById(id),key=x=>TIPONOrgCore.platformKey(x||'');
@@ -22,31 +20,38 @@
   $('adminMemberSiteChoices').innerHTML=valid.length?valid
     .sort((a,b)=>a.name.localeCompare(b.name)).map(s=>
      '<label class="multi-select-option"><input type="checkbox" data-admin-member-site="'+esc(s.id)+'"'+(p.has(String(s.id))?' checked':'')+'/><span>'+esc(s.name)+'<small>'+esc((s.radius||150)+' m GPS')+'</small></span></label>'
-    ).join(''):'<p class="mini-info">No centrally confirmed Work Locations for this MPC/BP. You can leave this member unassigned.</p>';
+    ).join(''):'<p class="mini-info">No synced Work Locations for this Cooperative/BP. Add or sync a location before saving.</p>';
   setText('adminMemberSiteHelp',state.sites.some(s=>s._pendingOp&&s.coop===coop&&key(s.platform)===key(platform))
     ?'Some Work Locations are awaiting central confirmation and cannot yet be assigned.'
-    :'Work Location is optional. Attendance requires an enrolled face and an approved location.');
+    :'Select at least one Assigned Location. Attendance requires an enrolled face and a valid GPS location.');
   updateSummary();
  }
  function updateSummary(){
   const count=selected().length;
-  setText('adminMemberSiteSummary',count?count+' Assigned Location'+(count===1?'':'s')+' selected':'No Assigned Location (Optional)');
+  setText('adminMemberSiteSummary',count?count+' Assigned Location'+(count===1?'':'s')+' selected':'Select Assigned Location');
  }
- function openAdmin(member){
-  if(member._pendingOp){showToast('Sync pending member changes before editing.','error');return;}
+ async function openAdmin(member){
+  if(!member)return;
+  if(navigator.onLine){
+   try{
+    const result=await TIPONSync.submitPendingNow();
+    if(result?.readOk){await loadCollections();member=state.members.find(x=>x.id===member.id)||member;}
+   }catch(error){console.warn('Member refresh before edit:',error.message||error);}
+  }
+  if(member._pendingOp){showToast('This member has a pending change. Sync or review it before editing.','error');return;}
   current=member.id;$('adminMemberForm').reset();
   $('adminMemberId').value=member.id;$('adminMemberName').value=member.name||'';
   const coop=$('adminMemberCoop'),platform=$('adminMemberPlatform');
   coop.innerHTML='<option value="">Select cooperative</option>'+
-    [...new Set([...TIPONOrgCore.COOPS,member.coop])].filter(Boolean).map(s=>'<option value="'+esc(s)+'">'+esc(s)+'</option>').join('');
+    [...new Set([...TIPONOrgCore.COOPS,member.coop])].filter(Boolean).map(v=>'<option value="'+esc(v)+'">'+esc(v)+'</option>').join('');
   coop.value=member.coop;
   platform.innerHTML='<option value="">Select business platform</option>'+
-    TIPONOrgCore.platformNames([...TIPONPlatforms.names(),member.platform]).map(s=>'<option value="'+esc(s)+'">'+esc(s)+'</option>').join('');
+    TIPONOrgCore.platformNames([...TIPONPlatforms.names(),member.platform]).map(v=>'<option value="'+esc(v)+'">'+esc(v)+'</option>').join('');
   platform.value=member.platform;choices(ids(member));
   $('adminMemberSitePicker').open=false;
   setText('adminMemberFaceStatus',member.template&&member.active!==false
-    ?'ENROLLED — existing encrypted face template will be preserved.'
-    :'NOT ENROLLED — location assignment can be saved independently; face enrollment is completed by an authorized User.');
+    ?'ENROLLED — face template and attendance history are preserved.'
+    :'NOT ENROLLED — assign a location and have an authorized User enroll the face.');
   setText('adminMemberEditStatus','');
   const help=$('adminMemberBackendGuide');if(help)help.hidden=true;
   $('adminMemberDialog').showModal();
@@ -54,62 +59,32 @@
  async function save(event){
   event.preventDefault();if(!isAdmin()||!current)return;
   const member=state.members.find(x=>x.id===current);
-  if(!member||member._pendingOp){setText('adminMemberEditStatus','Sync changes first, then reopen Edit.');return;}
-  const name=$('adminMemberName').value.trim(),coop=$('adminMemberCoop').value,platform=$('adminMemberPlatform').value,siteIds=selected();
-  if(!name||name.length>120||!TIPONOrgCore.COOPS.includes(coop)||!TIPONPlatforms.names().some(x=>key(x)===key(platform))){
+  if(!member||member._pendingOp){setText('adminMemberEditStatus','Sync pending member changes before editing.');return;}
+  const name=$('adminMemberName').value.trim(),coop=$('adminMemberCoop').value,
+    platform=$('adminMemberPlatform').value,siteIds=selected();
+  if(!name||name.length>120||!TIPONOrgCore.COOPS.includes(coop)||
+     !TIPONPlatforms.names().some(v=>key(v)===key(platform))){
    setText('adminMemberEditStatus','Enter a valid Full Name, Cooperative and Business Platform.');return;
   }
+  if(!siteIds.length){setText('adminMemberEditStatus','Select at least one Assigned Location.');return;}
   if(siteIds.length>40||siteIds.some(id=>{
-   const s=state.sites.find(x=>x.id===id&&!x.deleted&&!x._pendingOp);
-   return !s||s.coop!==coop||key(s.platform)!==key(platform);
-  })){setText('adminMemberEditStatus','Select only approved, centrally confirmed locations matching the MPC/BP.');return;}
-  if(!navigator.onLine){setText('adminMemberEditStatus','Connect to the internet to save centrally.');return;}
+   const site=state.sites.find(x=>x.id===id&&!x.deleted&&!x._pendingOp);
+   return !site||site.coop!==coop||key(site.platform)!==key(platform);
+  })){setText('adminMemberEditStatus','Choose synced locations matching the selected Cooperative and Business Platform.');return;}
   const scopeChanged=coop!==member.coop||key(platform)!==key(member.platform);
   const locationChanged=!same(ids(member),siteIds),nameChanged=name!==member.name;
   if(!scopeChanged&&!locationChanged&&!nameChanged){$('adminMemberDialog').close();return;}
   if(scopeChanged||locationChanged){
-   const confirmed=await confirmAction('Confirm Member Assignment',
-     'Update the assigned location for '+member.name+'? An open Time In must be completed first. Facial biometrics and attendance history will remain intact.');
-   if(!confirmed)return;
+   if(!await confirmAction('Confirm Member Assignment','Update '+member.name+'? Complete open Time Out first. Existing face data and attendance history remain unchanged.'))return;
   }
-  const button=$('adminMemberSave');button.disabled=true;
-  setText('adminMemberEditStatus','Saving to TIPON central database...');
+  const button=$('adminMemberSave');button.disabled=true;setText('adminMemberEditStatus','Saving member changes...');
   try{
-   // New endpoint is mandatory for explicit location edits; old server
-   // only permits name/coop/platform and must never discard the siteIds.
-   const extended=locationChanged||(scopeChanged&&siteIds.length>0);
-   if(extended){
-     const available=await window.TIPONMemberLocationSupport.check();
-     if(!available){
-       setText('adminMemberEditStatus',
-         'The connected server does not yet support Assigned Location editing. The existing member record has not changed. An Administrator must activate the Member Location backend extension.');
-       const help=$('adminMemberBackendGuide');if(help)help.hidden=false;
-       return;
-     }
-   }
-   const reply=await TIPONAPI.call({action:extended?'adminMemberUpdateV2':'adminMemberUpdate',
-    memberId:member.id,baseRev:Number(member.rev)||0,
-    changes:extended?{name,coop,platform,siteIds}:{name,coop,platform}});
-   if(!reply.member||reply.member.id!==member.id)throw Error('Central server did not confirm the member edit.');
-   if(extended&&(!same(ids(reply.member),siteIds)||reply.member.coop!==coop||key(reply.member.platform)!==key(platform))){
-    throw Error('Central assignment mismatch. No local changes applied.');
-   }
-   const old=await getOne('members',member.id);
-   if(old?._pendingOp)throw Error('A local member edit appeared during the server update; sync before retrying.');
-   const updated={...old,...reply.member,orgId:state.orgId};
-   delete updated._pendingOp;
-   await OrgDB.rawSave('members',updated);
+   const result=await window.TIPONMemberMetadataSave(member,{name,coop,platform,siteIds});
    await loadCollections();$('adminMemberDialog').close();renderMembers();renderDashboard();
-   TIPONSync.kick();showToast('Member details and Assigned Location saved centrally.','success',7000);
+   showToast(result.pending?'Changes saved locally. Pending Sync.':'Member changes synchronized.','success',7000);
   }catch(error){
-   const message=error.code==='ACTION'||/unknown action|unsupported action|not implemented/i.test(error.message||'')
-    ?'Assigned Location editing requires the new private Apps Script backend. No assignment was changed.'
-    :error.message||'Member edit not confirmed.';
-   setText('adminMemberEditStatus',message);
-   const help=$('adminMemberBackendGuide');if(help&&/backend|Apps Script|not implemented/i.test(message))help.hidden=false;
-   // Keep the modal open for correction. Do not display a frightening red
-   // toast when the server is merely missing a documented upgrade.
-   if(!/backend|Apps Script/i.test(message))showToast(message,'error',8500);
+   setText('adminMemberEditStatus',error.message||'Member edit failed.');
+   showToast(error.message||'Member edit failed.','error',8500);
   }finally{button.disabled=false;}
  }
  document.addEventListener('DOMContentLoaded',()=>{
