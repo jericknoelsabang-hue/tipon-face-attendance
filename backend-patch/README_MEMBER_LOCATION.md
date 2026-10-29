@@ -1,114 +1,130 @@
-# TIPON KABILANG — Member Location and User Delete backend (v5.5.21)
+# TIPON KABILANG v5.5.33 — Private Apps Script compatibility patch
 
-This patch enables **Admin Member Details → Assigned Location**, **User editing an existing member's Work Location without re-enrolling the face**, and **User Delete** for members within the User's approved MPC/BP. Assigned Location is optional. Attendance still requires an enrolled face and an approved site.
+This patch is for the **existing private Google Apps Script project** behind the TIPON Face Attendance `/exec` URL. GitHub Pages cannot deploy Apps Script. Do not paste credentials, Script Properties, tokens, deployment IDs, member data, or face data into this public repository.
 
-**Important:** GitHub Pages updates ONLY the public frontend; private Google Apps Script is separately deployed. Do not publish Code.gs, Script Properties, keys, tokens, or member/face data. This guide uses the earlier TIPON_Code_v5_5_9.gs provided by the user. Review the actual current Code.gs before merging. Never replace a newer deployed Code.gs with the older backup.
+## What this patch adds
 
+- User member transfer: edit Full Name, Cooperative, Business Platform and required Assigned Work Location in one revision-checked operation. The source member must be in the User's current scope; the destination site must exist centrally and match the selected Cooperative/BP. After transfer, the User loses access if the member leaves their scope.
+- User face re-enrollment: save the newly encrypted AES-GCM face template, consent timestamp and matching member/location fields without replacing the member ID or attendance history.
+- Attendance Logs Edit/Delete: audited correction overlays, server-side scope checks, revision checks, open-session protection and cross-device refresh.
+- Existing member soft delete and Work Location operations remain separate.
 
-**Live version check (October 28, 2026):** The Apps Script editor currently open in the owner's browser displays a `TIPON v5.5.2` Code.gs header, while GitHub Pages has moved to v5.5.25. These new backend actions cannot work until that older private deployment is updated. The server patch was reviewed against a separately supplied v5.5.9 reference, **not** against the entire live 5.5.2 source. Verify the current project helper signatures and the Apps Script **V8 runtime** in Project Settings before deploying; test any required runtime migration in a copy before changing production.
+## 1. Back up the live project
 
-## 1. Install the server file
+1. Open the approved TIPON attendance spreadsheet → **Extensions → Apps Script**.
+2. Confirm the project is the same project used by the existing `/exec` URL.
+3. Make a copy of `Code.gs`, `OrgCore.gs`, `appsscript.json`, and the current Script Properties. Do not change the spreadsheet ID, encryption keys, deployment ID or permissions.
+4. In Project Settings, verify the Apps Script V8 runtime. Do not replace the entire live `Code.gs` with an older backup.
 
-Open the approved TIPON Attendance Google Sheet → Extensions → Apps Script. Back up Code.gs, OrgCore.gs, manifest and Script Properties. Add a file named **MemberLocationEdit.gs** containing [MemberLocationEdit.gs](./MemberLocationEdit.gs) from this repository.
+## 2. Add the helper files
 
-This file defines two operations with central verification, revision conflict checks, MPC/BP authorization and open-Time-In protection:
+Create two new files in the existing Apps Script project and copy the matching repository files into them:
 
-- tp5AdminMemberUpdateV2_(actor,q): edit member identity, Cooperative, Business Platform and optional 0–40 Assigned Locations atomically; do not change face templates.
-- tp5UserMemberLocationUpdate_(actor,q): authorized User updates only GPS assignments for a member in the approved scope; face enrollment status is preserved.
-- tp5UserMemberDelete_(actor,q): an approved User may soft-delete only a member within their MPC/BP. It requires confirmation, matching revision and no open Time In, purges the member's face template, retains attendance history and records an audit log.
+- [MemberLocationEdit.gs](./MemberLocationEdit.gs)
+- [AttendanceCorrection.gs](./AttendanceCorrection.gs)
 
-## 2. Add four routes to the CURRENT private Code.gs
+Before saving, search the live project for these function names. If any are already defined, reconcile the code instead of creating duplicate definitions:
 
-In tp5Handle_(q,transport), immediately after the health route and before token authentication, add:
+- `tp5AdminMemberUpdateV2_`
+- `tp5UserMemberLocationUpdate_`
+- `tp5UserMemberDelete_`
+- `tp5UserMemberTransferUpdateV2_`
+- `tp5UserMemberFaceUpdateV2_`
+- `tp5AttendanceCorrect_`
+- `tp5RebuildAttendanceProjection_`
+- `tp5ApplyAttendanceCorrections_`
+
+## 3. Add the action routes to the CURRENT Code.gs
+
+Inside `tp5Handle_(q, transport)`, after the setup/health checks and before the authenticated action routes, add the capability route if it is missing:
 
 ~~~js
 if(action==='memberLocationCapabilities'){
   tp5Must_(props.getProperty('TP5_SETUP_STATUS')==='READY',
     'Organization setup is incomplete.','NOT_CONFIGURED');
-  return tp5Reply_({allowUnassignedFace:true});
+  return tp5Reply_({memberLocationUpdate:true,allowUnassignedFace:false});
 }
 ~~~
 
-After the existing var actor=tp5Auth_(q);, close to the other authenticated admin actions, add:
+After the existing `var actor=tp5Auth_(q);` line, add each route that is not already present:
 
 ~~~js
 if(action==='adminMemberUpdateV2')return tp5Lock_(function(){
-  actor=tp5Auth_(q);
-  return tp5AdminMemberUpdateV2_(actor,q);
+  actor=tp5Auth_(q);return tp5AdminMemberUpdateV2_(actor,q);
 });
 if(action==='memberLocationUpdate')return tp5Lock_(function(){
-  actor=tp5Auth_(q);
-  return tp5UserMemberLocationUpdate_(actor,q);
+  actor=tp5Auth_(q);return tp5UserMemberLocationUpdate_(actor,q);
 });
 if(action==='memberUserDelete')return tp5Lock_(function(){
-  actor=tp5Auth_(q);
-  return tp5UserMemberDelete_(actor,q);
+  actor=tp5Auth_(q);return tp5UserMemberDelete_(actor,q);
+});
+if(action==='memberTransferUpdateV2')return tp5Lock_(function(){
+  actor=tp5Auth_(q);return tp5UserMemberTransferUpdateV2_(actor,q);
+});
+if(action==='memberFaceUpdateV2')return tp5Lock_(function(){
+  actor=tp5Auth_(q);return tp5UserMemberFaceUpdateV2_(actor,q);
+});
+if(action==='attendanceCorrect')return tp5Lock_(function(){
+  actor=tp5Auth_(q);return tp5AttendanceCorrect_(actor,q);
 });
 ~~~
 
-Keep the old adminMemberUpdate, adminMemberDelete, submit, member-lookup and attendance routes unchanged. The V2 route is separate to protect older clients.
+Keep existing login, logout, `submit`, `catalog`, `poll`, `adminMemberDelete`, account, device and setup routes intact.
 
-## 3. Permit optional site for facial enrollment (existing Code.gs)
+## 4. Apply two attendance polling changes
 
-Inside tp5ValidateEntity_(actor,type,value,previous), in the non-import member branch, replace the old location validation:
+### A. Apply corrections to event rows
 
-~~~js
-var ids=Array.isArray(r.siteIds)&&r.siteIds.length?r.siteIds:[r.siteId];
-tp5Must_(ids.length>0&&ids.length<=40&&ids[0]===r.siteId&&
-  ids.every(function(id){return typeof id==='string'&&id.length>0;})&&new Set(ids).size===ids.length,
-  'User must select one or more unique assigned work locations.','VALIDATION');
-~~~
-
-with:
+In the existing `tp5EventWindow_(offset,count)` function, keep its current row-fetching logic. Change only the final `return rows;` inside that function to:
 
 ~~~js
-var ids=Array.isArray(r.siteIds)?r.siteIds:[r.siteId].filter(Boolean);
-tp5Must_(ids.length<=40&&
-  (ids.length?ids[0]===r.siteId:!r.siteId)&&
-  ids.every(function(id){return typeof id==='string'&&id.length>0;})&&
-  new Set(ids).size===ids.length,
-  'Assigned Work Location must be unique and valid (or empty).','VALIDATION');
+return tp5ApplyAttendanceCorrections_(rows);
 ~~~
 
-At the end of the SAME member branch, replace:
+This returns the audited corrected view to clients while retaining the raw event ledger.
+
+### B. Include the correction version in poll responses
+
+In the existing `action==='poll'` response object, add this property if absent:
 
 ~~~js
-r.siteIds=ids;r.siteId=ids[0];r.active=true;
+eventVersion:Number(tp5Props_().getProperty('TP5_EVENT_VERSION')||0)
 ~~~
 
-with:
+Keep the existing `events`, `cursor`, `eventCount`, `more`, `catalogVersion` and `devices` fields. The frontend uses the event version to re-read corrected sessions on other authorized devices.
 
-~~~js
-r.siteIds=ids;r.siteId=ids[0]||'';r.active=true;
-r.workLocationReassignmentRequired=ids.length===0;
-~~~
+## 5. Preserve required location and face controls
 
-Do **not** remove the AES-GCM encrypted face template requirement, consent validation, duplicate member checks, role authorization, or scope checks. A member without an assigned site cannot record Time In/Out even when face-enrolled.
+The current UI requires at least one centrally registered Assigned Work Location. Do not loosen server-side checks to accept an empty site list. Keep these protections:
 
-If the current Code.gs differs from the older v5.5.9 source, reconcile the member validator against the newer source instead of blindly pasting this replacement.
+- AES-GCM encrypted templates only; never accept plaintext descriptors from the browser.
+- Required biometric consent timestamp.
+- Source member must be in the User's current authorized scope before a transfer or face update.
+- Target locations must exist centrally and match the selected Cooperative/BP.
+- Revision conflicts, duplicate IDs, deleted sites, invalid GPS zones and open Time In sessions must be rejected.
+- Raw attendance events remain intact; corrections are stored as audited overlays.
+- User delete remains a soft delete of the member/template, with attendance history retained.
 
-## 4. Deploy and test
+## 6. Deploy the existing Web App
 
-Save, check for duplicate helper definitions, and choose **Deploy → Manage deployments → Edit existing attendance web app → New version → Deploy**. Keep the same deployment ID, URL and permissions.
+1. Save the project and resolve any duplicate function names or syntax errors.
+2. Select **Deploy → Manage deployments → Edit** on the existing Web App deployment.
+3. Select **New version → Deploy**.
+4. Keep the same deployment ID, `/exec` URL and access permissions.
+5. In the published app, open [TIPON App Updater](https://jericknoelsabang-hue.github.io/tipon-face-attendance/update.html), install the latest published frontend, then sign in again.
 
-Test with synthetic records and approved test accounts BEFORE production:
+A GitHub Pages success badge does **not** prove that the private Apps Script has been deployed.
 
-1. User edits the Assigned Work Location of a NOT ENROLLED member, preserving identity and existing face status.
-2. User removes all Work Locations, leaving the member unassigned. Member must not be able to Time In.
-3. User enrolls a face without a location. Verify encrypted template and consent persist, attendance remains blocked until site assignment.
-4. Admin edits an enrolled member's Assigned Location; verify existing face template, consent, attendance logs and member ID remain unchanged.
-5. Admin changes MPC/BP and assigns a valid location in the new scope in one transaction.
-6. Cross-scope, deleted-site, stale-baseRev, and open-Time-In reassignments must be rejected.
-7. Verify the central TIPON Members projection and a second authorized device reflect the saved changes.
-8. Sign in as an approved User and delete a synthetic member in the same MPC/BP. Confirm the member disappears from the central TIPON Members directory and a second device. Attendance history must remain available, and the member's encrypted template must be removed.
-9. Try User Delete for a different MPC/BP, with an open Time In, and with an out-of-date baseRev. All must fail without deleting anything.
-10. Test Administrator Delete through the existing adminMemberDelete endpoint. Its behavior must remain unchanged.
-11. Re-test kiosk face recognition, GPS, member access, and 90-second inactive logout.
+## 7. Test before production
 
-If these routes are not installed, the frontend intentionally shows a backend-required error rather than falsely reporting that the member's assigned location was saved.
+Use synthetic member IDs and test accounts first:
 
-## User interface changes
+- Create a new member, capture three face samples, save and verify a server ACK.
+- Re-enroll a test member's face; confirm the existing Member ID, attendance history and consent are retained and the encrypted template changes.
+- Transfer a member to another Cooperative/BP with a valid destination Work Location. Confirm the old User loses access after the member leaves their scope.
+- Edit, delete and review a completed attendance session. Confirm correction reason, server revision and second-device view.
+- Confirm open Time In deletion/reassignment is blocked.
+- Turn off internet, queue a test change, restore internet and verify the queue resolves to **Synced** or displays a specific **Needs Review** reason.
+- Verify a filter with no matching date/member shows an empty-state explanation; use Reset Filters to view all records.
 
-v5.5.21 standardizes Member List header buttons to the same 44px height and exposes User Delete with proper MPC/BP scope controls. Confirmation remains green, including explicit destructive-action confirmation.
-
-**Why the red error appears:** The current GitHub Pages UI can call these private actions but cannot deploy Apps Script code. Until this patch is installed in the *existing private Apps Script deployment* and redeployed to a new version, the server returns Unknown Action for Admin/User location edits and User Delete. Do not suppress the error or show a fake success. There is no credential or Apps Script deployment information in this public repository.
+Do not clear production IndexedDB, member records, face templates, pending uploads or historical attendance to make the UI appear empty or error-free.
