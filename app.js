@@ -15,7 +15,7 @@ const OFFLINE_ASSETS = [FACE_SCRIPT, ...MODEL_FILES.map((f)=>`${MODEL_ROOT}/${f}
 const REMOTE_CACHE = 'tipon-face-remote-v1';
 const DB_NAME='tipon-face-local-v1';
 const DB_STORE=['users','members','sites','punches','meta','outbox','offices','schedules'];
-const MATCH_LIMIT=.46;
+const MATCH_LIMIT=.52;
 const AMBIGUITY_GAP=.035;
 const SCAN_DELAY_MS=650;
 const COOLDOWN_MS=90000;
@@ -27,7 +27,7 @@ const state={ user:null, page:'dashboard', members:[], sites:[], users:[], punch
   scanStream:null, scanTimer:null, scanMode:'in', scanning:false, scanBusy:false, scanCandidate:null,
   scanCandidateCount:0, scanArmed:true, scanAbsentCount:0, lastRecognized:null, lastGPS:null,
   enrollStream:null, enrollTimer:null, enrollActive:false, gpsWatchId:null, pendingDescriptors:[], editMember:null, editSite:null,
-  installPrompt:null, offlineReady:false, confirmResolver:null, deviceId:null, offices:[] };
+  installPrompt:null, offlineReady:false, confirmResolver:null, deviceId:null, offices:[], memberPage:1, attendancePage:1 };
 
 function uuid(){return crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`;}
 function esc(v){return String(v??'').replace(/[&<>"']/g,(c)=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
@@ -273,7 +273,7 @@ function openMemberForm(member){
  if(member){$('memberId').value=member.id;$('memberName').value=member.name;$('memberCoop').value=member.coop;}
  fillMemberSites(member?.siteIds||member?.siteId);
  const enrolled=!!member&&member.active!==false&&!!(member.template||state.pendingDescriptors.length>=3);
- const mayReplace=!enrolled||member.createdBy===state.user?.id||member.workLocationReassignmentRequired===true;
+ const mayReplace=!enrolled||TIPONOrgCore.inScope(state.user,member)||member.workLocationReassignmentRequired===true;
  setText('enrollFaceLabel',enrolled?(mayReplace?'Enrolled · Face can be replaced.':'Enrolled · Original enrollment account required.'):'Not Enrolled · Complete Face Verification.');
  $('enrollFaceButton').disabled=!mayReplace||!!member?._pendingOp;
  $('enrollFaceButton').textContent=enrolled?'Re-enroll Face':'Enroll Face';
@@ -346,7 +346,7 @@ async function saveMemberMetadata(member,changes){
  };
  if(!navigator.onLine)return queue();
  try{
-  const action=isAdmin()?'adminMemberUpdateV2':'memberUpdateV2';
+  const action=isAdmin()?'adminMemberUpdateV2':'memberTransferUpdateV2';
   const reply=await TIPONAPI.call({action,memberId:member.id,baseRev:Number(member.rev)||0,changes:clean});
   const saved=reply.member;
   if(!saved||String(saved.id)!==String(member.id)||!Array.isArray(saved.siteIds)||saved.siteIds.length!==clean.siteIds.length||!saved.siteIds.every(id=>clean.siteIds.includes(id)))
@@ -368,7 +368,7 @@ async function saveMemberForm(e){
    coop=$('memberCoop').value,platform=$('memberPlatform').value.trim(),
    siteIds=[...$('memberSite').selectedOptions].map(o=>o.value),
    sites=siteIds.map(id=>state.sites.find(x=>x.id===id&&!x.deleted));
- if(!id||!name||!platform||!TIPONOrgCore.inScope(state.user,{coop,platform})){
+ if(!id||!name||!TIPONOrgCore.COOPS.includes(coop)||!TIPONPlatforms.names().some(v=>TIPONOrgCore.platformKey(v)===TIPONOrgCore.platformKey(platform))){
    showToast('Enter Member ID, Last Name, First Name, Cooperative and Business Platform.','error');return;
  }
  if(!siteIds.length){showToast('Select at least one Assigned Work Location.','error');return;}
@@ -1249,8 +1249,9 @@ function advanceEnrollmentBlink(ratio,now=Date.now()){
 async function beginEnrollment(){
  if(!canEdit())return;
  const existing=state.editMember;
- if(existing?.active!==false&&existing?.descriptors?.length>=3){
-  if(existing.createdBy!==state.user?.id&&!existing.workLocationReassignmentRequired){showToast('Only the approved enrollment User can replace this face.','error');return;}
+ if(existing?.active!==false&&existing?.descriptors?.length>=3&&
+    !TIPONOrgCore.inScope(state.user,existing)&&!existing.workLocationReassignmentRequired){
+  showToast('Only an authorized User in this member\'s current Cooperative/Business Platform can replace this face.','error');return;
  }
  const fullName=memberNameFromFields();
   if(!fullName||!$('memberId').value.trim()){showToast('Enter Member ID, Last Name and First Name first.','error');return;}
