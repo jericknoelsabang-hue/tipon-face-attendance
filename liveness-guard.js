@@ -112,6 +112,10 @@
       return;
     }
     const run=state.scanRun;
+    if(state.scanRetryAt&&Date.now()>=state.scanRetryAt){
+      state.scanRetryAt=0;state.scanArmed=true;state.lastRecognized=null;
+      state.scanCandidate=null;state.scanCandidateCount=0;state.scanLiveness=null;state.livenessProof=null;
+    }
     try{
       const video=$('scanVideo');
       if(video.readyState>=2&&!state.scanBusy){
@@ -120,7 +124,7 @@
         if(faces.length===0){
           state.scanCandidate=null;state.scanCandidateCount=0;state.scanLiveness=null;
           state.scanAbsentCount++;
-          if(state.scanAbsentCount>=3){state.scanArmed=true;state.lastRecognized=null;}
+          if(state.scanAbsentCount>=3){state.scanArmed=true;state.lastRecognized=null;state.scanRetryAt=0;state.scanRetryCount=0;}
           setText('cameraBottomTag','Position one live face in the frame.');
         }else if(faces.length!==1){
           state.scanCandidate=null;state.scanCandidateCount=0;state.scanLiveness=null;state.scanAbsentCount=0;
@@ -141,8 +145,9 @@
             const member=found.best.member;
             if(!state.scanArmed&&state.lastRecognized!==member.id)state.scanArmed=true;
             if(!state.scanArmed){
-              setText('cameraBottomTag','Move away before the next scan.');
+              setText('cameraBottomTag',state.scanRetryAt?'GPS retry scheduled. Keep your face in frame.':'Move away before the next scan.');
             }else{
+              if(!state.scanArmed&&state.lastRecognized!==member.id){state.scanArmed=true;state.scanRetryAt=0;state.scanRetryCount=0;}
               if(state.scanCandidate===member.id)state.scanCandidateCount++;
               else {state.scanCandidate=member.id;state.scanCandidateCount=1;state.scanLiveness=null;}
               if(state.scanCandidateCount>=2){
