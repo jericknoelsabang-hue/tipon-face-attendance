@@ -81,8 +81,9 @@ window.TIPONAdminSites=(()=>{
       return 'This Work Location is assigned to a member or has an open attendance session. Reassign members and complete Time Out before deleting.';
     if(code==='CONFLICT'||/record changed|revision conflict/i.test(message))
       return 'This location changed on the server. Refresh Work Locations and retry. No local deletion was made.';
-    if(code==='AUTH'||code==='FORBIDDEN'||code==='ACCOUNT'||code==='DEVICE_DISABLED')
-      return 'Only an approved Administrator with an active organization session can delete Work Locations.';
+    if(code==='AUTH')return 'The Administrator session expired or was revoked. Sign in again, then retry. No deletion was applied.';
+    if(code==='FORBIDDEN')return 'The active server account is not authorized to delete Work Locations as an Administrator. No deletion was applied.';
+    if(code==='ACCOUNT'||code==='DEVICE_DISABLED')return 'This account or device is disabled or not approved. No deletion was applied.';
     if(code==='NETWORK'||!navigator.onLine)
       return 'Internet connection to the organization is unavailable. Your Work Locations have not been deleted.';
     if(code==='TIMEOUT'||/timeout|did not respond/i.test(message))
@@ -183,6 +184,7 @@ window.TIPONAdminSites=(()=>{
       if(oldOp&&oldOp.ownerId!==state.user?.id)
         throw Error('A different account owns a pending change to this Work Location. That account must synchronize or review its draft before deletion.');
 
+      await TIPONAuth.ensureOnline();
       const snapshot=await centralSiteSnapshot(site.id);
       if(snapshot.dependents||assignedMembers(state.members,site.id))
         throw Object.assign(Error('This Work Location still has assigned members. Reassign members first.'),{code:'DEPENDENCY'});
