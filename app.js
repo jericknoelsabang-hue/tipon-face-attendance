@@ -17,7 +17,7 @@ const DB_NAME='tipon-face-local-v1';
 const DB_STORE=['users','members','sites','punches','meta','outbox','offices','schedules'];
 const MATCH_LIMIT=.52;
 const AMBIGUITY_GAP=.035;
-const SCAN_DELAY_MS=350;
+const SCAN_DELAY_MS=250;
 const COOLDOWN_MS=90000;
 const GPS_MIN_RADIUS=20;
 const GPS_MAX_ACCURACY=80;
@@ -985,7 +985,7 @@ function renderTerminalLogs(){
    const localInput=value=>value?TIPONCore.phStamp(value).replace(' ','T').slice(0,16):'';
    const action=canCorrectAttendance()?'<div class="row-inline">'+
      '<button type="button" class="tiny-button" data-attendance-edit="'+esc(row.key)+'" data-in="'+esc(localInput(row.timeIn))+'" data-out="'+esc(localInput(row.timeOut))+'">Edit</button>'+
-     '<button type="button" class="tiny-button delete" data-attendance-delete="'+esc(row.key)+'" '+(!(row.timeIn&&row.timeOut)?'disabled title="Complete Time Out before deleting this session."':'')+'>Delete</button>'+
+     '<button type="button" class="tiny-button delete" data-attendance-delete="'+esc(row.key)+'">Delete</button>'+
      '</div>':'—';
    const data=[
     attendanceMemberName(row,memberNames),memberNumberFor(row.memberId),
@@ -1055,7 +1055,7 @@ function editAttendanceFromLog(event){
  setText('attendanceEditMember',row.memberName||row.memberId);
  $('attendanceEditDate').value=ti.slice(0,10);$('attendanceEditTimeIn').value=ti.slice(11,19);
  $('attendanceEditDateOut').value=to.slice(0,10);$('attendanceEditTimeOut').value=to.slice(11,19);
- for(const id of ['attendanceEditDateOut','attendanceEditTimeOut']){$(id).disabled=!row.timeOut;$(id).required=!!row.timeOut;}
+ for(const id of ['attendanceEditDateOut','attendanceEditTimeOut']){$(id).disabled=false;$(id).required=!!row.timeOut;}
  setText('attendanceEditStatus','');dialog.showModal();$('attendanceEditDate').focus();
 }
 function attendanceInputStamp(day,time){
@@ -1070,7 +1070,10 @@ async function submitAttendanceEdit(event){
  const button=$('attendanceEditSave');button.disabled=true;
  try{
   const changes={timeIn:attendanceInputStamp($('attendanceEditDate').value,$('attendanceEditTimeIn').value)};
-  if(row.timeOut)changes.timeOut=attendanceInputStamp($('attendanceEditDateOut').value,$('attendanceEditTimeOut').value);
+  const outDate=$('attendanceEditDateOut').value,outTime=$('attendanceEditTimeOut').value;
+  if(Boolean(outDate)!==Boolean(outTime))throw Error('Enter both Date Time Out and Time Out, or leave both blank for an open session.');
+  if(row.timeOut&&!outDate)throw Error('A completed attendance session must retain both Date Time Out and Time Out.');
+  if(outDate&&outTime)changes.timeOut=attendanceInputStamp(outDate,outTime);
   if(changes.timeOut&&Date.parse(changes.timeOut)<=Date.parse(changes.timeIn))throw Error('Time Out must be after Time In.');
   if(changes.timeOut&&Date.parse(changes.timeOut)-Date.parse(changes.timeIn)<COOLDOWN_MS)throw Error('Time Out must be at least 90 seconds after Time In.');
   if(Object.values(changes).some(t=>Date.parse(t)>Date.now()+300000))throw Error('Attendance cannot be set in the future.');
@@ -1081,7 +1084,7 @@ async function submitAttendanceEdit(event){
 async function deleteAttendanceFromLog(event){
  const button=event.target.closest('[data-attendance-delete]');if(!button||!canCorrectAttendance())return;
  const row=attendanceRowByKey(button.dataset.attendanceDelete);if(!row)return;
- if(!row.timeIn||!row.timeOut)return showToast('Complete Time Out before deleting an attendance session.','error');
+ if(!row.timeIn)return showToast('This attendance session has no Time In to delete.','error');
  if(!await confirmAction('Delete attendance session?','Delete this attendance session for '+row.memberName+'?'))return;
  try{await saveAttendanceCorrection(row,{},'Attendance deleted',true);}catch(error){showToast(error.message||String(error),'error',8500);}
 }
