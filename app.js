@@ -1580,7 +1580,7 @@ async function refreshDirectoryView(kind,buttonId=''){
   await loadCollections();
   if(kind==='members')renderMembers();
   else renderTerminalLogs();
-  if(sync.pending)showToast('Latest central records loaded. '+sync.pending+' record(s) still need synchronization or review.','info',6500);
+  if(sync.pending)showToast('Latest central records loaded. '+sync.pending+' record(s) still need synchronization or have sync errors.','info',6500);
   else showToast('Latest central '+(kind==='members'?'member directory':'attendance logs')+' loaded.','success');
  }catch(error){toastError(error,'Refresh failed');}
  finally{directoryRefreshBusy=false;if(button)button.disabled=false;}
