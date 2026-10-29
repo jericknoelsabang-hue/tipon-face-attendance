@@ -516,47 +516,68 @@ async function saveMemberForm(e){
  if(last?.type==='IN'&&oldIds.some(x=>!siteIds.includes(x))){
    showToast('Complete Time Out before removing an assigned Work Location.','error');return;
  }
- const record={id,name,coop,platform,siteId:siteIds[0]||'',siteIds,
-   descriptors:state.pendingDescriptors,
-   consentAt:state.faceReplacementPending?new Date(state.consentAcknowledgedAt||Date.now()).toISOString():(old?.consentAt||new Date(state.consentAcknowledgedAt||Date.now()).toISOString()),
-   enrolledBy:state.faceReplacementPending?state.user.id:(old?.enrolledBy||state.user.id),
-   enrolledByUsername:state.faceReplacementPending?state.user.username:(old?.enrolledByUsername||state.user.username||''),
-   createdAt:old?.createdAt||new Date().toISOString(),updatedAt:new Date().toISOString()};
+ if(old?._pendingOp) {showToast('This member has a pending change. Sync or review it before saving.','error');return;}
+ const session=window.TIPONAuth?.current();
+ if(!session?.faceKey){showToast('The encrypted face key is unavailable. Sign in again before saving enrollment.','error');return;}
+ const consentAt=state.faceReplacementPending?
+   new Date(state.consentAcknowledgedAt||Date.now()).toISOString():
+   (old?.consentAt||new Date(state.consentAcknowledgedAt||Date.now()).toISOString());
+ if(!consentAt){showToast('Biometric consent is required before saving face enrollment.','error');return;}
  try{
-   if(!siteIds.length){
-     // Fail closed: the previous private Apps Script backend still required
-     // one Work Location. Without a server capability check, an offline-only
-     // save would become an indefinitely rejected record.
-     if(!navigator.onLine)throw Error('Connect to the internet before enrolling a member without a Work Location.');
-     const feature=await TIPONAPI.raw({action:'memberLocationCapabilities'});
-     if(feature?.allowUnassignedFace!==true)throw Error('Private Apps Script must be updated before face enrollment without a Work Location is supported.');
+   const descriptors=state.pendingDescriptors.map(vector=>Array.from(vector));
+   const template=await TIPONAuth.seal(descriptors,session.faceKey,'member:'+id);
+   const now=new Date().toISOString();
+   const record={...(old||{}),id,name,coop,platform,siteId:siteIds[0],siteIds,
+     descriptors,template,consentAt,enrolledBy:state.user.id,
+     enrolledByUsername:state.user.username||'',
+     createdAt:old?.createdAt||now,updatedAt:now,active:true,faceEnrollmentStatus:'enrolled',
+     orgId:state.orgId,rev:Number(old?.rev)||0};
+   const serverRecord={...record};
+   ['descriptors','orgId','_row','_pendingOp','pendingEdit','syncIssue','templateError'].forEach(key=>delete serverRecord[key]);
+   const opId=uuid(),baseRev=Number(old?.rev)||0;
+   let operation;
+   if(old){
+     const original={
+       name:old.name,coop:old.coop,platform:old.platform,siteId:old.siteId||'',
+       siteIds:Array.isArray(old.siteIds)&&old.siteIds.length?old.siteIds:[old.siteId].filter(Boolean),
+       template:old.template||null,consentAt:old.consentAt||null,enrolledBy:old.enrolledBy||'',
+       enrolledByUsername:old.enrolledByUsername||'',active:old.active!==false,
+       faceEnrollmentStatus:old.faceEnrollmentStatus||''
+     };
+     const changes={name,coop,platform,siteIds,template,consentAt,enrolledBy:state.user.id,
+       enrolledByUsername:state.user.username||''};
+     operation={id:opId,type:'memberFaceUpdates',value:{memberId:id,changes,original},
+       baseRev,orgId:state.orgId,ownerId:state.user.id,createdAt:now,everSent:false};
+   }else{
+     operation={id:opId,type:'members',value:serverRecord,baseRev:0,
+       orgId:state.orgId,ownerId:state.user.id,createdAt:now,everSent:false};
    }
-   // Save with an outbox receipt, then immediately attempt central sync.
-   // Never claim a central save until the matching outbox operation is ACKed.
-   await saveOne('members',record);
-   await loadCollections();$('memberDialog').close();
-   let syncOutcome={ok:false,error:'Offline: automatic synchronization resumes when connected.'};
+   const local={...record,_pendingOp:opId,pendingEdit:true};
+   await new Promise((resolve,reject)=>{
+     const tx=db.transaction(['members','outbox'],'readwrite');
+     tx.objectStore('members').put(local);tx.objectStore('outbox').put(operation);
+     tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error);tx.onabort=()=>reject(tx.error);
+   });
+   await loadCollections();$('memberDialog').close();renderMembers();renderDashboard();
+   let syncOutcome={ok:false,error:'Saved locally. Sync will retry when internet is available.'};
    if(navigator.onLine){
      try{syncOutcome=await TIPONSync.submitPendingNow();}
      catch(syncError){syncOutcome={ok:false,error:String(syncError?.message||syncError)};}
    }
    await loadCollections();
-   const persisted=await getOne('members',record.id);
-   const confirmed=!!syncOutcome?.ok&&!persisted?._pendingOp&&
-     persisted?.orgId===state.orgId;
-   renderMembers();renderDashboard();
-   if(confirmed){
-     showToast(name+' enrolled and confirmed in the central organization.'+
-       (siteIds.length?'':' Assign a GPS Work Location before attendance.'),'success',8000);
+   const pending=await getOne('outbox',opId),persisted=await getOne('members',id);
+   if(!pending&&!persisted?._pendingOp&&Number(persisted?.rev||0)>baseRev){
+     renderMembers();renderDashboard();
+     showToast(old?'Face enrollment updated and confirmed centrally.':name+' enrolled and confirmed centrally.','success',8000);
    }else{
-     showToast(name+' was saved on this device but is NOT YET confirmed in the central organization. '+
-       'Automatic sync will retry. Check Settings & Offline for details.','info',10000);
+     const detail=pending?.error||syncOutcome?.error||'The organization has not confirmed the enrollment yet.';
+     showToast((navigator.onLine?'Enrollment saved locally; central sync needs attention. ':'Enrollment saved locally; sync is pending. ')+String(detail).slice(0,180),'info',10000);
    }
  }catch(error){
    const message=error.code==='ACTION'||/unknown action|unsupported action|not implemented/i.test(error.message||'')
-     ?'Face enrollment without an Assigned Work Location requires the updated private Apps Script. No enrollment was saved.'
-     :String(error.message||'Unable to save member.');
-   showToast(message,'error',8500);
+     ?'The organization backend does not support this enrollment update yet. No central save was confirmed.'
+     :String(error.message||'Unable to save member enrollment.');
+   showToast(message,'error',9000);
  }
 }
 async function handleMemberTableClick(event){
