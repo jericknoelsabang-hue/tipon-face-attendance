@@ -288,14 +288,15 @@ window.OrgUI=(()=>{
   function renderMpc(){
     if(!isAdmin()&&!canEdit())return;
     if(!isAdmin()&&state.user){$('dashboardCoop').value=state.user.coop||'';$('dashboardCoop').disabled=true;}else $('dashboardCoop').disabled=false;
-    // The filter controls live under Absenteeism. Empty native date fields
-    // must remain blank (mm/dd/yyyy), not silently filled with today's date.
+    // Blank date filters mean all available history. The native date inputs
+    // remain blank until the User explicitly chooses a range.
     const fromField=$('dashboardFrom'),toField=$('dashboardTo'),today=todayPH();
     const selectedFrom=fromField.value,selectedTo=toField.value;
-    const defaultFrom=new Date(Date.parse(today+'T00:00:00Z')-13*86400000).toISOString().slice(0,10);
-    const from=selectedFrom||(selectedTo?selectedTo:defaultFrom),to=selectedTo||today;
-    // Until the user sets filters, both dashboards show today's snapshot.
-    // Date filters are only UI state; no server-side record is modified.
+    const historyDays=[
+      ...state.punches.filter(p=>p&&!p.deleted&&p.timestamp).map(p=>TIPONCore.phStamp(p.timestamp).slice(0,10)),
+      ...state.members.filter(m=>m&&!m.deleted&&m.createdAt).map(m=>TIPONCore.phStamp(m.createdAt).slice(0,10))
+    ].filter(day=>/^\\d{4}-\\d{2}-\\d{2}$/.test(day));
+    const from=selectedFrom||(historyDays.length?historyDays.sort()[0]:today),to=selectedTo||today;
     const valid=validateAttendanceDateRange('dashboardFrom','dashboardTo','dashboardDateError');
     const futureFrom=selectedFrom&&!selectedTo&&selectedFrom>today;
     if(!valid||futureFrom){
@@ -313,7 +314,7 @@ window.OrgUI=(()=>{
     // Compatibility: day-based legacy actions still read dashboardDay.
     $('dashboardDay').value=to;
     renderDashboardPlatformFilter();
-    const day=from===to?from:from+' to '+to, f=dashboardFilter();
+    const day=!selectedFrom&&!selectedTo?'All available history':from===to?from:from+' to '+to, f=dashboardFilter();
     const all=state.members.filter(m=>!m.deleted&&m.active!==false);
     const coops=isAdmin()?[...new Set([...TIPONOrgCore.COOPS,...all.map(m=>m.coop).filter(Boolean)])]:[state.user?.coop].filter(Boolean);
     $('coopDashboardCards').innerHTML=coops.map(coop=>'<article class="coop-summary" data-coop="'+esc(coop)+'"><span class="coop-monogram" aria-hidden="true">'+esc(coop.split(' ').map(w=>w[0]).join('').slice(0,3))+'</span><h3>'+esc(coop)+'</h3><strong>'+all.filter(m=>m.coop===coop).length+'</strong><small>Registered members</small></article>').join('');
@@ -340,7 +341,7 @@ window.OrgUI=(()=>{
     $('dashboardSummary').innerHTML=[['Registered / enrolled',total.members],['With In and Out',total.complete],['No Time In / Out',total.missing]].map(([label,n])=>'<article class="kpi-card"><span>'+label+'</span><strong>'+n+'</strong><small>'+esc(day)+'</small></article>').join('');
     const ranked=coops.filter(c=>!f.coop||c===f.coop).map(coop=>({coop,...tally(members.filter(m=>m.coop===coop))})).sort((a,b)=>a.missing-b.missing||a.coop.localeCompare(b.coop));
     $('dashboardRanking').innerHTML=ranked.map((r,i)=>{const rate=r.members?100*r.missing/r.members:0;return '<tr><td>'+(i+1)+'</td><td><b>'+esc(r.coop)+'</b></td><td>'+r.members+'</td><td>'+r.complete+'</td><td>'+r.missing+'</td><td><div class="attendance-rate"><span style="width:'+rate+'%"></span></div><small>'+(r.members?rate.toFixed(1)+'%':'No members')+'</small></td></tr>';}).join('');
-    window.TIPONAbsenteeism?.render({from:selectedFrom,to,coop:f.coop,valid:true});
+    window.TIPONAbsenteeism?.render({from:selectedFrom,to:selectedTo,coop:f.coop,valid:true});
     const legacy=state.members.some(m=>!m.orgId)||state.sites.some(s=>!s.orgId)||state.punches.some(p=>!p.orgId);
     if($('legacyNotice'))$('legacyNotice').hidden=!legacy;
   }
