@@ -183,11 +183,13 @@ function renderMembers(){
  const offset=(state.memberPage-1)*pageSize,visible=data.slice(offset,offset+pageSize);
  setText('memberCountLabel',data.length+' member'+(data.length===1?'':'s'));
  $('memberRows').innerHTML=visible.length?visible.map(m=>{
-  const sites=sitesForMember(m),enrolled=m.active!==false&&!!(m.template||m.descriptors?.length>=3),names=sites.map(s=>s.name).join(', ');
+  const sites=sitesForMember(m),enrolled=m.active!==false&&!!(m.template||m.descriptors?.length>=3),pending=!!(m._pendingOp||m.pendingEdit||m.pendingFaceUpdate==='review'),names=sites.map(s=>s.name).join(', ');
+  const faceLabel=pending?'PENDING SYNC':enrolled?'ENROLLED':'NOT ENROLLED';
+  const faceClass=pending?'amber':enrolled?'green':'red';
   return '<tr><td><div class="row-inline"><div class="initial-avatar">'+esc(initial(m.name))+'</div><div><b>'+esc(m.name)+'</b><small>ID: '+esc(m.id)+'</small></div></div></td>'+
    '<td>'+esc(m.coop)+'</td><td>'+esc(m.platform||sites[0]?.platform||'—')+'</td>'+
    '<td><b>'+esc(names||'Unassigned')+'</b><small>'+(sites.length?'GPS verification at assigned work location':'Assign a Work Location before attendance')+'</small></td>'+
-   '<td>'+esc(memberEnrollerLabel(m))+'</td><td><span class="badge '+(enrolled?'green':'red')+'">'+(enrolled?'ENROLLED':'NOT ENROLLED')+'</span></td>'+
+   '<td>'+esc(memberEnrollerLabel(m))+'</td><td><span class="badge '+faceClass+'">'+faceLabel+'</span></td>'+
    '<td><button class="tiny-button" data-member-edit="'+esc(m.id)+'">Edit</button> <button class="tiny-button delete" data-member-delete="'+esc(m.id)+'">Delete</button></td></tr>';
  }).join(''):'<tr><td colspan="7"><div class="empty-state">'+pageIcon('users')+'No matching members found.</div></td></tr>';
  setText('memberPageCount','Showing '+(data.length?offset+1:0)+'–'+Math.min(offset+pageSize,data.length)+' of '+data.length+' members');
