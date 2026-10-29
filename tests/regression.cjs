@@ -22,6 +22,16 @@ test('Time In/Out pairs across devices; duplicate and early punches are blocked'
   assert.equal(Core.transition([input],'TEST-1','out',Date.parse(output.timestamp)).type,'OUT');
   assert.equal(Org.project([{...input,deleted:true},{...output,deleted:true}]).length,0);
 });
+test('Duplicate directions in one legacy session remain projectable for correction',()=>{
+  const first={...event('in-first','IN','2026-10-29T00:00:00Z')};
+  const duplicate={...event('in-duplicate','IN','2026-10-29T00:01:00Z')};
+  const out1={...event('out-first','OUT','2026-10-29T08:00:00Z')};
+  const out2={...event('out-duplicate','OUT','2026-10-29T08:05:00Z')};
+  const row=Org.project([first,duplicate,out1,out2])[0];
+  assert.equal(Date.parse(row.timeIn),Date.parse(first.timestamp));
+  assert.equal(Date.parse(row.timeOut),Date.parse(out2.timestamp));
+  assert.equal(row.eventIds.length,4);
+});
 test('Previous-day Time Out automatically starts the new Philippine day with Time In',()=>{
   const yesterdayOut=event('out-yesterday','OUT','2026-10-28T08:41:00Z');
   const now=Date.parse('2026-10-29T05:51:00Z');
@@ -220,7 +230,7 @@ test('Attendance capture restores Oct 28 9 AM flow; enrollment liveness stays se
   assert.match(liveness,/state\.enrollLiveness=challenge\(\)/);
   const record=app.slice(app.indexOf('async function recordRecognizedFace('),app.indexOf('async function recordRecognizedFace(')+500);
   assert.doesNotMatch(record,/Live Verification Required|const proof/);
-  assert.match(html,/liveness-guard\.js\?v=5552/);
+  assert.match(html,/liveness-guard\.js\?v=5553/);
 });
 test('Attendance reuses a recent accurate GPS watch fix without waiting for another position',async()=>{
   const app=source('app.js'),start=app.indexOf('function usableAttendanceGPS('),end=app.indexOf('function startGPSWatch(){',start);
@@ -260,7 +270,11 @@ test('Attendance editor validates real dates and preserves Philippine time and o
   assert.throws(()=>ctx.attendanceInputStamp('2026-02-31','06:15'),/calendar date/);
   assert.throws(()=>ctx.attendanceInputStamp('2026-10-29','25:15'),/calendar date/);
   assert.equal(Date.parse(ctx.attendanceInputStamp('2026-10-30','06:00'))-Date.parse(ctx.attendanceInputStamp('2026-10-29','22:00')),8*3600000);
-  assert.doesNotMatch(app.slice(app.indexOf('function editAttendanceFromLog('),app.indexOf('function openAttendanceReview(')),/prompt\(/);
+  assert.doesNotMatch(app.slice(app.indexOf('async function saveAttendanceCorrection('),app.indexOf('async function exportTerminalLogs(')),/prompt\(/);
+  assert.doesNotMatch(app,/This session already has a pending correction/);
+  assert.match(app,/String\(item\.value\?\.sessionId\)===sessionId/);
+  assert.doesNotMatch(app,/function openAttendanceReview|function retryAttendanceReview/);
+  assert.doesNotMatch(source('index.html'),/attendanceReviewDialog|data-attendance-review/);
 });
 test('Published assets share one release version and pagination controls cannot overflow',()=>{
   const html=source('index.html'),sw=source('sw.js'),release=JSON.parse(source('release.json'));
