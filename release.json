@@ -1,5 +1,5 @@
 {
   "app": "TIPON Face Attendance",
-  "version": "5.5.35",
-  "label": "Cache-busted UI release: required Assigned Work Location, compact multi-select chevron, manual 3-sample face capture with randomized blink/head-turn liveness, Member List and Attendance Logs pagination, scoped User pages, actionable attendance review and offline correction queues. Liveness is not certified anti-spoofing."
+  "version": "5.5.36",
+  "label": "Fix overwritten attendance Edit handler, correction queue database lookup, live log refresh and ledger cache recovery; restore private member transfer/face-update routes; refresh manual capture frames, fix dropdown chevron and Full Screen double toggle; cache validated decrypted templates in memory; Member Review actions."
 }

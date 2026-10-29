@@ -28,12 +28,12 @@
   }
   function prompt(s){
     return s.order[s.step]==='blink'?
-      'Close both eyes briefly, then open.':
+      'Close both eyes for one second, then open.':
       'Turn your head slightly left or right.';
   }
   function advance(s,face,now=Date.now()){
     if(s.passed)return {ok:true,prompt:'Live Face Verified'};
-    if(now-s.started>25000)return {ok:false,expired:true,prompt:'Live verification timed out.'};
+    if(now-s.started>45000)return {ok:false,expired:true,prompt:'Live verification timed out.'};
     let success=false;
     if(s.order[s.step]==='blink'){
       const ratio=blinkRatio(face);
@@ -42,7 +42,7 @@
         if(ratio>=.09){s.openRatio=Math.max(s.openRatio*.98,ratio);s.openFrames++;}
         if(s.openFrames<2)return {ok:false,prompt:'Look straight at the camera.'};
         if(ratio<Math.max(.06,s.openRatio*.78)){s.closed=true;s.closedAt=now;}
-        return {ok:false,prompt:'Close both eyes for a moment, then open.'};
+        return {ok:false,prompt:'Close both eyes for one second, then open.'};
       }
       if(now-s.closedAt>6000){s.closed=false;return {ok:false,prompt:'Blink again slowly.'};}
       if(now-s.closedAt>=80&&ratio>Math.max(.09,s.openRatio*.82))success=true;
@@ -145,7 +145,7 @@
                   state.livenessProof={memberId:member.id,scanRun:state.scanRun,at:Date.now()};
                   await recordRecognizedFace(member,found.best.distance);
                 }else{
-                  updateScanResult('Live Face Check',live.prompt);
+                  updateScanResult(member.name+' · Live Face Check',live.prompt);
                   setText('cameraBottomTag',live.prompt);
                 }
               }else setText('cameraBottomTag','Verifying face identity...');
@@ -174,6 +174,7 @@
   async function captureEnrollmentSample(){
     const button=$('captureEnrollmentSample');
     if(!button||!state.enrollActive||!state.enrollReadyDescriptor||!state.enrollLiveness?.passed||state.enrollConflictMemberId)return;
+    if(!state.enrollReadyAt||Date.now()-state.enrollReadyAt>2000){button.disabled=true;state.enrollReadyDescriptor=null;setText('enrollStatus','Wait for a fresh live camera frame, then capture.');return;}
     const memberId=$('memberId').value.trim(),descriptor=state.enrollReadyDescriptor.slice();
     const conflict=findEnrolledFaceConflict([descriptor],memberId);
     if(conflict){
@@ -194,7 +195,7 @@
     setText('enrollCount',state.enrollCollected.length+' / 3 samples');
     $('enrollProgress').style.width=(state.enrollCollected.length/3*100)+'%';
     if(state.enrollCollected.length<3){
-      state.enrollLiveness=challenge();button.textContent='Capture Sample '+(state.enrollCollected.length+1);
+      state.enrollLiveness=challenge();button.textContent='Capture Sample '+(state.enrollCollected.length+1)+' of 3';
       setText('enrollStatus','Sample captured. Complete the next live check, then capture again.');return;
     }
     const finalConflict=findEnrolledFaceConflict(state.enrollCollected,memberId);
@@ -241,7 +242,8 @@
               state.enrollReadyDescriptor=null;state.enrollLiveness=challenge();if(button)button.disabled=true;
               setText('enrollStatus','Face changed. Repeat the live check.');
             }else{
-              if(button){button.disabled=false;button.textContent='Capture Sample '+(state.enrollCollected.length+1);}
+              state.enrollReadyDescriptor=descriptor;state.enrollReadyAt=Date.now();
+              if(button){button.disabled=false;button.textContent='Capture Sample '+(state.enrollCollected.length+1)+' of 3';}
               setText('enrollStatus','Live check passed. Click Capture Sample.');
             }
           }else{
@@ -253,8 +255,9 @@
             }else if(!live.ok){
               if(button)button.disabled=true;setText('enrollStatus',live.prompt);
             }else{
-              state.enrollReadyDescriptor=descriptor;
-              if(button){button.disabled=false;button.textContent='Capture Sample '+(state.enrollCollected.length+1);}
+              state.enrollReadyDescriptor=descriptor;state.enrollReadyAt=Date.now();
+              state.enrollReadyDescriptor=descriptor;state.enrollReadyAt=Date.now();
+              if(button){button.disabled=false;button.textContent='Capture Sample '+(state.enrollCollected.length+1)+' of 3';}
               setText('enrollStatus','Live check passed. Click Capture Sample.');
             }
           }
@@ -271,5 +274,5 @@
   if(captureButton&&!captureButton.dataset.bound){
     captureButton.dataset.bound='1';captureButton.addEventListener('click',captureEnrollmentSample);
   }
-  window.TIPONLiveness={version:'5.5.35',challenge,advance};
+  window.TIPONLiveness={version:'5.5.36',challenge,advance};
 })();

@@ -76,19 +76,29 @@ window.OrgDB=(()=>{
 canEdit=()=>state.user?.role==='registrar'&&TIPONAuth.current()?.offlineUntil>Date.now();
 isAdmin=()=>state.user?.role==='admin';
 roleName=role=>({admin:'Administrator',registrar:'User',kiosk:'Physical Kiosk'}[role]||'Signed out');
+const decryptedFaces=new Map();let decryptedFaceKey=null;
 loadCollections=async function(){
   const [allMembers,allSites,allPunches,schedules]=await Promise.all(['members','sites','punches','schedules'].map(getAll));
   const u=state.user,belongs=x=>x.orgId===state.orgId||(!x.orgId&&u?.role==='admin');
   state.sites=allSites.filter(x=>!x.deleted&&belongs(x)&&(u?.role==='admin'||u?.role==='kiosk'||u&&TIPONOrgCore.inScope(u,x)));
   // Physical kiosks identify members across the organization; assigned-office GPS is verified before recording.
   state.members=allMembers.filter(x=>!x.deleted&&belongs(x)&&(u?.role==='admin'||u?.role==='kiosk'||u&&TIPONOrgCore.inScope(u,x)));
-  if(u?.role!=='admin'){
-    const queue=state.members.filter(m=>m.template&&!m.descriptors);
+  const faceKey=TIPONAuth.current()?.faceKey||null;
+  if(decryptedFaceKey!==faceKey){decryptedFaces.clear();decryptedFaceKey=faceKey;}
+  const memberIds=new Set(state.members.map(m=>m.id));
+  for(const id of decryptedFaces.keys())if(!memberIds.has(id))decryptedFaces.delete(id);
+  if(u?.role!=='admin'&&faceKey){
+    const queue=state.members.filter(m=>m.template&&!(m.descriptors?.length>=3));
     let cursor=0;
     const worker=async()=>{
       while(cursor<queue.length){
         const m=queue[cursor++];
-        try{m.descriptors=await TIPONAuth.unseal(m.template,TIPONAuth.current().faceKey,'member:'+m.id);}
+        try{
+          const fingerprint=JSON.stringify(m.template),cached=decryptedFaces.get(m.id);
+          m.descriptors=cached?.fingerprint===fingerprint?cached.descriptors:await TIPONAuth.unseal(m.template,faceKey,'member:'+m.id);
+          if(!Array.isArray(m.descriptors)||m.descriptors.length<3||m.descriptors.some(v=>!Array.isArray(v)||v.length!==128||v.some(n=>!Number.isFinite(n))))throw Error('Invalid facial template');
+          decryptedFaces.set(m.id,{fingerprint,descriptors:m.descriptors});
+        }
         catch{m.descriptors=[];m.templateError='Face template could not be decrypted; re-enroll after review.';}
       }
     };

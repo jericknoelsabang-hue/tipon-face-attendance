@@ -190,7 +190,7 @@ function renderMembers(){
    '<td>'+esc(m.coop)+'</td><td>'+esc(m.platform||sites[0]?.platform||'—')+'</td>'+
    '<td><b>'+esc(names||'Unassigned')+'</b><small>'+(sites.length?'GPS verification at assigned work location':'Assign a Work Location before attendance')+'</small></td>'+
    '<td>'+esc(memberEnrollerLabel(m))+'</td><td><span class="badge '+faceClass+'">'+faceLabel+'</span></td>'+
-   '<td><button class="tiny-button" data-member-edit="'+esc(m.id)+'">Edit</button> <button class="tiny-button delete" data-member-delete="'+esc(m.id)+'">Delete</button></td></tr>';
+   '<td><button class="tiny-button" data-member-edit="'+esc(m.id)+'">Edit</button> <button class="tiny-button delete" data-member-delete="'+esc(m.id)+'">Delete</button> <button class="tiny-button" data-member-review="'+esc(m.id)+'">Review</button></td></tr>';
  }).join(''):'<tr><td colspan="7"><div class="empty-state">'+pageIcon('users')+'No matching members found.</div></td></tr>';
  setText('memberPageCount','Showing '+(data.length?offset+1:0)+'–'+Math.min(offset+pageSize,data.length)+' of '+data.length+' members');
  setText('memberPage','Page '+state.memberPage+' of '+totalPages);
@@ -233,6 +233,7 @@ function fillMemberSites(preferred){
 }
 function updateMemberSite(){
  const catalog=memberSiteCatalog();
+ $('memberSiteSummary').removeAttribute('aria-invalid');
  const sites=[...$('memberSite').selectedOptions].map(o=>catalog.find(s=>s.id===o.value)).filter(Boolean);
  setText('memberSiteSummary',sites.length?sites.length+' Location'+(sites.length===1?'':'s')+' Selected':'Select Assigned Location');
  setText('assignedSiteDetails',sites.length?
@@ -381,7 +382,7 @@ async function saveMemberForm(e){
  if(!id||!name||!TIPONOrgCore.COOPS.includes(coop)||!TIPONPlatforms.names().some(v=>TIPONOrgCore.platformKey(v)===TIPONOrgCore.platformKey(platform))){
    showToast('Enter Member ID, Last Name, First Name, Cooperative and Business Platform.','error');return;
  }
- if(!siteIds.length){showToast('Select at least one Assigned Work Location.','error');return;}
+ if(!siteIds.length){$('memberSitePicker').open=true;$('memberSiteSummary').focus();$('memberSiteSummary').setAttribute('aria-invalid','true');showToast('Select at least one Assigned Work Location.','error');return;}
  if(siteIds.length>40||sites.some(s=>!s||s.coop!==coop||
    TIPONOrgCore.platformKey(s.platform)!==TIPONOrgCore.platformKey(platform))){
    showToast('Choose only approved Work Locations matching your Cooperative and Business Platform.','error');return;
@@ -587,6 +588,17 @@ async function saveMemberForm(e){
  }
 }
 async function handleMemberTableClick(event){
+ const review=event.target.closest('[data-member-review]');
+ if(review){
+  const member=state.members.find(m=>m.id===review.dataset.memberReview);
+  if(!member)return;
+  const ops=(await getAll('outbox')).filter(op=>op.orgId===state.orgId&&(op.value?.memberId===member.id||op.type==='members'&&op.value?.id===member.id));
+  setText('memberReviewName',member.name+' · '+member.id);
+  setText('memberReviewStatus',member.templateError?'Face template needs review':ops.length?'Pending Sync':member.template&&member.active!==false?'Enrolled · Synced':'Not Enrolled');
+  setText('memberReviewDetails',ops.map(op=>op.error||'Saved on this device; waiting for central acknowledgement.').join(' · ')||member.syncIssue||member.templateError||'No reported synchronization errors.');
+  $('memberReviewDialog').showModal();return;
+ }
+
  const edit=event.target.closest('[data-member-edit]'),
    del=event.target.closest('[data-member-delete]');
  if(edit){
@@ -1013,7 +1025,7 @@ async function saveAttendanceCorrection(row,changes,reason,deleted=false){
 async function editAttendanceFromLog(event){
  const button=event.target.closest('[data-attendance-edit]');if(!button||!canCorrectAttendance())return;
  const row=attendanceRowByKey(button.dataset.attendanceEdit);if(!row)return;
- const reason=prompt('Reason for correction (required):');if(!reason?.trim())return;
+ const reason=prompt('Reason for correction (at least 5 characters):');if(reason===null)return;if(reason.trim().length<5)return showToast('Enter a reason of at least five characters.','error');
  const nextIn=prompt('Time In (local YYYY-MM-DDTHH:MM)',button.dataset.in||''),nextOut=prompt('Time Out (local YYYY-MM-DDTHH:MM)',button.dataset.out||'');
  if(nextIn===null||nextOut===null)return;
  const valid=value=>!value||/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(value);
@@ -1030,7 +1042,7 @@ async function deleteAttendanceFromLog(event){
  const button=event.target.closest('[data-attendance-delete]');if(!button||!canCorrectAttendance())return;
  const row=attendanceRowByKey(button.dataset.attendanceDelete);if(!row)return;
  if(!row.timeIn||!row.timeOut)return showToast('Complete Time Out before deleting an attendance session.','error');
- const reason=prompt('Reason for deleting this attendance session (required):');if(!reason?.trim())return;
+ const reason=prompt('Reason for deleting this attendance session (at least 5 characters):');if(reason===null)return;if(reason.trim().length<5)return showToast('Enter a reason of at least five characters.','error');
  if(!await confirmAction('Delete attendance session?',row.memberName+' · '+reason.trim()+'. This is an audited soft delete; the raw event history is retained.'))return;
  try{await saveAttendanceCorrection(row,{},reason,true);}catch(error){showToast(error.message||String(error),'error',8500);}
 }
@@ -1043,7 +1055,7 @@ function openAttendanceReview(event){
  setText('attendanceReviewStatus',attendanceSyncLabel(row));
  setText('attendanceReviewReason',events.map(p=>p.syncError||p.correctionReason||p.reviewStatus).filter(Boolean).join(' · ')||
   (events.some(p=>p.requiresSessionResolution)?'Time Out is waiting for the matching Time In from another device.':
-   events.some(p=>p.pendingCorrection==='pending')?'The correction is waiting for synchronization.':'No error details were returned by the server.'));
+   events.some(p=>p.pendingCorrection==='pending')?'The correction is waiting for synchronization.':'This session has no reported synchronization errors.'));
  const dialog=$('attendanceReviewDialog');dialog.dataset.sessionId=row.key;dialog.showModal();
 }
 async function retryAttendanceReview(){
@@ -1067,7 +1079,7 @@ async function exportTerminalLogs(){
   showToast('Exported '+rows.length+' attendance session(s).','success');
  }catch(err){toastError(err,'Attendance export');}finally{btn.disabled=false;}
 }
-async function editAttendanceFromLog(e){const b=e.target.closest('[data-attendance-edit]');if(!b||!canCorrectAttendance())return;const row=TIPONOrgCore.project(state.punches.filter(p=>!p.reviewStatus)).find(x=>x.key===b.dataset.attendanceEdit);if(!row)return;const events=state.punches.filter(p=>row.eventIds.includes(p.id));if(events.some(p=>p.cloudAck||p._pendingOp||p.uploadPayload))return showToast('Synced or queued attendance is read-only. Use the approved server correction process.','error',8500);const reason=prompt('Correction reason (required):');if(!reason?.trim())return;const nextIn=prompt('Time In (local YYYY-MM-DDTHH:MM)',b.dataset.in),nextOut=prompt('Time Out (local YYYY-MM-DDTHH:MM)',b.dataset.out),valid=x=>!x||/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(x);if(nextIn===null||nextOut===null)return;if(!nextIn)return showToast('Time In is required.','error');if(!valid(nextIn)||!valid(nextOut))return showToast('Use YYYY-MM-DDTHH:MM format.','error');const iso=x=>x?new Date(x+':00+08:00').toISOString():'';const ti=iso(nextIn),to=iso(nextOut);if(ti&&to&&Date.parse(to)<Date.parse(ti))return showToast('Time Out must be after Time In.','error');if(!await confirmAction('Save attendance correction?',row.memberName+' · '+reason.trim()+' · This updates local unsynced punches and saves correction details.'))return;for(const p of events){const stamp=p.type==='IN'?ti:to;if(!stamp){await deleteOne('punches',p.id);continue;}p.timestamp=stamp;p.day=todayPH(new Date(stamp));delete p.uploadPayload;p.correctionReason=reason.trim();p.correctedAt=new Date().toISOString();p.correctedBy=state.user.username||state.user.id;await saveOne('punches',p);}await loadCollections();renderTerminalLogs();renderDashboard();TIPONSync.kick();showToast('Unsynced attendance correction saved.','success');}
+
 function loadScript(url,check){if(check())return Promise.resolve();return new Promise((resolve,reject)=>{const old=document.querySelector(`script[data-remote="${url}"]`);if(old)old.remove();const el=document.createElement('script');el.src=url;el.crossOrigin='anonymous';el.dataset.remote=url;el.onload=()=>resolve();el.onerror=()=>reject(Error(`Could not load ${url.split('/').pop()}. Download offline resources while connected.`));document.body.appendChild(el);});}
 async function exportExcel(){
  let data;try{if(!validateAttendanceDateRange('recordFrom','recordTo','recordDateError','exportExcel'))throw Error('To Date cannot be earlier than From Date.');data=filteredAttendanceRows();}catch(err){toastError(err,'Export');return;}
@@ -1228,7 +1240,8 @@ async function recordRecognizedFace(member,faceDistance){
   playTerminalSound('success');speakTerminal('Time '+(punch.type==='IN'?'in':'out')+' recorded for '+member.name+'.','success','punch:'+punch.id);showToast(`${member.name}: TIME ${punch.type} recorded.`,'success');
   if(navigator.vibrate){try{navigator.vibrate(80);}catch{}}
   if(window.TIPONSync)TIPONSync.kick();
- }catch(err){playTerminalSound('error');updateScanResult('Attendance NOT recorded',err.message,'error');
+ }catch(err){state.scanArmed=true;state.scanCandidate=null;state.scanCandidateCount=0;state.scanLiveness=null;
+   playTerminalSound('error');updateScanResult('Attendance NOT recorded',err.message,'error');
    if(/assigned work location|nearest assigned|150 m|same assigned work location/i.test(String(err.message||'')))speakTerminal('Not In Assigned Location','error','location');
    showToast(err.message,'error',6500);}
  finally{state.scanBusy=false;document.querySelectorAll('.mode-option').forEach(b=>b.disabled=false);}
@@ -1292,6 +1305,8 @@ function advanceEnrollmentBlink(ratio,now=Date.now()){
 }
 async function beginEnrollment(){
  if(!canEdit())return;
+ if(state.scanBusy){showToast('Wait for the current attendance check to finish.','info');return;}
+ await stopScanner();
  const existing=state.editMember;
  if(existing?.active!==false&&existing?.descriptors?.length>=3&&
     !TIPONOrgCore.inScope(state.user,existing)&&!existing.workLocationReassignmentRequired){
@@ -1430,7 +1445,7 @@ async function refreshDirectoryView(kind){
  if(button)button.disabled=true;
  try{
   const sync=await TIPONSync.run();
-  if(!sync?.ok)throw Error(sync?.error||'Central synchronization has not completed. Try Refresh again.');
+  if(!sync?.readOk&&!sync?.ok)throw Error(sync?.error||'Central synchronization has not completed. Try Refresh again.');
   await loadCollections();
   if(kind==='members')renderMembers();
   else renderTerminalLogs();
@@ -1464,7 +1479,6 @@ function bindEvents(){
  attach('terminalLogExport','click',exportTerminalLogs);attach('terminalLogSync','click',()=>TIPONSync.kick());
   attach('terminalLogRows','click',editAttendanceFromLog);attach('terminalLogRows','click',deleteAttendanceFromLog);attach('terminalLogRows','click',openAttendanceReview);
   attach('attendanceReviewRetry','click',retryAttendanceReview);attach('attendanceReviewClose','click',()=> $('attendanceReviewDialog').close());
- attach('kioskFullscreen','click',async()=>{try{if(document.fullscreenElement){await document.exitFullscreen();return;}if(!document.documentElement.requestFullscreen)throw Error('Full screen is unavailable in this browser.');await document.documentElement.requestFullscreen();}catch(e){showToast(e.message,'error');}});
  document.addEventListener('fullscreenchange',()=>document.body.classList.toggle('terminal-fullscreen',!!document.fullscreenElement&&state.page==='scanner'));
  attach('addMember','click',()=>openMemberForm(null));attach('memberRows','click',handleMemberTableClick);
  attach('memberForm','submit',saveMemberForm);

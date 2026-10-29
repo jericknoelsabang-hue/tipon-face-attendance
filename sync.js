@@ -264,7 +264,7 @@ window.TIPONSync=(()=>{
           if(current){const deleted={...current,deleted:true,rev:Number(receipt?.rev)||Number(current.rev||0)+1};delete deleted._pendingOp;delete deleted.pendingDelete;delete deleted.syncIssue;await OrgDB.rawSave('sites',deleted);}
           await OrgDB.rawDelete('outbox',op.id);
         }else if(op.type==='attendanceCorrections'){
-          const ids=op.value.eventIds||[],eventsForCorrection=await Promise.all(ids.map(getOne));
+          const ids=op.value.eventIds||[],eventsForCorrection=await Promise.all(ids.map(id=>getOne('punches',id)));
           if(!eventsForCorrection.length||eventsForCorrection.some(p=>!p||!p.cloudAck||p.requiresSessionResolution))continue;
           const reply=await TIPONAPI.call({action:'attendanceCorrect',sessionId:op.value.sessionId,
             baseRev:Number(op.baseRev)||0,changes:op.value.changes||{},delete:!!op.value.delete,reason:op.value.reason});
@@ -350,7 +350,7 @@ window.TIPONSync=(()=>{
     }
     await OrgDB.rawSave('meta',{id:cfgId,version:startVersion,memberCount,enrolledCount,complete:true});
   }
-  function cursorId(){return 'tp5-events:'+state.orgId+':'+state.user.id+':'+state.user.role+':v5.5.9-username-backfill:'+String(state.user.version||1)+':'+(state.user.siteIds||[]).join(',');}
+  function cursorId(){return 'tp5-events:'+state.orgId+':'+state.user.id+':'+state.user.role+':v5.5.36-ledger-recovery:'+String(state.user.version||1)+':'+(state.user.siteIds||[]).join(',');}
   async function pull(){
     const id=cursorId();let saved=await getOne('meta',id),cursor=saved?.cursor||0,eventVersion=saved?.eventVersion;
     // A legacy cursor has no correction version. Re-read the ledger once to
@@ -367,6 +367,7 @@ window.TIPONSync=(()=>{
       for(const event of r.events||[]){
         const old=await getOne('punches',event.id),merged={...old,...event,orgId:state.orgId,cloudAck:true};
         if(event.sessionId&&event.type==='OUT')delete merged.requiresSessionResolution;
+        delete merged.reviewStatus;delete merged.syncError;
         if(event.correctionRev!==undefined)delete merged.pendingCorrection;
         await OrgDB.rawSave('punches',merged);
       }
@@ -406,7 +407,7 @@ window.TIPONSync=(()=>{
         op.ownerId===state.user?.id&&op.type==='sites'&&
         !['NEEDS_REVIEW','FORBIDDEN','CONFLICT'].includes(op.errorCode));
       siteFastRetry=remainingSites.length?siteFastRetry+1:0;
-      if(state.page==='dashboard')renderDashboard();if(state.page==='records')renderRecords();if(state.page==='members')renderMembers();if(state.page==='adminSites')window.TIPONAdminSites?.render();if(state.page==='accounts'&&isAdmin())await OrgUI.renderAccounts();if(state.page==='sites')renderSites();if(state.page==='scanner'){renderTerminal();renderTerminalLogs();const ready=state.members.filter(m=>m.active!==false&&!m.deleted&&m.descriptors?.length>=3).length;if(ready)updateScanResult('Member directory ready',ready+' enrolled face template(s) loaded on this terminal. Face matches are checked against assigned office GPS.','success');}TIPONPlatforms.render();
+      if(state.page==='terminalLogs')renderTerminalLogs();if(state.page==='dashboard')renderDashboard();if(state.page==='records')renderRecords();if(state.page==='members')renderMembers();if(state.page==='adminSites')window.TIPONAdminSites?.render();if(state.page==='accounts'&&isAdmin())await OrgUI.renderAccounts();if(state.page==='sites')renderSites();if(state.page==='scanner'){renderTerminal();renderTerminalLogs();const ready=state.members.filter(m=>m.active!==false&&!m.deleted&&m.descriptors?.length>=3).length;if(ready)updateScanResult('Member directory ready',ready+' enrolled face template(s) loaded on this terminal. Face matches are checked against assigned office GPS.','success');}TIPONPlatforms.render();
     }catch(e){siteFastRetry=0;message=e.message;attempt=Math.min(attempt+1,4);if(['AUTH','ACCOUNT','DEVICE_DISABLED'].includes(e.code))message+=' Sign out and sign in online.';result={ok:false,error:message};}
     finally{busy=false;render();schedule();}
     return result;
