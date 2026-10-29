@@ -965,13 +965,14 @@ function projectTerminalLogEvents(events){
  for(const list of sessions.values()){
   try{rows.push(...TIPONOrgCore.project(list));}
   catch(error){
-   // One malformed session must not blank the entire Attendance Logs table.
-   // Preserve every punch as its own review row; never merge or discard events.
-   for(const event of list){
-    const validStamp=Number.isFinite(Date.parse(event.timestamp)),validType=event.type==='IN'||event.type==='OUT';
-    rows.push({key:'review:'+String(event.id),memberId:String(event.memberId||''),memberName:event.memberName||'',coop:event.coop||'',platform:event.platform||'',siteId:event.siteId||'',location:event.siteName||event.location||'',correctionRev:Number(event.correctionRev)||0,
-     timeIn:validStamp&&validType&&event.type==='IN'?event.timestamp:'',timeOut:validStamp&&validType&&event.type==='OUT'?event.timestamp:'',eventIds:[event.id],projectionIssue:String(error?.message||'Conflicting attendance events in this session.')});
-   }
+   // Keep a malformed session visible as one editable/deletable attendance row.
+   // Use the real session key and retain all source events so corrections never
+   // target a synthetic ID or leave duplicate punches behind.
+   const valid=list.filter(event=>Number.isFinite(Date.parse(event.timestamp))&&(event.type==='IN'||event.type==='OUT'));
+   const firstIn=valid.find(event=>event.type==='IN'),lastOut=[...valid].reverse().find(event=>event.type==='OUT');
+   const source=list[0]||{};
+   rows.push({key:String(source.sessionId||source.id),memberId:String(source.memberId||''),memberName:source.memberName||'',coop:source.coop||'',platform:source.platform||'',siteId:source.siteId||'',location:source.siteName||source.location||'',correctionRev:Math.max(0,...list.map(event=>Number(event.correctionRev)||0)),
+    timeIn:firstIn?.timestamp||'',timeOut:lastOut?.timestamp||'',eventIds:list.map(event=>event.id),projectionIssue:String(error?.message||'Conflicting attendance events in this session.')});
   }
  }
  return rows.sort((a,b)=>Date.parse(a.timeIn||a.timeOut)-Date.parse(b.timeIn||b.timeOut)||String(a.key).localeCompare(String(b.key)));
@@ -1031,7 +1032,7 @@ function renderTerminalLogs(){
    const stamp=row.timeIn||row.timeOut;
    const status=row.projectionIssue?'Needs Review':attendanceSyncLabel(row);
    const localInput=value=>value?TIPONCore.phStamp(value).replace(' ','T').slice(0,16):'';
-   const action=row.projectionIssue?'<button type="button" class="tiny-button" data-attendance-review="'+esc(row.key)+'">Review</button>':canCorrectAttendance()?'<div class="row-inline">'+
+   const action=canCorrectAttendance()?'<div class="row-inline">'+
      '<button type="button" class="tiny-button" data-attendance-edit="'+esc(row.key)+'" data-in="'+esc(localInput(row.timeIn))+'" data-out="'+esc(localInput(row.timeOut))+'">Edit</button>'+
      '<button type="button" class="tiny-button delete" data-attendance-delete="'+esc(row.key)+'">Delete</button>'+
      '</div>':'—';
@@ -1090,7 +1091,7 @@ async function saveAttendanceCorrection(row,changes,reason,deleted=false){
   const result=await TIPONSync.submitPendingNow(),pending=await getOne('outbox',id);
   await loadCollections();renderTerminalLogs();renderDashboard();
   if(!pending)showToast(deleted?'Attendance session deleted and synchronized.':'Attendance correction synchronized.','success');
-  else if(pending.errorCode==='NEEDS_REVIEW')showToast('Needs Review: '+String(pending.error||'Open the Review action for details.').slice(0,220),'error',9000);
+  else if(pending.errorCode==='NEEDS_REVIEW')showToast('Needs Review: '+String(pending.error||'Refresh the attendance log and retry.').slice(0,220),'error',9000);
   else showToast(result?.error||'Correction queued for synchronization.','info',7500);
  }else showToast('Correction saved locally. It will sync when internet returns.','info',7500);
 }
@@ -1603,7 +1604,6 @@ function bindEvents(){
  attach('terminalLogNext','click',()=>{state.attendancePage=(state.attendancePage||1)+1;renderTerminalLogs();});
  attach('terminalLogExport','click',exportTerminalLogs);attach('terminalLogSync','click',()=>refreshDirectoryView('logs','terminalLogSync'));
   attach('terminalLogRows','click',editAttendanceFromLog);attach('terminalLogRows','click',deleteAttendanceFromLog);
- attach('terminalLogRows','click',openAttendanceReview);
   attach('attendanceEditForm','submit',submitAttendanceEdit);
  attach('attendanceReviewRetry','click',retryAttendanceReview);attach('attendanceReviewClose','click',()=> $('attendanceReviewDialog').close());
  document.addEventListener('fullscreenchange',()=>document.body.classList.toggle('terminal-fullscreen',!!document.fullscreenElement&&state.page==='scanner'));
