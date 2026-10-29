@@ -18,7 +18,7 @@ self.addEventListener('activate',event=>event.waitUntil((async()=>{
   // the new index.html and versioned assets actually run. IndexedDB records remain.
   const windows=await self.clients.matchAll({type:'window',includeUncontrolled:true});
   await Promise.all(windows.filter(client=>{
-    try{const url=new URL(client.url);return url.origin===self.location.origin&&!/\\/update\\.html$/.test(url.pathname);}
+    try{const url=new URL(client.url);return url.origin===self.location.origin&&!url.pathname.endsWith('/update.html');}
     catch{return false;}
   }).map(async client=>{try{await client.navigate(client.url);}catch(_){}}));
 })()));
