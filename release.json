@@ -1,5 +1,5 @@
 {
   "app": "TIPON Face Attendance",
-  "version": "5.5.37",
-  "label": "Attendance edit dialog with date/time inputs and no reason prompts; compact aligned controls and pagination; complete known BP dropdown; editable Member ID with stable face/history links; closed-eye blink fix; immediate three-capture re-enrollment save; 5-second foreground User sync."
+  "version": "5.5.38",
+  "label": "Fresh asset cache; improved pagination layout; refresh all known Business Platforms after login; member edit and face re-enrollment sync fallback through the compatible organization submit API; manual 3-sample face enrollment and actionable attendance editing/review."
 }
