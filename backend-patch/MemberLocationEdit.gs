@@ -1,5 +1,5 @@
 /**
- * TIPON KABILANG — Member Assignment Routes, v5.5.34
+ * TIPON KABILANG — Member Assignment Routes, v5.5.39
  * PRIVATE Google Apps Script file: MemberLocationEdit.gs
  *
  * Install alongside existing Code.gs/OrgCore.gs. Route actions after existing
@@ -20,6 +20,17 @@ function tp5LocationIds_(actor,coop,platform,value){
     tp5Must_(TIPONOrgCore.inScope(actor,s),'Location is outside your approved scope.','FORBIDDEN');
   });
   return ids;
+}
+/** Editable business Member ID; the immutable internal record key and attendance history remain unchanged. */
+function tp5EditableMemberNumberV2_(old,value){
+  var number=TIPONOrgCore.clean(value===undefined?(old.memberNumber||old.id):value,45);
+  tp5Must_(number&&!number.split('').some(function(ch){return ch.charCodeAt(0)<32;}),'Enter a valid Member ID.','VALIDATION');
+  var canonical=number.normalize('NFKC').toLowerCase();
+  tp5Must_(!tp5Read_('members').some(function(m){
+    var current=String(m.memberNumber||m.id).normalize('NFKC').toLowerCase();
+    return !m.deleted&&String(m.id)!==String(old.id)&&current===canonical;
+  }),'Member ID is already registered.','DUPLICATE');
+  return number;
 }
 /** Validate centrally registered target locations for an authorized member transfer.
  * The source member must already be in the User's scope; the transfer is audited
@@ -67,19 +78,19 @@ function tp5UserMemberTransferUpdateV2_(actor,q){
     'Member was changed on another device. Sync and reopen Edit.','CONFLICT');
   var c=q.changes;
   tp5Must_(c&&typeof c==='object'&&!Array.isArray(c)&&
-    Object.keys(c).every(function(k){return ['name','coop','platform','siteIds'].includes(k);})&&
+    Object.keys(c).every(function(k){return ['name','memberNumber','coop','platform','siteIds'].includes(k);})&&
     Object.prototype.hasOwnProperty.call(c,'siteIds'),
-    'Only Full Name, Cooperative, Business Platform and Assigned Work Location can be edited.','FORBIDDEN');
-  var name=TIPONOrgCore.clean(c.name,120),coop=TIPONOrgCore.clean(c.coop,80),platform=tp5ResolvePlatform_(c.platform);
+    'Only Member ID, Full Name, Cooperative, Business Platform and Assigned Work Location can be edited.','FORBIDDEN');
+  var memberNumber=tp5EditableMemberNumberV2_(old,c.memberNumber),name=TIPONOrgCore.clean(c.name,120),coop=TIPONOrgCore.clean(c.coop,80),platform=tp5ResolvePlatform_(c.platform);
   tp5Must_(name&&TIPONOrgCore.COOPS.includes(coop),'Enter a valid Full Name and Cooperative.','VALIDATION');
   var siteIds=tp5TransferLocationIds_(coop,platform,c.siteIds);
-  var changed=name!==old.name||coop!==old.coop||
+  var changed=memberNumber!==(old.memberNumber||old.id)||name!==old.name||coop!==old.coop||
     TIPONOrgCore.platformKey(platform)!==TIPONOrgCore.platformKey(old.platform)||
     !tp5SameLocations_(tp5OldLocations_(old),siteIds);
   if(!changed)return tp5Reply_({member:tp5Safe_(old),unchanged:true});
   tp5Must_(!tp5MemberOpenSession_(old.id),
     'Complete Time Out before transferring this member.','OPEN_SESSION');
-  var next=Object.assign({},old,{name:name,coop:coop,platform:platform,siteId:siteIds[0],siteIds:siteIds,
+  var next=Object.assign({},old,{memberNumber:memberNumber,name:name,coop:coop,platform:platform,siteId:siteIds[0],siteIds:siteIds,
     workLocationReassignmentRequired:false,updatedAt:tp5Now_(),rev:Number(old.rev||0)+1});
   return tp5MemberLocationResult_(actor,old,next,'USER_TRANSFER_MEMBER_SCOPE');
 }
@@ -96,7 +107,7 @@ function tp5UserMemberFaceUpdateV2_(actor,q){
     'Member was changed on another device. Sync and reopen Edit.','CONFLICT');
   var c=q.changes;
   tp5Must_(c&&typeof c==='object'&&!Array.isArray(c)&&
-    Object.keys(c).every(function(k){return ['name','coop','platform','siteIds','template','consentAt'].includes(k);}),
+    Object.keys(c).every(function(k){return ['name','memberNumber','coop','platform','siteIds','template','consentAt'].includes(k);}),
     'Only member identity, Assigned Work Location, consent and encrypted face fields are accepted.','FORBIDDEN');
   var name=TIPONOrgCore.clean(c.name,120),coop=TIPONOrgCore.clean(c.coop,80),platform=tp5ResolvePlatform_(c.platform);
   tp5Must_(name&&TIPONOrgCore.COOPS.includes(coop),'Enter a valid Full Name and Cooperative.','VALIDATION');
@@ -110,7 +121,7 @@ function tp5UserMemberFaceUpdateV2_(actor,q){
     'Biometric consent must be confirmed before enrollment.','CONSENT');
   tp5Must_(!tp5MemberOpenSession_(old.id),
     'Complete Time Out before replacing this member face.','OPEN_SESSION');
-  var next=Object.assign({},old,{name:name,coop:coop,platform:platform,siteId:siteIds[0],siteIds:siteIds,
+  var next=Object.assign({},old,{memberNumber:memberNumber,name:name,coop:coop,platform:platform,siteId:siteIds[0],siteIds:siteIds,
     template:template,consentAt:consentAt,enrolledBy:actor.id,enrolledByUsername:actor.username||'',
     active:true,faceEnrollmentStatus:'enrolled',importPending:false,importedWithoutFace:false,
     workLocationReassignmentRequired:false,updatedAt:tp5Now_(),rev:Number(old.rev||0)+1});
@@ -147,20 +158,20 @@ function tp5AdminMemberUpdateV2_(actor,q){
     'Member was changed on another device. Sync and retry.','CONFLICT');
   var c=q.changes;
   tp5Must_(c&&typeof c==='object'&&!Array.isArray(c)&&
-    Object.keys(c).every(function(k){return ['name','coop','platform','siteIds'].includes(k);})&&
+    Object.keys(c).every(function(k){return ['name','memberNumber','coop','platform','siteIds'].includes(k);})&&
     Object.prototype.hasOwnProperty.call(c,'siteIds'),
-    'Only approved member fields and Assigned Location can be edited.','FORBIDDEN');
-  var name=TIPONOrgCore.clean(c.name,120),coop=TIPONOrgCore.clean(c.coop,80),
+    'Only Member ID, identity, Cooperative, Business Platform and Assigned Location can be edited.','FORBIDDEN');
+  var memberNumber=tp5EditableMemberNumberV2_(old,c.memberNumber),name=TIPONOrgCore.clean(c.name,120),coop=TIPONOrgCore.clean(c.coop,80),
     platform=tp5ResolvePlatform_(c.platform);
   tp5Must_(name&&TIPONOrgCore.COOPS.includes(coop),'Enter a valid name and Cooperative.','VALIDATION');
   var siteIds=tp5LocationIds_(actor,coop,platform,c.siteIds);
   var scopeChanged=coop!==old.coop||TIPONOrgCore.platformKey(platform)!==TIPONOrgCore.platformKey(old.platform);
   var locationsChanged=!tp5SameLocations_(tp5OldLocations_(old),siteIds);
-  if(!scopeChanged&&!locationsChanged&&name===old.name)
+  if(!scopeChanged&&!locationsChanged&&name===old.name&&memberNumber===(old.memberNumber||old.id))
     return tp5Reply_({member:tp5Safe_(old),unchanged:true});
   tp5Must_(!tp5MemberOpenSession_(old.id),
     'Complete open Time Out before editing the member scope or Assigned Location.','OPEN_SESSION');
-  var next=Object.assign({},old,{name:name,coop:coop,platform:platform,
+  var next=Object.assign({},old,{memberNumber:memberNumber,name:name,coop:coop,platform:platform,
     siteId:siteIds[0]||'',siteIds:siteIds,
     workLocationReassignmentRequired:siteIds.length===0,
     updatedAt:tp5Now_(),rev:Number(old.rev||0)+1});
