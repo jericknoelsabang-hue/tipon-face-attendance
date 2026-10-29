@@ -330,6 +330,7 @@ window.TIPONSync=(()=>{
             if(!source)throw Error('The organization confirmed a Time Out correction without its original Time In.');
             const synthetic={...source,id:syntheticId,sessionId:String(op.value.sessionId),type:'OUT',
               timestamp:correction.timeOut,day:TIPONOrgCore.phDay(correction.timeOut),
+              recordedById:correction.actorId||state.user.id,performedBy:correction.actorId||state.user.username||state.user.name,
               source:'attendance-correction',cloudAck:true,requiresSessionResolution:false,
               correctionRev:Number(correction.rev)||0,deleted:false};
             delete synthetic.pendingCorrection;delete synthetic.syncError;delete synthetic.reviewStatus;
