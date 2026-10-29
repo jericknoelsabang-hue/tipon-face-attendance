@@ -370,6 +370,20 @@ async function saveMemberMetadata(member,changes){
   await OrgDB.rawSave('members',record);await loadCollections();TIPONSync.kick();
   return {member:record,pending:false};
  }catch(error){
+  const unsupported=['ACTION','UNKNOWN_ACTION','NOT_IMPLEMENTED'].includes(String(error?.code||'').toUpperCase())||
+    /unknown action|unsupported action|not implemented|is not defined/i.test(String(error?.message||''));
+  if(unsupported){
+    // Queue through the shared sync worker. It tries the specialized transfer
+    // endpoint first, then the compatible audited submit API if that action is
+    // absent from the currently deployed Apps Script.
+    await queue();
+    if(!navigator.onLine)return {member:await getOne('members',member.id),pending:true,operationId:opId};
+    const result=await TIPONSync.submitPendingNow();
+    await loadCollections();
+    const pending=await getOne('outbox',opId),saved=await getOne('members',member.id);
+    if(!pending&&!saved?._pendingOp)return {member:saved,pending:false};
+    return {member:saved,pending:true,operationId:opId,error:pending?.error||result?.error||'Central confirmation is still pending.'};
+  }
   if(['NETWORK','TIMEOUT','GATEWAY_OFFLINE'].includes(String(error.code||''))||!navigator.onLine)return queue();
   throw error;
  }
