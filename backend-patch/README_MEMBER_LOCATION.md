@@ -1,11 +1,12 @@
-# TIPON KABILANG v5.5.34 — Private Apps Script compatibility patch
+# TIPON KABILANG v5.5.39 — Private Apps Script compatibility patch
 
 This patch is for the **existing private Google Apps Script project** behind the TIPON Face Attendance `/exec` URL. GitHub Pages cannot deploy Apps Script. Do not paste credentials, Script Properties, tokens, deployment IDs, member data, or face data into this public repository.
 
 ## What this patch adds
 
-- User member transfer: edit Full Name, Cooperative, Business Platform and required Assigned Work Location in one revision-checked operation. The source member must be in the User's current scope; the destination site must exist centrally and match the selected Cooperative/BP. After transfer, the User loses access if the member leaves their scope.
-- User face re-enrollment: save the newly encrypted AES-GCM face template, consent timestamp and matching member/location fields without replacing the member ID or attendance history.
+- Admin/User member editing: edit Member ID, Full Name, Cooperative, Business Platform and required Assigned Work Location in one revision-checked operation. Member ID is a unique business identifier; the internal record key and historical attendance remain unchanged.
+- User member transfer: the source member must be in the User's current scope; the destination site must exist centrally and match the selected Cooperative/BP. After transfer, the User loses access if the member leaves their scope.
+- User face re-enrollment: save the newly encrypted AES-GCM face template, consent timestamp and Member ID without replacing the internal record key or attendance history. The server records the enrolling account itself.
 - Attendance Logs Edit/Delete: audited correction overlays, server-side scope checks, revision checks, open-session protection and cross-device refresh.
 - Existing member soft delete and Work Location operations remain separate.
 
@@ -42,7 +43,7 @@ Inside `tp5Handle_(q, transport)`, after the setup/health checks and before the 
 if(action==='memberLocationCapabilities'){
   tp5Must_(props.getProperty('TP5_SETUP_STATUS')==='READY',
     'Organization setup is incomplete.','NOT_CONFIGURED');
-  return tp5Reply_({memberLocationUpdate:true,allowUnassignedFace:false});
+  return tp5Reply_({memberLocationUpdate:true,allowUnassignedFace:false,memberTransferUpdate:true,memberFaceUpdate:true,adminMemberUpdate:true,memberIdEditable:true});
 }
 ~~~
 
@@ -104,7 +105,7 @@ The current UI requires at least one centrally registered Assigned Work Location
 - Required biometric consent timestamp.
 - Source member must be in the User's current authorized scope before a transfer or face update.
 - Target locations must exist centrally and match the selected Cooperative/BP.
-- Revision conflicts, duplicate IDs, deleted sites, invalid GPS zones and open Time In sessions must be rejected.
+- Revision conflicts, duplicate Member IDs, deleted sites, invalid GPS zones and open Time In sessions must be rejected.
 - Raw attendance events remain intact; corrections are stored as audited overlays.
 - User delete remains a soft delete of the member/template, with attendance history retained.
 
@@ -123,7 +124,8 @@ A GitHub Pages success badge does **not** prove that the private Apps Script has
 Use synthetic member IDs and test accounts first:
 
 - Create a new member, capture three face samples, save and verify a server ACK.
-- Re-enroll a test member's face; confirm the existing Member ID, attendance history and consent are retained and the encrypted template changes.
+- Change a test member's Member ID through both Admin Edit and User Transfer; confirm the immutable internal key and attendance history are unchanged, and duplicate IDs are rejected.
+- Re-enroll a test member's face; confirm the Member ID, attendance history and consent are retained and the encrypted template changes.
 - Transfer a member to another Cooperative/BP with a valid destination Work Location. Confirm the old User loses access after the member leaves their scope.
 - Edit, delete and review a completed attendance session. Confirm correction reason, server revision and second-device view.
 - Confirm open Time In deletion/reassignment is blocked.

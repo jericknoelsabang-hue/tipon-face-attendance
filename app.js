@@ -17,7 +17,7 @@ const DB_NAME='tipon-face-local-v1';
 const DB_STORE=['users','members','sites','punches','meta','outbox','offices','schedules'];
 const MATCH_LIMIT=.52;
 const AMBIGUITY_GAP=.035;
-const SCAN_DELAY_MS=650;
+const SCAN_DELAY_MS=350;
 const COOLDOWN_MS=90000;
 const GPS_MIN_RADIUS=20;
 const GPS_MAX_ACCURACY=80;
@@ -121,7 +121,13 @@ function renderDashboard(){const today=todayPH();const todayPunches=state.punche
  const ready=[['Work locations',state.sites.length>0,`${state.sites.length} configured`],['Member facial enrollment',state.members.some(m=>m.active!==false&&!m.deleted&&m.descriptors?.length>=3),`${state.members.filter(m=>m.active!==false&&!m.deleted&&m.descriptors?.length>=3).length} enrolled`],['Offline AI resources',state.offlineReady,state.offlineReady?'Downloaded':'Setup required'],['Attendance stored locally',true,'Device-local database']];
  $('readinessList').innerHTML=ready.map(([label,ok,sub])=>`<div class="readiness-row"><span class="readiness-icon ${ok?'':'warn'}">${pageIcon(ok?'check':'alert')}</span><div class="desc"><b>${esc(label)}</b><small>${esc(sub)}</small></div></div>`).join('');
 }
-function renderTerminal(){const d=state.lastGPS;
+function renderTerminal(){
+  document.querySelectorAll('.mode-option').forEach(button=>{
+    const active=button.dataset.mode===state.scanMode;
+    button.classList.toggle('active',active);
+    button.setAttribute('aria-pressed',String(active));
+  });
+  const d=state.lastGPS;
   setText('currentLat',d?d.latitude.toFixed(6):'—');setText('currentLng',d?d.longitude.toFixed(6):'—');setText('currentAccuracy',d?`${Math.round(d.accuracy)} m`:'—');setText('currentGpsTime',d?displayTime(d.timestamp):'—');setText('gpsStatusBadge',d?'GPS received':'Not checked');
   $('gpsStatusBadge').className=`badge ${d?'green':'gray'}`;
   setText('scannerModelState',state.modelReady?'AI: Loaded':'AI: Not loaded');
@@ -190,7 +196,7 @@ function renderMembers(){
    '<td>'+esc(m.coop)+'</td><td>'+esc(m.platform||sites[0]?.platform||'—')+'</td>'+
    '<td><b>'+esc(names||'Unassigned')+'</b><small>'+(sites.length?'GPS verification at assigned work location':'Assign a Work Location before attendance')+'</small></td>'+
    '<td>'+esc(memberEnrollerLabel(m))+'</td><td><span class="badge '+faceClass+'">'+faceLabel+'</span></td>'+
-   '<td><button class="tiny-button" data-member-edit="'+esc(m.id)+'">Edit</button> <button class="tiny-button delete" data-member-delete="'+esc(m.id)+'">Delete</button> <button class="tiny-button" data-member-review="'+esc(m.id)+'">Review</button></td></tr>';
+   '<td><div class="row-inline"><button class="tiny-button" data-member-edit="'+esc(m.id)+'">Edit</button><button class="tiny-button delete" data-member-delete="'+esc(m.id)+'">Delete</button></div></td></tr>';
  }).join(''):'<tr><td colspan="7"><div class="empty-state">'+pageIcon('users')+'No matching members found.</div></td></tr>';
  setText('memberPageCount','Showing '+(data.length?offset+1:0)+'–'+Math.min(offset+pageSize,data.length)+' of '+data.length+' members');
  setText('memberPage','Page '+state.memberPage+' of '+totalPages);
@@ -227,10 +233,14 @@ function memberNumberFor(id){return state.members.find(m=>String(m.id)===String(
 function memberSiteCatalog(){return state.user?.role==='registrar'&&state.memberTransferTargetMode&&Array.isArray(state.memberSiteOptions)?state.memberSiteOptions:state.sites;}
 function fillMemberSites(preferred){
  const coop=$('memberCoop').value,ids=(Array.isArray(preferred)?preferred:[preferred]).filter(Boolean),platform=$('memberPlatform')?.value||state.user?.platform||'';
- const sites=memberSiteCatalog().filter(s=>!s.deleted&&s.coop===coop&&(!platform||TIPONOrgCore.platformKey(s.platform)===TIPONOrgCore.platformKey(platform)));
- $('memberSite').innerHTML=sites.map(s=>'<option value="'+esc(s.id)+'">'+esc(s.name)+' ('+esc(s.radius)+' m)</option>').join('');
+ const sites=memberSiteCatalog().filter(s=>!s.deleted);
+ const compatible=s=>s.coop===coop&&(!platform||TIPONOrgCore.platformKey(s.platform)===TIPONOrgCore.platformKey(platform));
+ $('memberSite').innerHTML=sites.filter(compatible).map(s=>'<option value="'+esc(s.id)+'">'+esc(s.name)+' ('+esc(s.radius)+' m)</option>').join('');
  for(const option of $('memberSite').options)option.selected=ids.includes(option.value);
- $('memberSiteChoices').innerHTML=sites.map(s=>'<label class="multi-select-option"><input type="checkbox" data-member-site-option="'+esc(s.id)+'" '+(ids.includes(s.id)?'checked':'')+'/><span>'+esc(s.name)+' <small>'+esc(s.radius||150)+' m GPS</small></span></label>').join('');
+ $('memberSiteChoices').innerHTML=sites.map(s=>{
+  const valid=compatible(s),checked=valid&&ids.includes(s.id);
+  return '<label class="multi-select-option'+(valid?'':' location-unavailable')+'"><input type="checkbox" data-member-site-option="'+esc(s.id)+'" '+(checked?'checked ':'')+(!valid?'disabled ':'')+'/><span>'+esc(s.name)+' <small>'+esc(s.coop||'No cooperative')+' · '+esc(s.platform||'No BP')+(valid?' · '+esc(s.radius||150)+' m GPS':' · Select matching Cooperative/BP first')+'</small></span></label>';
+ }).join('');
  updateMemberSite();
 }
 function updateMemberSite(){
@@ -359,11 +369,16 @@ async function saveMemberMetadata(member,changes){
  };
  if(!navigator.onLine)return queue();
  try{
-  const action='memberTransferUpdateV2';
+  const action=isAdmin()?'adminMemberUpdateV2':'memberTransferUpdateV2';
   const reply=await TIPONAPI.call({action,memberId:member.id,baseRev:Number(member.rev)||0,changes:clean});
   const saved=reply.member;
-  if(!saved||String(saved.id)!==String(member.id)||!Array.isArray(saved.siteIds)||saved.siteIds.length!==clean.siteIds.length||!saved.siteIds.every(id=>clean.siteIds.includes(id)))
-   throw Error('The central organization did not confirm all member fields. Refresh Member List before retrying.');
+  const savedSites=Array.isArray(saved?.siteIds)&&saved.siteIds.length?saved.siteIds:[saved?.siteId].filter(Boolean);
+  const savedNumber=String(saved?.memberNumber||saved?.id||'').trim();
+  if(!saved||String(saved.id)!==String(member.id)||savedNumber!==clean.memberNumber||
+     String(saved.name||'').trim()!==clean.name||String(saved.coop||'')!==clean.coop||
+     TIPONOrgCore.platformKey(saved.platform)!==TIPONOrgCore.platformKey(clean.platform)||
+     savedSites.length!==clean.siteIds.length||!savedSites.every(id=>clean.siteIds.includes(id)))
+   throw Error('The central organization did not confirm the Member ID, identity, Cooperative, Business Platform and Assigned Work Locations. Refresh Member List before retrying.');
   const current=await getOne('members',member.id);
   if(current?._pendingOp)throw Error('A local edit is pending. Sync and reopen the member.');
   const record={...current,...saved,orgId:state.orgId};delete record._pendingOp;delete record.pendingEdit;delete record.syncIssue;
@@ -609,17 +624,6 @@ async function persistMemberForm(){
  }
 }
 async function handleMemberTableClick(event){
- const review=event.target.closest('[data-member-review]');
- if(review){
-  const member=state.members.find(m=>m.id===review.dataset.memberReview);
-  if(!member)return;
-  const ops=(await getAll('outbox')).filter(op=>op.orgId===state.orgId&&(op.value?.memberId===member.id||op.type==='members'&&op.value?.id===member.id));
-  setText('memberReviewName',member.name+' · '+member.id);
-  setText('memberReviewStatus',member.templateError?'Face template needs review':ops.length?'Pending Sync':member.template&&member.active!==false?'Enrolled · Synced':'Not Enrolled');
-  setText('memberReviewDetails',ops.map(op=>op.error||'Saved on this device; waiting for central acknowledgement.').join(' · ')||member.syncIssue||member.templateError||'No reported synchronization errors.');
-  $('memberReviewDialog').showModal();return;
- }
-
  const edit=event.target.closest('[data-member-edit]'),
    del=event.target.closest('[data-member-delete]');
  if(edit){
@@ -982,7 +986,6 @@ function renderTerminalLogs(){
    const action=canCorrectAttendance()?'<div class="row-inline">'+
      '<button type="button" class="tiny-button" data-attendance-edit="'+esc(row.key)+'" data-in="'+esc(localInput(row.timeIn))+'" data-out="'+esc(localInput(row.timeOut))+'">Edit</button>'+
      '<button type="button" class="tiny-button delete" data-attendance-delete="'+esc(row.key)+'" '+(!(row.timeIn&&row.timeOut)?'disabled title="Complete Time Out before deleting this session."':'')+'>Delete</button>'+
-     '<button type="button" class="tiny-button" data-attendance-review="'+esc(row.key)+'">Review</button>'+
      '</div>':'—';
    const data=[
     attendanceMemberName(row,memberNames),memberNumberFor(row.memberId),
@@ -1222,6 +1225,10 @@ async function scanTick(){if(!state.scanning)return;if(!hasTerminalSession()){aw
  }catch(e){console.error('Face recognition tick',e);playTerminalSound('error');updateScanResult('Camera processing issue',e.message,'error');}
  finally{if(state.scanning&&state.scanRun===run)state.scanTimer=setTimeout(scanTick,SCAN_DELAY_MS);}
 }
+function canQueueUnresolvedTimeOut(mode,online,centralReadOk,sameDay,error){
+ return mode==='out'&&(!online||!centralReadOk)&&!sameDay&&
+  /No Time In on this device|Already timed out/.test(String(error?.message||''));
+}
 async function recordRecognizedFace(member,faceDistance){
  const proof=state.livenessProof;
  state.livenessProof=null;
@@ -1233,11 +1240,19 @@ async function recordRecognizedFace(member,faceDistance){
  if(member.active===false||member.deleted){playTerminalSound('error');speakTerminal('Attendance error. This member is inactive.','error','inactive');showToast('This member is inactive.','error');return;}
  if(!hasTerminalSession()){speakTerminal('Attendance error. Sign in or authorize this kiosk again.','error','session');showToast('Sign in or authorize this kiosk again.','error');return;}
  if(state.scanBusy)return;state.scanBusy=true;const mode=state.scanMode,run=state.scanRun,actorId=state.user.id;
+ let centralReadOk=false;
  document.querySelectorAll('.mode-option').forEach(b=>b.disabled=true);
  try{
   if(mode==='out'&&navigator.onLine){
-   const refreshed=await TIPONSync.submitPendingNow();
-   if(!refreshed?.readOk)throw Error(refreshed?.error||'Could not refresh central attendance. Retry Time Out.');
+   try{
+    const refreshed=await TIPONSync.submitPendingNow();
+    centralReadOk=!!refreshed?.readOk;
+    if(!centralReadOk&&['AUTH','ACCOUNT','DEVICE_DISABLED','FORBIDDEN','PROTOCOL'].includes(String(refreshed?.code||'').toUpperCase()))
+     throw Object.assign(Error(refreshed.error||'The attendance account must reconnect before Time Out.'),{code:refreshed.code});
+   }catch(error){
+    if(['AUTH','ACCOUNT','DEVICE_DISABLED','FORBIDDEN','PROTOCOL'].includes(String(error?.code||'').toUpperCase()))throw error;
+    centralReadOk=false;
+   }
   }
   await loadCollections();member=state.members.find(m=>m.id===member.id)||member;
   let tx,needsSessionResolution=false;
@@ -1246,7 +1261,7 @@ async function recordRecognizedFace(member,faceDistance){
    const latest=state.punches.filter(p=>String(p.memberId)===String(member.id)&&!p.deleted&&!p.reviewStatus)
      .sort((a,b)=>Date.parse(b.timestamp)-Date.parse(a.timestamp))[0];
    const sameDay=latest&&todayPH(new Date(latest.timestamp))===todayPH();
-   if(mode==='out'&&!navigator.onLine&&!sameDay&&/No Time In on this device|Already timed out/.test(String(error.message||''))){
+   if(canQueueUnresolvedTimeOut(mode,navigator.onLine,centralReadOk,sameDay,error)){
     tx={type:'OUT',last:null};needsSessionResolution=true;
    }else throw error;
   }
@@ -1272,11 +1287,16 @@ async function recordRecognizedFace(member,faceDistance){
     siteLat:site.lat,siteLng:site.lng,radius:150,lat:gps.latitude,lng:gps.longitude,
     accuracy:gps.accuracy,distance,faceDistance,performedBy:state.user.username||state.user.name};
   await commitPunch(punch,mode);TIPONAuth?.touchActivity?.();await loadCollections();renderTerminal();renderTerminalLogs();renderDashboard();
-  updateScanResult(`TIME ${punch.type} saved`,`${member.name} | ${member.memberNumber||member.id} | ${site.name} | ${displayTime(stamp)}. Saved on this phone.`,'success');
-  playTerminalSound('success');speakTerminal('Time '+(punch.type==='IN'?'in':'out')+' recorded for '+member.name+'.','success','punch:'+punch.id);showToast(`${member.name}: TIME ${punch.type} recorded.`,'success');
+  const syncPending=mode==='out'&&!centralReadOk;
+  updateScanResult(`TIME ${punch.type} saved`,`${member.name} | ${member.memberNumber||member.id} | ${site.name} | ${displayTime(stamp)}. Saved on this phone.${syncPending?' Central sync will retry automatically.':''}`,'success');
+  playTerminalSound('success');speakTerminal('Time '+(punch.type==='IN'?'in':'out')+' recorded for '+member.name+'.','success','punch:'+punch.id);showToast(`${member.name}: TIME ${punch.type} recorded.${syncPending?' Sync pending.':''}`,'success');
   if(navigator.vibrate){try{navigator.vibrate(80);}catch{}}
   if(window.TIPONSync)TIPONSync.kick();
- }catch(err){state.scanArmed=true;state.scanCandidate=null;state.scanCandidateCount=0;state.scanLiveness=null;
+ }catch(err){
+   // Do not retry the same failed punch on every camera frame. Require the face
+   // to leave the frame or the User to change attendance mode before another attempt.
+   state.scanArmed=false;state.lastRecognized=member.id;state.scanCandidate=null;
+   state.scanCandidateCount=0;state.scanLiveness=null;state.livenessProof=null;
    playTerminalSound('error');updateScanResult('Attendance NOT recorded',err.message,'error');
    if(/assigned work location|nearest assigned|150 m|same assigned work location/i.test(String(err.message||'')))speakTerminal('Not In Assigned Location','error','location');
    showToast(err.message,'error',6500);}
@@ -1513,7 +1533,7 @@ function bindEvents(){
  attach('terminalLogPrev','click',()=>{state.attendancePage=Math.max(1,(state.attendancePage||1)-1);renderTerminalLogs();});
  attach('terminalLogNext','click',()=>{state.attendancePage=(state.attendancePage||1)+1;renderTerminalLogs();});
  attach('terminalLogExport','click',exportTerminalLogs);attach('terminalLogSync','click',()=>TIPONSync.kick());
-  attach('terminalLogRows','click',editAttendanceFromLog);attach('terminalLogRows','click',deleteAttendanceFromLog);attach('terminalLogRows','click',openAttendanceReview);
+  attach('terminalLogRows','click',editAttendanceFromLog);attach('terminalLogRows','click',deleteAttendanceFromLog);
   attach('attendanceEditForm','submit',submitAttendanceEdit);
  attach('attendanceReviewRetry','click',retryAttendanceReview);attach('attendanceReviewClose','click',()=> $('attendanceReviewDialog').close());
  document.addEventListener('fullscreenchange',()=>document.body.classList.toggle('terminal-fullscreen',!!document.fullscreenElement&&state.page==='scanner'));
@@ -1532,7 +1552,20 @@ function bindEvents(){
  attach('confirmCancel','click',()=>resolveConfirm(false));attach('confirmYes','click',()=>resolveConfirm(true));
  attach('confirmDialog','cancel',e=>{e.preventDefault();resolveConfirm(false);});
  attach('startCamera','click',startScanner);attach('stopCamera','click',stopScanner);
- document.querySelectorAll('.mode-option').forEach(btn=>btn.addEventListener('click',()=>{if(state.scanBusy||!['in','out'].includes(btn.dataset.mode))return;state.scanMode=btn.dataset.mode;document.querySelectorAll('.mode-option').forEach(el=>(el.classList.toggle('active',el===btn),el.setAttribute('aria-pressed',String(el===btn))));showToast(`Attendance mode: ${btn.textContent}`);}));
+ document.querySelectorAll('.mode-option').forEach(btn=>btn.addEventListener('click',()=>{
+  const mode=btn.dataset.mode;if(!['in','out'].includes(mode))return;
+  if(state.scanBusy){showToast('Wait for the current attendance check to finish before changing mode.','info');return;}
+  state.scanMode=mode;
+  state.scanArmed=true;state.lastRecognized=null;state.scanCandidate=null;state.scanCandidateCount=0;
+  state.scanAbsentCount=0;state.scanLiveness=null;state.livenessProof=null;
+  document.querySelectorAll('.mode-option').forEach(el=>{
+    const active=el.dataset.mode===mode;el.classList.toggle('active',active);el.setAttribute('aria-pressed',String(active));
+  });
+  const label=mode==='in'?'TIME IN':'TIME OUT';
+  updateScanResult('Attendance mode: '+label,'Face scanning will attempt '+label+' only. Keep one face centered and remain within 150 m of the assigned Work Location.','neutral');
+  setText('cameraBottomTag','Attendance mode: '+label+' · Looking for one face…');
+  showToast('Attendance mode: '+btn.textContent.trim(),'info');
+ }));
  attach('refreshGps','click',async()=>{try{await readGPS();showToast('Current GPS location refreshed.','success');}catch(err){toastError(err,'GPS check failed');}});
  ['recordFrom','recordTo','recordSite'].forEach(id=>attach(id,'change',renderRecords));
  attach('clearRecordFilters','click',()=>{$('recordFrom').value='';$('recordTo').value='';$('recordSite').value='';renderRecords();});

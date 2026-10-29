@@ -15,15 +15,16 @@
  const same=(a,b)=>a.length===b.length&&a.every(x=>b.includes(x));
  function choices(previous=[]){
   const coop=$('adminMemberCoop').value,platform=$('adminMemberPlatform').value;
-  const valid=state.sites.filter(s=>!s.deleted&&!s._pendingOp&&s.coop===coop&&key(s.platform)===key(platform));
-  const p=new Set(previous.map(String));
-  $('adminMemberSiteChoices').innerHTML=valid.length?valid
-    .sort((a,b)=>a.name.localeCompare(b.name)).map(s=>
-     '<label class="multi-select-option"><input type="checkbox" data-admin-member-site="'+esc(s.id)+'"'+(p.has(String(s.id))?' checked':'')+'/><span>'+esc(s.name)+'<small>'+esc((s.radius||150)+' m GPS')+'</small></span></label>'
-    ).join(''):'<p class="mini-info">No synced Work Locations for this Cooperative/BP. Add or sync a location before saving.</p>';
+  const all=state.sites.filter(s=>!s.deleted);
+  const valid=s=>!s._pendingOp&&s.coop===coop&&key(s.platform)===key(platform);
+  const compatible=all.filter(valid),p=new Set(previous.map(String));
+  $('adminMemberSiteChoices').innerHTML=all.length?all.sort((a,b)=>a.name.localeCompare(b.name)).map(s=>{
+    const allowed=valid(s),checked=allowed&&p.has(String(s.id));
+    return '<label class="multi-select-option'+(allowed?'':' location-unavailable')+'"><input type="checkbox" data-admin-member-site="'+esc(s.id)+'"'+(checked?' checked':'')+(!allowed?' disabled':'')+'/><span>'+esc(s.name)+'<small>'+esc(s.coop||'No cooperative')+' · '+esc(s.platform||'No BP')+(allowed?' · '+esc((s.radius||150)+' m GPS'):' · Select matching Cooperative/BP first')+'</small></span></label>';
+  }).join(''):'<p class="mini-info">No Work Locations are registered.</p>';
   setText('adminMemberSiteHelp',state.sites.some(s=>s._pendingOp&&s.coop===coop&&key(s.platform)===key(platform))
-    ?'Some Work Locations are awaiting central confirmation and cannot yet be assigned.'
-    :'Select at least one Assigned Location. Attendance requires an enrolled face and a valid GPS location.');
+    ?'Some matching Work Locations are awaiting central confirmation and cannot yet be assigned.'
+    :'All registered Work Locations are listed. Only locations matching the selected Cooperative and Business Platform can be assigned.');
   updateSummary();
  }
  function updateSummary(){

@@ -1,5 +1,5 @@
 {
   "app": "TIPON Face Attendance",
-  "version": "5.5.38",
-  "label": "Fresh asset cache; improved pagination layout; refresh all known Business Platforms after login; member edit and face re-enrollment sync fallback through the compatible organization submit API; manual 3-sample face enrollment and actionable attendance editing/review."
+  "version": "5.5.39",
+  "label": "Admin/User member edits use the correct authorized endpoint; Member ID changes are validated and persisted centrally; Business Platform selectors include transfer locations and referenced records; transient sync outages no longer block a locally valid Time Out while authorization errors remain blocking; aligned Admin member controls and refreshed asset cache."
 }
