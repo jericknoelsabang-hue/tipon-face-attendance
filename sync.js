@@ -321,6 +321,22 @@ window.TIPONSync=(()=>{
             p.correctionRev=Number(correction.rev)||0;delete p.pendingCorrection;delete p.syncError;delete p.reviewStatus;
             await OrgDB.rawSave('punches',p);
           }
+          const syntheticId='attendance-correction-out:'+String(op.value.sessionId);
+          const existingSynthetic=await getOne('punches',syntheticId);
+          if(correction.deleted){
+            if(existingSynthetic){existingSynthetic.deleted=true;existingSynthetic.correctionRev=Number(correction.rev)||0;await OrgDB.rawSave('punches',existingSynthetic);}
+          }else if(correction.createdOut&&correction.timeOut){
+            const source=eventsForCorrection.find(p=>p&&p.type==='IN');
+            if(!source)throw Error('The organization confirmed a Time Out correction without its original Time In.');
+            const synthetic={...source,id:syntheticId,sessionId:String(op.value.sessionId),type:'OUT',
+              timestamp:correction.timeOut,day:TIPONOrgCore.phDay(correction.timeOut),
+              source:'attendance-correction',cloudAck:true,requiresSessionResolution:false,
+              correctionRev:Number(correction.rev)||0,deleted:false};
+            delete synthetic.pendingCorrection;delete synthetic.syncError;delete synthetic.reviewStatus;
+            await OrgDB.rawSave('punches',synthetic);
+          }else if(existingSynthetic){
+            existingSynthetic.deleted=true;existingSynthetic.correctionRev=Number(correction.rev)||0;await OrgDB.rawSave('punches',existingSynthetic);
+          }
           await OrgDB.rawDelete('outbox',op.id);
         }
       }catch(error){await failSpecial(op,error);}
