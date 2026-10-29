@@ -1,5 +1,5 @@
 {
   "app": "TIPON Face Attendance",
-  "version": "5.5.43",
-  "label": "Restores the Oct 28 9 AM face capture threshold and two-frame scan flow. When a previous Time Out belongs to an earlier Philippine date, a stale Time Out selection automatically switches to Time In for the new shift; same-day duplicate punches and overnight Time Out remain guarded."
+  "version": "5.5.44",
+  "label": "Fixes the Face Terminal GPS wait: reuse a recent accurate GPS-watch fix, request a new fix with an 8-second timeout when needed, and fall back only to a recent accurate watch fix. Keeps date-aware Time In/Out, enrolled-face match, 150 m work-location verification and same-day duplicate protection."
 }
