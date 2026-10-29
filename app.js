@@ -938,6 +938,7 @@ async function editAttendanceFromLog(event){
  const valid=value=>!value||/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(value);
  if(!nextIn||!valid(nextIn)||!valid(nextOut))return showToast('Enter a valid Time In and optional Time Out as YYYY-MM-DDTHH:MM.','error');
  if(row.timeOut&&!nextOut)return showToast('Time Out cannot be cleared from a completed session.','error');
+ if(!row.timeOut&&nextOut)return showToast('Use Face Terminal to record a missing Time Out. Review can correct existing timestamps, but cannot create a new attendance event.','error',8000);
  const iso=value=>value?new Date(value+':00+08:00').toISOString():'';
  const changes={timeIn:iso(nextIn),timeOut:iso(nextOut)};
  if(changes.timeOut&&Date.parse(changes.timeOut)<Date.parse(changes.timeIn))return showToast('Time Out must be after Time In.','error');
