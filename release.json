@@ -1,5 +1,5 @@
 {
   "app": "TIPON Face Attendance",
   "version": "5.5.52",
-  "label": "Prevents stale cross-device punches, allows multiple duty sessions, and enforces an eight-hour daily work limit."
+  "label": "Refreshes attendance before punches, allows multiple sessions, and applies an eight-hour daily duty cap in the app."
 }
