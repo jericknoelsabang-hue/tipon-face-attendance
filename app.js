@@ -973,7 +973,7 @@ function renderTerminalLogs(){
  }
 }
 function attendanceRowByKey(key){
- return TIPONOrgCore.project(state.punches.filter(p=>!p.reviewStatus)).find(row=>String(row.key)===String(key));
+ return TIPONOrgCore.project(state.punches.filter(p=>!p.deleted&&p.reviewStatus!=='rejected')).find(row=>String(row.key)===String(key));
 }
 async function saveAttendanceCorrection(row,changes,reason,deleted=false){
  if(!canCorrectAttendance())throw Error('An approved Administrator or User session is required.');
