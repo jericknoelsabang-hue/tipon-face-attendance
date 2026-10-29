@@ -1,5 +1,5 @@
 {
   "app": "TIPON Face Attendance",
-  "version": "5.5.52",
-  "label": "Refreshes attendance before punches, allows multiple sessions, and applies an eight-hour daily duty cap in the app."
+  "version": "5.5.53",
+  "label": "Refreshes attendance before punches, allows multiple sessions, and applies an eight-hour daily duty cap in the app; attendance corrections now reuse one queued operation per session."
 }
