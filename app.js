@@ -1235,7 +1235,7 @@ function canQueueUnresolvedTimeOut(mode,online,centralReadOk,sameDay,error){
   /No Time In on this device/.test(String(error?.message||''));
 }
 async function recordRecognizedFace(member,faceDistance){
- // Restored the Oct 28, 5 PM attendance capture flow: scanTick calls this
+ // Restored the Oct 28, 9 AM attendance capture flow: scanTick calls this
  // after two consecutive enrolled-face matches. Enrollment liveness remains separate.
  if(member.active===false||member.deleted){playTerminalSound('error');speakTerminal('Attendance error. This member is inactive.','error','inactive');showToast('This member is inactive.','error');return;}
  if(!hasTerminalSession()){speakTerminal('Attendance error. Sign in or authorize this kiosk again.','error','session');showToast('Sign in or authorize this kiosk again.','error');return;}
