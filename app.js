@@ -25,7 +25,7 @@ const PH_TIMEZONE='Asia/Manila';
 let db;
 const state={ user:null, page:'dashboard', members:[], sites:[], users:[], punches:[], facePromise:null, modelReady:false,
   scanStream:null, scanTimer:null, scanMode:'in', scanning:false, scanBusy:false, scanCandidate:null,
-  scanCandidateCount:0, scanArmed:true, scanAbsentCount:0, lastRecognized:null, lastGPS:null,
+  scanCandidateCount:0, scanArmed:true, scanAbsentCount:0, scanRetryAt:0, scanRetryCount:0, lastRecognized:null, lastGPS:null,
   enrollStream:null, enrollTimer:null, enrollActive:false, gpsWatchId:null, pendingDescriptors:[], editMember:null, editSite:null,
   installPrompt:null, offlineReady:false, confirmResolver:null, deviceId:null, offices:[], memberPage:1, attendancePage:1 };
 
@@ -1188,14 +1188,14 @@ async function startScanner(){if(!hasTerminalSession()){showToast('Face Terminal
      stream.getTracks().forEach(t=>t.stop());if(v.srcObject===stream){v.pause();v.srcObject=null;}if(state.scanStream===stream)state.scanStream=null;return;
    }
    $('cameraIdle').hidden=true;$('startCamera').hidden=true;$('stopCamera').hidden=false;
-   state.scanning=true;state.scanArmed=true;state.scanCandidate=null;state.scanCandidateCount=0;state.scanAbsentCount=0;
+   state.scanning=true;state.scanArmed=true;state.scanCandidate=null;state.scanCandidateCount=0;state.scanAbsentCount=0;state.scanRetryAt=0;state.scanRetryCount=0;
    setText('cameraTopTag',TIPONCamera.label('scan').toUpperCase()+' SCANNING');setText('cameraBottomTag','Scanning automatically — no capture button');
    updateScanResult(enrolled?'Scanning for member':'No enrolled faces',enrolled?'Position one face in the frame. Eligible members are checked against their assigned GPS worksite.':'Camera is live. Enroll member face templates to enable attendance.','neutral');
    scanTick();
  }catch(err){toastError(err,'Scanner unavailable');updateScanResult('Scanner unavailable',err.message,'error');await stopScanner();}
  finally{state.scanBusy=false;$('startCamera').disabled=false;}
 }
-async function stopScanner(){state.scanRun=(state.scanRun||0)+1;state.scanning=false;stopGPSWatch();if(state.scanTimer){clearTimeout(state.scanTimer);state.scanTimer=null;}const v=$('scanVideo');v.pause();v.srcObject=null;if(state.scanStream){state.scanStream.getTracks().forEach(t=>t.stop());state.scanStream=null;}
+async function stopScanner(){state.scanRun=(state.scanRun||0)+1;state.scanning=false;state.scanRetryAt=0;state.scanRetryCount=0;stopGPSWatch();if(state.scanTimer){clearTimeout(state.scanTimer);state.scanTimer=null;}const v=$('scanVideo');v.pause();v.srcObject=null;if(state.scanStream){state.scanStream.getTracks().forEach(t=>t.stop());state.scanStream=null;}
  $('cameraIdle').hidden=false;$('startCamera').hidden=state.user?.role==='kiosk';$('stopCamera').hidden=true;setText('cameraTopTag','AWAITING CAMERA');setText('cameraBottomTag','Camera will start automatically when the kiosk opens');
 }
 async function scanTick(){if(!state.scanning)return;if(!hasTerminalSession()){await stopScanner();updateScanResult('Sign in required','Face Terminal is only for a current approved user or kiosk session.','error');return;}const run=state.scanRun;
@@ -1229,15 +1229,17 @@ async function scanTick(){if(!state.scanning)return;if(!hasTerminalSession()){aw
  finally{if(state.scanning&&state.scanRun===run)state.scanTimer=setTimeout(scanTick,SCAN_DELAY_MS);}
 }
 function canQueueUnresolvedTimeOut(mode,online,centralReadOk,sameDay,error){
- return mode==='out'&&(!online||!centralReadOk)&&!sameDay&&
-  /No Time In on this device|Already timed out/.test(String(error?.message||''));
+ // Only a missing local Time In may use the offline/cross-device resolution
+ // path. "Already timed out" must never be converted into another OUT punch.
+ return mode==='out'&&(!online||!centralReadOk)&&
+  /No Time In on this device/.test(String(error?.message||''));
 }
 async function recordRecognizedFace(member,faceDistance){
  const proof=state.livenessProof;
  state.livenessProof=null;
  if(!proof||proof.memberId!==member.id||proof.scanRun!==state.scanRun||
     !Number.isFinite(proof.at)||Date.now()-proof.at>10000||proof.at>Date.now()){
-   updateScanResult('Live Verification Required','Follow the blink and head-turn instructions.','error');
+   updateScanResult('Live Verification Required','Blink once to verify the live face, then attendance will be checked.','error');
    return;
  }
  if(member.active===false||member.deleted){playTerminalSound('error');speakTerminal('Attendance error. This member is inactive.','error','inactive');showToast('This member is inactive.','error');return;}
@@ -1259,9 +1261,10 @@ async function recordRecognizedFace(member,faceDistance){
   }
   await loadCollections();member=state.members.find(m=>m.id===member.id)||member;
   let tx,needsSessionResolution=false;
-  try{tx=TIPONCore.transition(state.punches,member.id,mode,Date.now(),COOLDOWN_MS);}
+  const relevantPunches=state.punches.filter(p=>(p.orgId===state.orgId||!p.orgId));
+  try{tx=TIPONCore.transition(relevantPunches,member.id,mode,Date.now(),COOLDOWN_MS);}
   catch(error){
-   const latest=state.punches.filter(p=>String(p.memberId)===String(member.id)&&!p.deleted&&!p.reviewStatus)
+   const latest=relevantPunches.filter(p=>String(p.memberId)===String(member.id)&&!p.deleted&&!p.reviewStatus)
      .sort((a,b)=>Date.parse(b.timestamp)-Date.parse(a.timestamp))[0];
    const sameDay=latest&&todayPH(new Date(latest.timestamp))===todayPH();
    if(canQueueUnresolvedTimeOut(mode,navigator.onLine,centralReadOk,sameDay,error)){
@@ -1289,20 +1292,30 @@ async function recordRecognizedFace(member,faceDistance){
     memberId:member.id,memberName:member.name,coop:member.coop,platform:site.platform,recordedById:state.user.id,siteId:site.id,siteName:site.name,requiresSessionResolution:needsSessionResolution,
     siteLat:site.lat,siteLng:site.lng,radius:150,lat:gps.latitude,lng:gps.longitude,
     accuracy:gps.accuracy,distance,faceDistance,performedBy:state.user.username||state.user.name};
-  await commitPunch(punch,mode);TIPONAuth?.touchActivity?.();await loadCollections();renderTerminal();renderTerminalLogs();renderDashboard();
+  await commitPunch(punch,mode);state.scanRetryAt=0;state.scanRetryCount=0;TIPONAuth?.touchActivity?.();await loadCollections();renderTerminal();renderTerminalLogs();renderDashboard();
   const syncPending=mode==='out'&&!centralReadOk;
   updateScanResult(`TIME ${punch.type} saved`,`${member.name} | ${member.memberNumber||member.id} | ${site.name} | ${displayTime(stamp)}. Saved on this phone.${syncPending?' Central sync will retry automatically.':''}`,'success');
   playTerminalSound('success');speakTerminal('Time '+(punch.type==='IN'?'in':'out')+' recorded for '+member.name+'.','success','punch:'+punch.id);showToast(`${member.name}: TIME ${punch.type} recorded.${syncPending?' Sync pending.':''}`,'success');
   if(navigator.vibrate){try{navigator.vibrate(80);}catch{}}
   if(window.TIPONSync)TIPONSync.kick();
  }catch(err){
-   // Do not retry the same failed punch on every camera frame. Require the face
-   // to leave the frame or the User to change attendance mode before another attempt.
+   const message=String(err?.message||err);
+   const retryableGps=/GPS timed out|Current location unavailable|GPS fix is missing, stale, or invalid|GPS accuracy \\d+ m is too poor|Nearest assigned work location is \\d+ m away/i.test(message);
    state.scanArmed=false;state.lastRecognized=member.id;state.scanCandidate=null;
    state.scanCandidateCount=0;state.scanLiveness=null;state.livenessProof=null;
-   playTerminalSound('error');updateScanResult('Attendance NOT recorded',err.message,'error');
-   if(/assigned work location|nearest assigned|150 m|same assigned work location/i.test(String(err.message||'')))speakTerminal('Not In Assigned Location','error','location');
-   showToast(err.message,'error',6500);}
+   // Retry a transient GPS reading once. Every retry still runs the full
+   // member match, blink, location-radius and server/duplicate checks.
+   if(retryableGps&&Number(state.scanRetryCount||0)<1){
+    state.scanRetryCount=Number(state.scanRetryCount||0)+1;
+    state.scanRetryAt=Date.now()+2500;
+    setText('cameraBottomTag','GPS reading was not reliable. Retrying once in 3 seconds; keep your face in frame.');
+   }else{
+    state.scanRetryAt=0;
+    if(!retryableGps)state.scanRetryCount=0;
+   }
+   playTerminalSound('error');updateScanResult('Attendance NOT recorded',message,'error');
+   if(/assigned work location|nearest assigned|150 m|same assigned work location/i.test(message))speakTerminal('Not In Assigned Location','error','location');
+   showToast(message,'error',6500);}
  finally{state.scanBusy=false;document.querySelectorAll('.mode-option').forEach(b=>b.disabled=false);}
 }
 function commitPunch(punch,mode){return new Promise((resolve,reject)=>{
@@ -1560,7 +1573,7 @@ function bindEvents(){
   if(state.scanBusy){showToast('Wait for the current attendance check to finish before changing mode.','info');return;}
   state.scanMode=mode;
   state.scanArmed=true;state.lastRecognized=null;state.scanCandidate=null;state.scanCandidateCount=0;
-  state.scanAbsentCount=0;state.scanLiveness=null;state.livenessProof=null;
+  state.scanAbsentCount=0;state.scanRetryAt=0;state.scanRetryCount=0;state.scanLiveness=null;state.livenessProof=null;
   document.querySelectorAll('.mode-option').forEach(el=>{
     const active=el.dataset.mode===mode;el.classList.toggle('active',active);el.setAttribute('aria-pressed',String(active));
   });
