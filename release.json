@@ -1,5 +1,5 @@
 {
   "app": "TIPON Face Attendance",
-  "version": "5.5.31",
-  "label": "Attendance-first upload, independent polling despite failed Work Location edits, unverified attendance review and visible sync states. Fail-closed blink/head-turn checks for face enrollment and terminal punches, four short voice prompts, editable face with authorization, Last/First/Middle Initial form, and cached offline startup. Pilot liveness is not certified anti-spoofing."
+  "version": "5.5.32",
+  "label": "Manual face sample capture with blink/head-turn liveness; AWOL dashboard label and User absenteeism view; actionable attendance review; member and attendance edit/delete queues; soft-delete reconciliation; cross-device event-version refresh. Pilot liveness is not certified anti-spoofing."
 }
