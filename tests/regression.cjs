@@ -88,6 +88,19 @@ test('Attendance editor validates real dates and preserves Philippine time and o
   assert.equal(Date.parse(ctx.attendanceInputStamp('2026-10-30','06:00'))-Date.parse(ctx.attendanceInputStamp('2026-10-29','22:00')),8*3600000);
   assert.doesNotMatch(app.slice(app.indexOf('function editAttendanceFromLog('),app.indexOf('function openAttendanceReview(')),/prompt\(/);
 });
+test('Published assets share one release version and pagination controls cannot overflow',()=>{
+  const html=source('index.html'),sw=source('sw.js'),release=JSON.parse(source('release.json'));
+  assert.equal(release.version,'5.5.38');
+  assert.match(sw,/const VERSION='5\.5\.38';/);
+  assert.match(sw,/tipon-face-shell-v5\.5\.38-github-only/);
+  assert.match(html,/app\.js\?v=5538/);
+  assert.match(html,/liveness-guard\.js\?v=5538/);
+  assert.match(html,/id="captureEnrollmentSample"/);
+  assert.match(html,/id="memberSiteSummary"[^>]+aria-required="true"/);
+  assert.doesNotMatch(html,/Assigned Work Location <span class="field-optional">\(Optional\)/);
+  assert.doesNotMatch(source('app.js'),/prompt\(['"]Reason for deleting this attendance session/);
+  assert.match(source('polish.css'),/\.admin-list-pager-actions/);
+});
 test('Member dropdown includes all known Business Platforms and remains editable for Users',()=>{
   const controls={memberPlatform:{value:'AP Cons',innerHTML:'',disabled:false},sitePlatform:{value:'AP Cons',innerHTML:'',disabled:false}};
   const ctx={TIPONOrgCore:Org,state:{user:{...actor,platform:'AP Cons'},platforms:['CUSTOM'],sites:[],members:[]},$:id=>controls[id],esc:x=>x,console};ctx.window=ctx;vm.createContext(ctx);vm.runInContext(source('platforms.js'),ctx);
