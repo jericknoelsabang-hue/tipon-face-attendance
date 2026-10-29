@@ -759,8 +759,46 @@ async function saveSiteForm(e){
   else toastError(error,'Could not save Work Location');
  }finally{if(submit)submit.disabled=false;}
 }
-async function handleSiteCardsClick(e){const edit=e.target.closest('[data-site-edit]');const del=e.target.closest('[data-site-delete]');if(edit){const site=state.sites.find(s=>s.id===edit.dataset.siteEdit);if(site)openSiteForm(site);}
- if(del){const site=state.sites.find(s=>s.id===del.dataset.siteDelete);if(!site)return;if(state.members.some(m=>m.siteId===site.id||(m.siteIds||[]).includes(site.id))){showToast('Reassign or delete enrolled members before deleting their site.','error');return;}const ok=await confirmAction('Delete work location',`Delete ${site.name}? This change will sync to your organization.`);if(ok){await deleteOne('sites',site.id);await loadCollections();renderSites();showToast('Location removed.','success');}}}
+async function queueWorkLocationDelete(site){
+ if(!site||!canEdit()||!TIPONOrgCore.inScope(state.user,site))throw Error('This Work Location is outside your approved scope.');
+ if(state.members.some(m=>!m.deleted&&(m.siteId===site.id||(m.siteIds||[]).includes(site.id))))
+  throw Error('Reassign members before deleting this Work Location.');
+ if(TIPONOrgCore.project(state.punches.filter(p=>!p.deleted&&!p.reviewStatus)).some(r=>r.siteId===site.id&&r.timeIn&&!r.timeOut))
+  throw Error('Complete the open Time Out before deleting this Work Location.');
+ const stored=await getOne('sites',site.id);
+ if(!stored||stored.deleted)return {alreadyDeleted:true};
+ if(stored._pendingOp)throw Error('Sync the existing Work Location change before deleting it.');
+ const opId=uuid(),original={...stored},value={...stored,id:site.id,deleted:true,active:false,updatedAt:new Date().toISOString()};
+ for(const field of ['_row','_pendingOp','syncIssue','descriptors','templateError','pendingDelete'])delete value[field];
+ const op={id:opId,type:'siteDeletes',value:{siteId:site.id,site:value,original},baseRev:Number(stored.rev)||0,
+  orgId:state.orgId,ownerId:state.user.id,createdAt:new Date().toISOString(),everSent:false};
+ const pending={...stored,deleted:true,active:false,pendingDelete:true,_pendingOp:opId};
+ await new Promise((resolve,reject)=>{
+  const tx=db.transaction(['sites','outbox'],'readwrite');
+  tx.objectStore('sites').put(pending);tx.objectStore('outbox').put(op);
+  tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error);tx.onabort=()=>reject(tx.error);
+ });
+ await loadCollections();renderSites();TIPONSync.kick();
+ if(!navigator.onLine){showToast('Deletion queued locally. It will be verified when internet returns.','info',8000);return {pending:true};}
+ const result=await TIPONSync.submitPendingNow(),remaining=await getOne('outbox',opId);
+ await loadCollections();renderSites();
+ if(!remaining){showToast('Work Location deleted and synchronized.','success');return {pending:false};}
+ const message=remaining.error||result?.error||'The organization has not confirmed this deletion.';
+ showToast((remaining.errorCode==='NEEDS_REVIEW'?'Deletion needs review: ':'Deletion not yet confirmed: ')+message,'error',8500);
+ return {pending:true,error:message};
+}
+async function handleSiteCardsClick(e){
+ const edit=e.target.closest('[data-site-edit]'),del=e.target.closest('[data-site-delete]');
+ if(edit){const site=state.sites.find(s=>s.id===edit.dataset.siteEdit);if(site)openSiteForm(site);return;}
+ if(!del)return;
+ const site=state.sites.find(s=>s.id===del.dataset.siteDelete&&!s.deleted);if(!site)return;
+ if(!canEdit()||!TIPONOrgCore.inScope(state.user,site)){showToast('This Work Location is outside your approved account scope.','error');return;}
+ if(!await confirmAction('Delete Work Location',`Delete ${site.name}? Assigned members must be reassigned first. Attendance history is retained.`))return;
+ del.disabled=true;
+ try{await queueWorkLocationDelete(site);}
+ catch(error){showToast(error.message||String(error),'error',8500);}
+ finally{del.disabled=false;}
+}
 
 
 
