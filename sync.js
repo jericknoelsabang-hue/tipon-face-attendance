@@ -458,7 +458,7 @@ window.TIPONSync=(()=>{
         !['NEEDS_REVIEW','FORBIDDEN','CONFLICT'].includes(op.errorCode));
       siteFastRetry=remainingSites.length?siteFastRetry+1:0;
       if(state.page==='terminalLogs')renderTerminalLogs();if(state.page==='dashboard')renderDashboard();if(state.page==='records')renderRecords();if(state.page==='members')renderMembers();if(state.page==='adminSites')window.TIPONAdminSites?.render();if(state.page==='accounts'&&isAdmin())await OrgUI.renderAccounts();if(state.page==='sites')renderSites();if(state.page==='scanner'){renderTerminal();renderTerminalLogs();const ready=state.members.filter(m=>m.active!==false&&!m.deleted&&m.descriptors?.length>=3).length;if(ready)updateScanResult('Member directory ready',ready+' enrolled face template(s) loaded on this terminal. Face matches are checked against assigned office GPS.','success');}TIPONPlatforms.render();
-    }catch(e){siteFastRetry=0;message=e.message;attempt=Math.min(attempt+1,4);if(['AUTH','ACCOUNT','DEVICE_DISABLED'].includes(e.code))message+=' Sign out and sign in online.';result={ok:false,error:message,code:e.code||'SYNC'};
+    }catch(e){siteFastRetry=0;message=e.message;attempt=Math.min(attempt+1,4);if(['AUTH','ACCOUNT','DEVICE_DISABLED'].includes(e.code))message+=' Sign out and sign in online.';result={ok:false,error:message,code:e.code||'SYNC'};}
     finally{busy=false;render();schedule();}
     return result;
   }
