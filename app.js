@@ -172,22 +172,28 @@ function memberEnrollerLabel(member){if(member.importedWithoutFace&&!(member.des
  return member.enrolledByUsername||account?.username||account?.name||'Not recorded';
 }
 function renderMembers(){
- // Defensive recheck: the User registry is limited to their own MPC and BP.
  const q=$('memberSearch').value.trim().toLowerCase(),face=$('memberFilterFace')?.value||'';
  const data=state.members.filter(m=>{
   if(m.deleted||(!isAdmin()&&!TIPONOrgCore.inScope(state.user,m)))return false;
   const enrolled=m.active!==false&&!!(m.template||m.descriptors?.length>=3);
-  return (!q||[m.id,m.name,m.coop].join(' ').toLowerCase().includes(q))&&(!face||(face==='enrolled')===enrolled);
+  return (!q||[m.id,m.name,m.coop,m.platform].join(' ').toLowerCase().includes(q))&&(!face||(face==='enrolled')===enrolled);
  }).sort((x,y)=>(x.name||'').localeCompare(y.name||''));
+ const pageSize=10,totalPages=Math.max(1,Math.ceil(data.length/pageSize));
+ state.memberPage=Math.max(1,Math.min(totalPages,Number(state.memberPage)||1));
+ const offset=(state.memberPage-1)*pageSize,visible=data.slice(offset,offset+pageSize);
  setText('memberCountLabel',data.length+' member'+(data.length===1?'':'s'));
- $('memberRows').innerHTML=data.length?data.map(m=>{
+ $('memberRows').innerHTML=visible.length?visible.map(m=>{
   const sites=sitesForMember(m),enrolled=m.active!==false&&!!(m.template||m.descriptors?.length>=3),names=sites.map(s=>s.name).join(', ');
   return '<tr><td><div class="row-inline"><div class="initial-avatar">'+esc(initial(m.name))+'</div><div><b>'+esc(m.name)+'</b><small>ID: '+esc(m.id)+'</small></div></div></td>'+
    '<td>'+esc(m.coop)+'</td><td>'+esc(m.platform||sites[0]?.platform||'—')+'</td>'+
-   '<td><b>'+esc(names||'Pending User assignment')+'</b><small>'+(sites.length?'GPS verification at assigned work location':'User selects location during face enrollment')+'</small></td>'+
+   '<td><b>'+esc(names||'Unassigned')+'</b><small>'+(sites.length?'GPS verification at assigned work location':'Assign a Work Location before attendance')+'</small></td>'+
    '<td>'+esc(memberEnrollerLabel(m))+'</td><td><span class="badge '+(enrolled?'green':'red')+'">'+(enrolled?'ENROLLED':'NOT ENROLLED')+'</span></td>'+
    '<td><button class="tiny-button" data-member-edit="'+esc(m.id)+'">Edit</button> <button class="tiny-button delete" data-member-delete="'+esc(m.id)+'">Delete</button></td></tr>';
  }).join(''):'<tr><td colspan="7"><div class="empty-state">'+pageIcon('users')+'No matching members found.</div></td></tr>';
+ setText('memberPageCount','Showing '+(data.length?offset+1:0)+'–'+Math.min(offset+pageSize,data.length)+' of '+data.length+' members');
+ setText('memberPage','Page '+state.memberPage+' of '+totalPages);
+ if($('memberPrev'))$('memberPrev').disabled=state.memberPage<=1;
+ if($('memberNext'))$('memberNext').disabled=state.memberPage>=totalPages;
 }
 
 let lastUserAddressSearch=0;
