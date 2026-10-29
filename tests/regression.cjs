@@ -200,17 +200,17 @@ test('Attendance editor validates real dates and preserves Philippine time and o
 });
 test('Published assets share one release version and pagination controls cannot overflow',()=>{
   const html=source('index.html'),sw=source('sw.js'),release=JSON.parse(source('release.json'));
-  assert.equal(release.version,'5.5.40');
+  assert.equal(release.version,'5.5.41');
   assert.match(sw,/const VERSION='5\.5\.40';/);
   assert.match(sw,/tipon-face-shell-v5\.5\.40-github-only/);
-  assert.match(html,/app\.js\?v=5540/);
-  assert.match(html,/liveness-guard\.js\?v=5540/);
+  assert.match(html,/app\.js\?v=5541/);
+  assert.match(html,/liveness-guard\.js\?v=5541/);
   assert.match(html,/id="captureEnrollmentSample"/);
   assert.match(html,/id="memberSiteSummary"[^>]+aria-required="true"/);
   assert.doesNotMatch(html,/Assigned Work Location <span class="field-optional">\(Optional\)/);
   assert.doesNotMatch(source('app.js'),/prompt\(['"]Reason for deleting this attendance session/);
-  assert.ok(html.includes('style.css?v=5540'));
-  assert.ok(html.includes('polish.css?v=5540'));
+  assert.ok(html.includes('style.css?v=5541'));
+  assert.ok(html.includes('polish.css?v=5541'));
   assert.match(source('polish.css'),/\.admin-list-pager-actions/);
   assert.ok(source('polish.css').includes('#adminMemberDialog input'));
   const reviewStart=html.indexOf('<div class="ab-review-heading">'),reviewEnd=html.indexOf('</section>',reviewStart),review=html.slice(reviewStart,reviewEnd);
