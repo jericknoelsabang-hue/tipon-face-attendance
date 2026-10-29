@@ -7,7 +7,7 @@
  * Does not expose API credentials, biometric templates or login secrets.
  */
 function tp5LocationIds_(actor,coop,platform,value){
-  tp5Must_(Array.isArray(value),'Assigned Location must be an array.','VALIDATION');
+  tp5Must_(Array.isArray(value)&&value.length>=1,'Select at least one Assigned Work Location.','VALIDATION');
   tp5Must_(value.length<=40,'Maximum 40 assigned Work Locations.','LIMIT');
   var ids=value.map(function(id){return String(id||'').trim();});
   tp5Must_(ids.every(function(id){return id&&id.length<=120;})&&
@@ -137,7 +137,7 @@ function tp5MemberLocationResult_(actor,old,next,action){
     'Authorized member metadata, assignment or encrypted face update; attendance history retained. Rev '+next.rev);
   return tp5Reply_({member:tp5Safe_(next),catalogVersion:version});
 }
-/** Admin atomically edits identity, MPC/BP and optional work-location assignments. */
+/** Admin atomically edits identity, MPC/BP and required Work Location assignments. */
 function tp5AdminMemberUpdateV2_(actor,q){
   tp5Admin_(actor);
   var id=TIPONOrgCore.clean(q.memberId,120),old=tp5Find_('members',id);
