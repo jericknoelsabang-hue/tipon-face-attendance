@@ -76,7 +76,11 @@ function tp5AttendanceCorrect_(actor,q){
       Object.keys(c).every(function(k){return ['timeIn','timeOut'].includes(k);}),
       'Only Time In and Time Out can be corrected.','FORBIDDEN');
     if(Object.prototype.hasOwnProperty.call(c,'timeIn'))timeIn=String(c.timeIn||'');
-    if(Object.prototype.hasOwnProperty.call(c,'timeOut'))timeOut=String(c.timeOut||'');
+    if(Object.prototype.hasOwnProperty.call(c,'timeOut')){
+      tp5Must_(row.timeOut,'Record a missing Time Out in Face Terminal; corrections cannot create a new punch.','VALIDATION');
+      timeOut=String(c.timeOut||'');
+      tp5Must_(timeOut,'Time Out cannot be cleared from a completed session.','VALIDATION');
+    }
     tp5Must_(timeIn,'Time In is required.','VALIDATION');
     var start=Date.parse(timeIn),end=timeOut?Date.parse(timeOut):null;
     tp5Must_(Number.isFinite(start)&&start>=Date.UTC(2020,0,1)&&start<=now+300000,
