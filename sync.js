@@ -229,26 +229,45 @@ window.TIPONSync=(()=>{
     if(events.length)await send([],events);
     for(const op of special){
       try{
-        if(op.type==='memberEdits'){
-          const reply=await TIPONAPI.call({action:'memberTransferUpdateV2',
-            memberId:op.value.memberId,baseRev:Number(op.baseRev)||0,changes:op.value.changes});
-          if(!reply.member||String(reply.member.id)!==String(op.value.memberId))throw Error('Server did not confirm member changes.');
-          const current=await getOne('members',op.value.memberId);
-          if(current?._pendingOp&&current._pendingOp!==op.id)throw Object.assign(Error('A concurrent member edit is pending.'),{code:'CONFLICT'});
-          const updated={...current,...reply.member,orgId:state.orgId};delete updated._pendingOp;delete updated.pendingEdit;delete updated.syncIssue;
-          await OrgDB.rawSave('members',updated);await OrgDB.rawDelete('outbox',op.id);
-        }else if(op.type==='memberFaceUpdates'){
-          const reply=await TIPONAPI.call({action:'memberFaceUpdateV2',
-            memberId:op.value.memberId,baseRev:Number(op.baseRev)||0,changes:op.value.changes});
-          if(!reply.member||String(reply.member.id)!==String(op.value.memberId)||
-             !reply.member.template||reply.member.faceEnrollmentStatus!=='enrolled')
+        if(op.type==='memberEdits'||op.type==='memberFaceUpdates'){
+          const memberId=String(op.value.memberId),baseRev=Number(op.baseRev)||0;
+          let reply,usedGenericSubmit=false;
+          const action=op.type==='memberFaceUpdates'?'memberFaceUpdateV2':'memberTransferUpdateV2';
+          try{
+            reply=await TIPONAPI.call({action,memberId,baseRev,changes:op.value.changes});
+          }catch(error){
+            const unsupported=['ACTION','UNKNOWN_ACTION','NOT_IMPLEMENTED'].includes(String(error?.code||'').toUpperCase())||
+              /unknown action|unsupported action|not implemented|is not defined/i.test(String(error?.message||''));
+            if(!unsupported)throw error;
+            // Compatibility path for deployments that still expose the original
+            // authenticated submit API but not the newer specialized action.
+            const current=await getOne('members',memberId);
+            if(!current||current.deleted)throw Object.assign(Error('Member no longer exists. Refresh the Member List.'),{code:'NOT_FOUND'});
+            if(current._pendingOp&&current._pendingOp!==op.id)throw Object.assign(Error('A concurrent member update is pending.'),{code:'CONFLICT'});
+            const changes=op.value.changes||{};
+            const wire={...current,...changes,id:memberId,memberNumber:changes.memberNumber||current.memberNumber||current.id,
+              siteIds:Array.isArray(changes.siteIds)?changes.siteIds:(current.siteIds||[current.siteId].filter(Boolean)),
+              siteId:(Array.isArray(changes.siteIds)?changes.siteIds[0]:current.siteId)||'',orgId:state.orgId,rev:baseRev};
+            for(const field of ['descriptors','_row','_pendingOp','pendingEdit','syncIssue','syncError','templateError','pendingFaceUpdate','pendingDelete'])delete wire[field];
+            const fallback=await TIPONAPI.call({action:'submit',operations:[{id:op.id,type:'members',value:wire,baseRev}],events:[]});
+            const operationError=(fallback.operationErrors||[]).find(item=>String(item.id)===String(op.id));
+            if(operationError)throw Object.assign(Error(operationError.error||'The organization rejected the member update.'),{code:operationError.code||'SERVER'});
+            if(!(fallback.ackOps||[]).includes(op.id))throw Error('The organization did not acknowledge the member update. No central change was assumed.');
+            const receipt=(fallback.receipts||[]).find(item=>item.type==='members'&&String(item.id)===memberId);
+            if(!receipt||Number(receipt.rev)!==baseRev+1)throw Error('The organization returned an incomplete member update receipt.');
+            reply={member:{...wire,rev:Number(receipt.rev)}};
+            usedGenericSubmit=true;
+          }
+          if(!reply.member||String(reply.member.id)!==memberId)throw Error('Server did not confirm member changes.');
+          if(op.type==='memberFaceUpdates'&&(!reply.member.template||reply.member.faceEnrollmentStatus!=='enrolled'))
             throw Error('The organization did not confirm the encrypted face enrollment.');
-          const current=await getOne('members',op.value.memberId);
+          const current=await getOne('members',memberId);
           if(current?._pendingOp&&current._pendingOp!==op.id)
             throw Object.assign(Error('A concurrent member update is pending.'),{code:'CONFLICT'});
           const updated={...current,...reply.member,orgId:state.orgId};
           delete updated._pendingOp;delete updated.pendingEdit;delete updated.pendingFaceUpdate;delete updated.templateError;delete updated.syncIssue;
           await OrgDB.rawSave('members',updated);await OrgDB.rawDelete('outbox',op.id);
+          if(usedGenericSubmit)message='Member update confirmed through the compatible organization submit API.';
         }else if(op.type==='memberDeletes'){
           const action=actor.role==='admin'?'adminMemberDelete':'memberUserDelete';
           const reply=await TIPONAPI.call({action,memberId:op.value.memberId,baseRev:Number(op.baseRev)||0});
