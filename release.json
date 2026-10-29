@@ -1,5 +1,5 @@
 {
   "app": "TIPON Face Attendance",
-  "version": "5.5.47",
-  "label": "Improves camera startup feedback, warns before idle sign-out, requests reconnect sync, and fits mobile viewport safe areas."
+  "version": "5.5.48",
+  "label": "Keeps Attendance Logs visible when a session contains duplicate or conflicting punches and marks those events for review."
 }

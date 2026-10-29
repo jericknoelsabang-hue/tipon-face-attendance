@@ -956,12 +956,32 @@ function fillLogFilter(id,values,placeholder){
  el.innerHTML='<option value="">'+esc(placeholder)+'</option>'+unique.map(v=>'<option value="'+esc(v)+'">'+esc(v)+'</option>').join('');
  if(unique.includes(old))el.value=old;
 }
+function projectTerminalLogEvents(events){
+ const sessions=new Map(),rows=[],seenIds=new Set();
+ for(const event of [...events].filter(e=>e&&!e.deleted).sort((a,b)=>Date.parse(a.timestamp)-Date.parse(b.timestamp)||String(a.id).localeCompare(String(b.id)))){
+  if(seenIds.has(String(event.id)))continue;seenIds.add(String(event.id));
+  const key=String(event.sessionId||event.id),list=sessions.get(key)||[];list.push(event);sessions.set(key,list);
+ }
+ for(const list of sessions.values()){
+  try{rows.push(...TIPONOrgCore.project(list));}
+  catch(error){
+   // One malformed session must not blank the entire Attendance Logs table.
+   // Preserve every punch as its own review row; never merge or discard events.
+   for(const event of list){
+    const validStamp=Number.isFinite(Date.parse(event.timestamp)),validType=event.type==='IN'||event.type==='OUT';
+    rows.push({key:'review:'+String(event.id),memberId:String(event.memberId||''),memberName:event.memberName||'',coop:event.coop||'',platform:event.platform||'',siteId:event.siteId||'',location:event.siteName||event.location||'',correctionRev:Number(event.correctionRev)||0,
+     timeIn:validStamp&&validType&&event.type==='IN'?event.timestamp:'',timeOut:validStamp&&validType&&event.type==='OUT'?event.timestamp:'',eventIds:[event.id],projectionIssue:String(error?.message||'Conflicting attendance events in this session.')});
+   }
+  }
+ }
+ return rows.sort((a,b)=>Date.parse(a.timeIn||a.timeOut)-Date.parse(b.timeIn||b.timeOut)||String(a.key).localeCompare(String(b.key)));
+}
 function filteredTerminalLogRows(){
  const from=$('terminalLogFrom').value,to=$('terminalLogTo').value,
   siteId=$('terminalLogSite').value,admin=isAdmin();
  const coop=admin?$('terminalLogCoop').value:'',platform=admin?$('terminalLogPlatform').value:'',search=String($('terminalLogSearch')?.value||'').trim().toLowerCase();
  if(!validateAttendanceDateRange('terminalLogFrom','terminalLogTo','terminalLogDateError','terminalLogExport'))throw Error('To Date cannot be earlier than From Date.');
- return TIPONOrgCore.project(state.punches.filter(p=>!p.deleted&&p.reviewStatus!=='rejected')).filter(r=>{
+ return projectTerminalLogEvents(state.punches.filter(p=>!p.deleted&&p.reviewStatus!=='rejected')).filter(r=>{
   const stamp=r.timeIn||r.timeOut,day=TIPONCore.phStamp(stamp).slice(0,10);
   // A hidden filter must never expand data beyond the authenticated User MPC/BP
   // or a Physical Kiosk's GPS-approved site list.
@@ -1009,9 +1029,9 @@ function renderTerminalLogs(){
   $('terminalLogRows').innerHTML=rows.length?rows.map(row=>{
    const location=row.location||sitesById.get(row.siteId)||'—';
    const stamp=row.timeIn||row.timeOut;
-   const status=attendanceSyncLabel(row);
+   const status=row.projectionIssue?'Needs Review':attendanceSyncLabel(row);
    const localInput=value=>value?TIPONCore.phStamp(value).replace(' ','T').slice(0,16):'';
-   const action=canCorrectAttendance()?'<div class="row-inline">'+
+   const action=row.projectionIssue?'<button type="button" class="tiny-button" data-attendance-review="'+esc(row.key)+'">Review</button>':canCorrectAttendance()?'<div class="row-inline">'+
      '<button type="button" class="tiny-button" data-attendance-edit="'+esc(row.key)+'" data-in="'+esc(localInput(row.timeIn))+'" data-out="'+esc(localInput(row.timeOut))+'">Edit</button>'+
      '<button type="button" class="tiny-button delete" data-attendance-delete="'+esc(row.key)+'">Delete</button>'+
      '</div>':'—';
@@ -1039,7 +1059,7 @@ function renderTerminalLogs(){
  }
 }
 function attendanceRowByKey(key){
- return TIPONOrgCore.project(state.punches.filter(p=>!p.deleted&&p.reviewStatus!=='rejected')).find(row=>String(row.key)===String(key));
+ return projectTerminalLogEvents(state.punches.filter(p=>!p.deleted&&p.reviewStatus!=='rejected')).find(row=>String(row.key)===String(key));
 }
 async function saveAttendanceCorrection(row,changes,reason,deleted=false){
  if(!canCorrectAttendance())throw Error('An approved Administrator or User session is required.');
@@ -1123,10 +1143,10 @@ function openAttendanceReview(event){
  setText('attendanceReviewName',row.memberName||'Name unavailable');
  setText('attendanceReviewId',row.memberId);
  setText('attendanceReviewStatus',attendanceSyncLabel(row));
- setText('attendanceReviewReason',events.map(p=>p.syncError||p.correctionReason||p.reviewStatus).filter(Boolean).join(' · ')||
+ setText('attendanceReviewReason',row.projectionIssue||events.map(p=>p.syncError||p.correctionReason||p.reviewStatus).filter(Boolean).join(' · ')||
   (events.some(p=>p.requiresSessionResolution)?'Time Out is waiting for the matching Time In from another device.':
    events.some(p=>p.pendingCorrection==='pending')?'The correction is waiting for synchronization.':'This session has no reported synchronization errors.'));
- const dialog=$('attendanceReviewDialog');dialog.dataset.sessionId=row.key;dialog.showModal();
+ const dialog=$('attendanceReviewDialog');dialog.dataset.sessionId=row.key;$('attendanceReviewRetry').hidden=!!row.projectionIssue;dialog.showModal();
 }
 async function retryAttendanceReview(){
  if(!canCorrectAttendance())return;
@@ -1583,6 +1603,7 @@ function bindEvents(){
  attach('terminalLogNext','click',()=>{state.attendancePage=(state.attendancePage||1)+1;renderTerminalLogs();});
  attach('terminalLogExport','click',exportTerminalLogs);attach('terminalLogSync','click',()=>TIPONSync.kick());
   attach('terminalLogRows','click',editAttendanceFromLog);attach('terminalLogRows','click',deleteAttendanceFromLog);
+ attach('terminalLogRows','click',openAttendanceReview);
   attach('attendanceEditForm','submit',submitAttendanceEdit);
  attach('attendanceReviewRetry','click',retryAttendanceReview);attach('attendanceReviewClose','click',()=> $('attendanceReviewDialog').close());
  document.addEventListener('fullscreenchange',()=>document.body.classList.toggle('terminal-fullscreen',!!document.fullscreenElement&&state.page==='scanner'));
