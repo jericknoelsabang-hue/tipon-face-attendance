@@ -224,10 +224,7 @@ renderMembers=function(){
  });
  document.querySelectorAll('[data-member-edit]').forEach(button=>{
   const member=state.members.find(m=>m.id===button.dataset.memberEdit);
-  button.disabled=!canEdit()||!(member?.createdBy===state.user?.id||
-   (member?.importedWithoutFace===true||
-    member?.importPending===true&&!member?.template)&&
-   TIPONOrgCore.inScope(state.user,member));
+  button.disabled=!canEdit()||!TIPONOrgCore.inScope(state.user,member)||!!member?._pendingOp;
  });
 };
 renderSites=function(){oldRenderSites();document.querySelectorAll('[data-site-delete],[data-site-edit]').forEach(x=>{const site=state.sites.find(v=>v.id===(x.dataset.siteDelete||x.dataset.siteEdit));x.hidden=false;x.disabled=!(site&&canEdit()&&TIPONOrgCore.inScope(state.user,site));});};
