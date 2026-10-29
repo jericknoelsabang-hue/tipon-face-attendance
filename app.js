@@ -220,16 +220,18 @@ async function findUserSiteAddress(){
  finally{button.disabled=false;}
 }
 
+function memberSiteCatalog(){return state.user?.role==='registrar'&&state.memberTransferTargetMode&&Array.isArray(state.memberSiteOptions)?state.memberSiteOptions:state.sites;}
 function fillMemberSites(preferred){
  const coop=$('memberCoop').value,ids=(Array.isArray(preferred)?preferred:[preferred]).filter(Boolean),platform=$('memberPlatform')?.value||state.user?.platform||'';
- const sites=state.sites.filter(s=>!s.deleted&&s.coop===coop&&(!platform||TIPONOrgCore.platformKey(s.platform)===TIPONOrgCore.platformKey(platform)));
+ const sites=memberSiteCatalog().filter(s=>!s.deleted&&s.coop===coop&&(!platform||TIPONOrgCore.platformKey(s.platform)===TIPONOrgCore.platformKey(platform)));
  $('memberSite').innerHTML=sites.map(s=>'<option value="'+esc(s.id)+'">'+esc(s.name)+' ('+esc(s.radius)+' m)</option>').join('');
  for(const option of $('memberSite').options)option.selected=ids.includes(option.value);
  $('memberSiteChoices').innerHTML=sites.map(s=>'<label class="multi-select-option"><input type="checkbox" data-member-site-option="'+esc(s.id)+'" '+(ids.includes(s.id)?'checked':'')+'/><span>'+esc(s.name)+' <small>'+esc(s.radius||150)+' m GPS</small></span></label>').join('');
  updateMemberSite();
 }
 function updateMemberSite(){
- const sites=[...$('memberSite').selectedOptions].map(o=>state.sites.find(s=>s.id===o.value)).filter(Boolean);
+ const catalog=memberSiteCatalog();
+ const sites=[...$('memberSite').selectedOptions].map(o=>catalog.find(s=>s.id===o.value)).filter(Boolean);
  setText('memberSiteSummary',sites.length?sites.length+' Location'+(sites.length===1?'':'s')+' Selected':'Select Assigned Location');
  setText('assignedSiteDetails',sites.length?
    sites.map(s=>s.name+' · '+Number(s.lat).toFixed(6)+', '+Number(s.lng).toFixed(6)+' ('+(s.radius||150)+' m GPS)').join(' | '):
@@ -339,7 +341,7 @@ async function saveMemberMetadata(member,changes){
   siteIds:[...new Set((changes.siteIds||[]).map(String).filter(Boolean))]};
  if(!clean.name||!clean.coop||!clean.platform||!clean.siteIds.length)throw Error('Member name, Cooperative, Business Platform and at least one Assigned Work Location are required.');
  if(clean.siteIds.length>40)throw Error('Maximum 40 Assigned Work Locations.');
- if(clean.siteIds.some(id=>{const site=state.sites.find(x=>x.id===id&&!x.deleted);return !site||site.coop!==clean.coop||TIPONOrgCore.platformKey(site.platform)!==TIPONOrgCore.platformKey(clean.platform);}))
+ if(clean.siteIds.some(id=>{const site=memberSiteCatalog().find(x=>x.id===id&&!x.deleted);return !site||site.coop!==clean.coop||TIPONOrgCore.platformKey(site.platform)!==TIPONOrgCore.platformKey(clean.platform);}))
   throw Error('Choose only synced Work Locations matching the selected Cooperative and Business Platform.');
  const opId=uuid(),payload={memberId:member.id,changes:clean,original:{name:member.name,coop:member.coop,platform:member.platform,siteIds:Array.isArray(member.siteIds)&&member.siteIds.length?member.siteIds:[member.siteId].filter(Boolean)}};
  const queue=async()=>{
@@ -373,7 +375,7 @@ async function saveMemberForm(e){
  const id=$('memberId').value.trim(),name=memberNameFromFields(),
    coop=$('memberCoop').value,platform=$('memberPlatform').value.trim(),
    siteIds=[...$('memberSite').selectedOptions].map(o=>o.value),
-   sites=siteIds.map(id=>state.sites.find(x=>x.id===id&&!x.deleted));
+   sites=siteIds.map(id=>memberSiteCatalog().find(x=>x.id===id&&!x.deleted));
  if(!id||!name||!TIPONOrgCore.COOPS.includes(coop)||!TIPONPlatforms.names().some(v=>TIPONOrgCore.platformKey(v)===TIPONOrgCore.platformKey(platform))){
    showToast('Enter Member ID, Last Name, First Name, Cooperative and Business Platform.','error');return;
  }
