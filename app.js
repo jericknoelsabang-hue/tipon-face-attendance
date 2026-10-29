@@ -336,7 +336,7 @@ async function saveMemberMetadata(member,changes){
  if(clean.siteIds.length>40)throw Error('Maximum 40 Assigned Work Locations.');
  if(clean.siteIds.some(id=>{const site=state.sites.find(x=>x.id===id&&!x.deleted);return !site||site.coop!==clean.coop||TIPONOrgCore.platformKey(site.platform)!==TIPONOrgCore.platformKey(clean.platform);}))
   throw Error('Choose only synced Work Locations matching the selected Cooperative and Business Platform.');
- const opId=uuid(),payload={memberId:member.id,changes:clean};
+ const opId=uuid(),payload={memberId:member.id,changes:clean,original:{name:member.name,coop:member.coop,platform:member.platform,siteIds:Array.isArray(member.siteIds)&&member.siteIds.length?member.siteIds:[member.siteId].filter(Boolean)}};
  const queue=async()=>{
   const stored=await getOne('members',member.id);
   if(stored?._pendingOp)throw Error('This member already has a pending change.');
@@ -570,21 +570,29 @@ async function handleMemberTableClick(event){
   showToast('Only an Administrator or authorized User in this MPC/BP can delete this member.','error');
   return;
  }
- if(!navigator.onLine){
-  showToast('Connect to the internet before deleting. No member records were changed.','error');
-  return;
- }
  const stored=await getOne('members',member.id);
  if(stored?._pendingOp||member._pendingOp){
   showToast('This member has an unconfirmed edit. Complete central sync before deleting.','error');
   return;
  }
+ const openSession=TIPONOrgCore.project(state.punches.filter(p=>!p.deleted&&!p.reviewStatus)).some(r=>String(r.memberId)===String(member.id)&&r.timeIn&&!r.timeOut);
+ if(openSession){showToast('Complete Time Out before deleting this member.','error');return;}
  const yes=await confirmAction('Delete Member',
-  'Remove '+member.name+' from the central TIPON Members directory and all authorized devices? '+
-  'Any stored facial template will be removed, while the existing attendance history will be retained. '+
-  'Members with open Time In sessions cannot be deleted.');
+  'Remove '+member.name+' from the Member List? Attendance history is retained. The deletion is verified by the organization when online.');
  if(!yes)return;
  del.disabled=true;
+ if(!navigator.onLine){
+  const opId=uuid(),local={...stored,deleted:true,active:false,pendingDelete:true,_pendingOp:opId};
+  const op={id:opId,type:'memberDeletes',value:{memberId:member.id,wasActive:stored.active!==false},baseRev:Number(stored.rev)||0,
+    orgId:state.orgId,ownerId:state.user.id,createdAt:new Date().toISOString(),everSent:false};
+  try{
+   await new Promise((resolve,reject)=>{const tx=db.transaction(['members','outbox'],'readwrite');tx.objectStore('members').put(local);tx.objectStore('outbox').put(op);tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error);tx.onabort=()=>reject(tx.error);});
+   await loadCollections();renderMembers();renderDashboard();TIPONSync.kick();
+   showToast('Deletion queued locally. The organization will confirm it when online.','info',8000);
+  }catch(error){showToast(error.message||String(error),'error',8000);}
+  finally{del.disabled=false;}
+  return;
+ }
  try{
   // Admin keeps the existing fully deployed endpoint. A User must have the
   // new server-authorized memberUserDelete endpoint. Never use local deleteOne
@@ -895,7 +903,7 @@ async function saveAttendanceCorrection(row,changes,reason,deleted=false){
  if(events.some(p=>p.pendingCorrection==='pending'))throw Error('This session already has a pending correction.');
  if(events.some(p=>p.requiresSessionResolution&&!p.cloudAck))throw Error('Sync this cross-device Time Out before editing or deleting the session.');
  const id=uuid(),op={id,type:'attendanceCorrections',value:{sessionId:String(row.key),memberId:String(row.memberId),
-   eventIds:events.map(p=>p.id),changes:changes||{},delete:!!deleted,reason:String(reason||'').trim()},
+   eventIds:events.map(p=>p.id),changes:changes||{},delete:!!deleted,reason:String(reason||'').trim(),original:{timeIn:row.timeIn||'',timeOut:row.timeOut||''}},
    baseRev:Number(row.correctionRev)||0,orgId:state.orgId,ownerId:state.user.id,createdAt:new Date().toISOString(),everSent:false};
  await new Promise((resolve,reject)=>{
   const tx=db.transaction(['punches','outbox'],'readwrite'),store=tx.objectStore('punches');
