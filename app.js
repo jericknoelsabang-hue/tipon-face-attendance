@@ -359,11 +359,16 @@ async function saveMemberMetadata(member,changes){
  };
  if(!navigator.onLine)return queue();
  try{
-  const action='memberTransferUpdateV2';
+  const action=isAdmin()?'adminMemberUpdateV2':'memberTransferUpdateV2';
   const reply=await TIPONAPI.call({action,memberId:member.id,baseRev:Number(member.rev)||0,changes:clean});
   const saved=reply.member;
-  if(!saved||String(saved.id)!==String(member.id)||!Array.isArray(saved.siteIds)||saved.siteIds.length!==clean.siteIds.length||!saved.siteIds.every(id=>clean.siteIds.includes(id)))
-   throw Error('The central organization did not confirm all member fields. Refresh Member List before retrying.');
+  const savedSites=Array.isArray(saved?.siteIds)&&saved.siteIds.length?saved.siteIds:[saved?.siteId].filter(Boolean);
+  const savedNumber=String(saved?.memberNumber||saved?.id||'').trim();
+  if(!saved||String(saved.id)!==String(member.id)||savedNumber!==clean.memberNumber||
+     String(saved.name||'').trim()!==clean.name||String(saved.coop||'')!==clean.coop||
+     TIPONOrgCore.platformKey(saved.platform)!==TIPONOrgCore.platformKey(clean.platform)||
+     savedSites.length!==clean.siteIds.length||!savedSites.every(id=>clean.siteIds.includes(id)))
+   throw Error('The central organization did not confirm the Member ID, identity, Cooperative, Business Platform and Assigned Work Locations. Refresh Member List before retrying.');
   const current=await getOne('members',member.id);
   if(current?._pendingOp)throw Error('A local edit is pending. Sync and reopen the member.');
   const record={...current,...saved,orgId:state.orgId};delete record._pendingOp;delete record.pendingEdit;delete record.syncIssue;
@@ -1222,6 +1227,10 @@ async function scanTick(){if(!state.scanning)return;if(!hasTerminalSession()){aw
  }catch(e){console.error('Face recognition tick',e);playTerminalSound('error');updateScanResult('Camera processing issue',e.message,'error');}
  finally{if(state.scanning&&state.scanRun===run)state.scanTimer=setTimeout(scanTick,SCAN_DELAY_MS);}
 }
+function canQueueUnresolvedTimeOut(mode,online,centralReadOk,sameDay,error){
+ return mode==='out'&&(!online||!centralReadOk)&&!sameDay&&
+  /No Time In on this device|Already timed out/.test(String(error?.message||''));
+}
 async function recordRecognizedFace(member,faceDistance){
  const proof=state.livenessProof;
  state.livenessProof=null;
@@ -1233,11 +1242,19 @@ async function recordRecognizedFace(member,faceDistance){
  if(member.active===false||member.deleted){playTerminalSound('error');speakTerminal('Attendance error. This member is inactive.','error','inactive');showToast('This member is inactive.','error');return;}
  if(!hasTerminalSession()){speakTerminal('Attendance error. Sign in or authorize this kiosk again.','error','session');showToast('Sign in or authorize this kiosk again.','error');return;}
  if(state.scanBusy)return;state.scanBusy=true;const mode=state.scanMode,run=state.scanRun,actorId=state.user.id;
+ let centralReadOk=false;
  document.querySelectorAll('.mode-option').forEach(b=>b.disabled=true);
  try{
   if(mode==='out'&&navigator.onLine){
-   const refreshed=await TIPONSync.submitPendingNow();
-   if(!refreshed?.readOk)throw Error(refreshed?.error||'Could not refresh central attendance. Retry Time Out.');
+   try{
+    const refreshed=await TIPONSync.submitPendingNow();
+    centralReadOk=!!refreshed?.readOk;
+    if(!centralReadOk&&['AUTH','ACCOUNT','DEVICE_DISABLED','FORBIDDEN','PROTOCOL'].includes(String(refreshed?.code||'').toUpperCase()))
+     throw Object.assign(Error(refreshed.error||'The attendance account must reconnect before Time Out.'),{code:refreshed.code});
+   }catch(error){
+    if(['AUTH','ACCOUNT','DEVICE_DISABLED','FORBIDDEN','PROTOCOL'].includes(String(error?.code||'').toUpperCase()))throw error;
+    centralReadOk=false;
+   }
   }
   await loadCollections();member=state.members.find(m=>m.id===member.id)||member;
   let tx,needsSessionResolution=false;
@@ -1246,7 +1263,7 @@ async function recordRecognizedFace(member,faceDistance){
    const latest=state.punches.filter(p=>String(p.memberId)===String(member.id)&&!p.deleted&&!p.reviewStatus)
      .sort((a,b)=>Date.parse(b.timestamp)-Date.parse(a.timestamp))[0];
    const sameDay=latest&&todayPH(new Date(latest.timestamp))===todayPH();
-   if(mode==='out'&&!navigator.onLine&&!sameDay&&/No Time In on this device|Already timed out/.test(String(error.message||''))){
+   if(canQueueUnresolvedTimeOut(mode,navigator.onLine,centralReadOk,sameDay,error)){
     tx={type:'OUT',last:null};needsSessionResolution=true;
    }else throw error;
   }
@@ -1272,8 +1289,9 @@ async function recordRecognizedFace(member,faceDistance){
     siteLat:site.lat,siteLng:site.lng,radius:150,lat:gps.latitude,lng:gps.longitude,
     accuracy:gps.accuracy,distance,faceDistance,performedBy:state.user.username||state.user.name};
   await commitPunch(punch,mode);TIPONAuth?.touchActivity?.();await loadCollections();renderTerminal();renderTerminalLogs();renderDashboard();
-  updateScanResult(`TIME ${punch.type} saved`,`${member.name} | ${member.memberNumber||member.id} | ${site.name} | ${displayTime(stamp)}. Saved on this phone.`,'success');
-  playTerminalSound('success');speakTerminal('Time '+(punch.type==='IN'?'in':'out')+' recorded for '+member.name+'.','success','punch:'+punch.id);showToast(`${member.name}: TIME ${punch.type} recorded.`,'success');
+  const syncPending=mode==='out'&&!centralReadOk;
+  updateScanResult(`TIME ${punch.type} saved`,`${member.name} | ${member.memberNumber||member.id} | ${site.name} | ${displayTime(stamp)}. Saved on this phone.${syncPending?' Central sync will retry automatically.':''}`,'success');
+  playTerminalSound('success');speakTerminal('Time '+(punch.type==='IN'?'in':'out')+' recorded for '+member.name+'.','success','punch:'+punch.id);showToast(`${member.name}: TIME ${punch.type} recorded.${syncPending?' Sync pending.':''}`,'success');
   if(navigator.vibrate){try{navigator.vibrate(80);}catch{}}
   if(window.TIPONSync)TIPONSync.kick();
  }catch(err){state.scanArmed=true;state.scanCandidate=null;state.scanCandidateCount=0;state.scanLiveness=null;
