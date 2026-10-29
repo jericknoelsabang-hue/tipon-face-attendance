@@ -5,6 +5,26 @@
  * Never publish Script Properties, credentials, face data or the private /exec URL.
  */
 
+/** Project malformed legacy sessions without allowing duplicate punches to hide all logs.
+ * Keep the earliest IN and latest OUT for summaries; raw ledger events are never removed.
+ */
+function tp5ProjectAttendanceSafe_(events){
+  var sessions=new Map(),seenIds=new Set();
+  (events||[]).forEach(function(event){
+    if(!event||event.deleted||event.reviewStatus==='rejected'||seenIds.has(String(event.id)))return;
+    seenIds.add(String(event.id));
+    var key=String(event.sessionId||event.id),current=sessions.get(key);
+    if(!current){sessions.set(key,[event]);return;}
+    var sameDirection=current.find(function(item){return item.type===event.type;});
+    if(!sameDirection){current.push(event);return;}
+    var previous=Date.parse(sameDirection.timestamp),next=Date.parse(event.timestamp);
+    if(event.type==='IN'?next<previous:next>previous){
+      current[current.indexOf(sameDirection)]=event;
+    }
+  });
+  return TIPONOrgCore.project(Array.from(sessions.values()).reduce(function(all,items){return all.concat(items);},[]));
+}
+
 /** Apply the audited correction overlay to events returned by the existing ledger.
  * In Code.gs, change the final "return rows;" inside tp5EventWindow_ to:
  *     return tp5ApplyAttendanceCorrections_(rows);
@@ -66,7 +86,7 @@ function tp5ApplyAttendanceCorrections_(rows){
 /** Rebuild only the affected report session; do not erase the raw event ledger. */
 function tp5RebuildAttendanceProjection_(sessionId){
   var active=tp5ApplyAttendanceCorrections_(tp5AllEvents_()).filter(function(e){return !e.deleted;});
-  var row=TIPONOrgCore.project(active).find(function(r){return String(r.key)===String(sessionId);});
+  var row=tp5ProjectAttendanceSafe_(active).find(function(r){return String(r.key)===String(sessionId);});
   if(row){tp5WriteProjection_(row);SpreadsheetApp.flush();return;}
   var old=tp5Find_('sessions',sessionId);
   if(old&&old._row){
@@ -86,7 +106,7 @@ function tp5AttendanceCorrect_(actor,q){
   var rawEvents=tp5AllEvents_(),all=tp5ApplyAttendanceCorrections_(rawEvents),events=all.filter(function(e){
     return !e.deleted&&String(e.sessionId||e.id)===sessionId;
   });
-  var row=TIPONOrgCore.project(events)[0];
+  var row=tp5ProjectAttendanceSafe_(events)[0];
   tp5Must_(row,'Attendance session was not found. Refresh the logs.','NOT_FOUND');
   tp5Must_(actor.role==='admin'||TIPONOrgCore.inScope(actor,row),
     'Attendance is outside your approved Cooperative/Business Platform.','FORBIDDEN');
@@ -119,7 +139,7 @@ function tp5AttendanceCorrect_(actor,q){
       tp5Must_(end-start>=90000,
         'Time Out must be at least 90 seconds after Time In.','COOLDOWN');
     }
-    var others=TIPONOrgCore.project(all.filter(function(e){
+    var others=tp5ProjectAttendanceSafe_(all.filter(function(e){
       return !e.deleted&&String(e.memberId)===String(row.memberId);
     })).filter(function(r){return String(r.key)!==sessionId;});
     others.forEach(function(other){
