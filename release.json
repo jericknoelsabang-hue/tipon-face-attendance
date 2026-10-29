@@ -1,5 +1,5 @@
 {
   "app": "TIPON Face Attendance",
-  "version": "5.5.34",
-  "label": "User-only Face Terminal landing; editable in-scope member transfer with cached destination Work Locations; required Assigned Work Location; manual three-sample face enrollment with live blink/head-turn checks and duplicate-owner messaging; encrypted enrollment/re-enrollment outbox with explicit central acknowledgement; paginated Member List and Attendance Logs with Edit/Delete/Review and filtered-empty explanations. Private Apps Script routes still require deployment for central transfer, face-update and attendance-correction operations."
+  "version": "5.5.35",
+  "label": "Cache-busted UI release: required Assigned Work Location, compact multi-select chevron, manual 3-sample face capture with randomized blink/head-turn liveness, Member List and Attendance Logs pagination, scoped User pages, actionable attendance review and offline correction queues. Liveness is not certified anti-spoofing."
 }
