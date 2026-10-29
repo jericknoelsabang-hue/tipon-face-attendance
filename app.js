@@ -505,9 +505,11 @@ async function saveMemberForm(e){
  }
  const latest=await getAll('members');
  const all=[...new Map([...latest,...state.members].filter(Boolean).map(m=>[String(m.id),m])).values()];
- if(findEnrolledFaceConflict(state.pendingDescriptors,id,all)){
+ const duplicate=findEnrolledFaceConflict(state.pendingDescriptors,id,all);
+ if(duplicate){
    state.pendingDescriptors=[];setText('enrollFaceLabel','Duplicate face enrollment blocked.');
-   showToast('This face is registered under a different Member ID. Enrollment blocked.','error',8500);return;
+   showToast('This face is already enrolled to '+String(duplicate.member?.name||'another member')+
+     ' (ID '+String(duplicate.member?.id||'unknown')+'). Open that member record to correct the enrollment.','error',10000);return;
  }
  if(!state.consentAcknowledgedAt&&!old?.consentAt){
    showToast('Complete the biometric consent and live Face Enrollment first.','error');return;
