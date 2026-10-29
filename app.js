@@ -1019,7 +1019,7 @@ async function editAttendanceFromLog(event){
  if(row.timeOut&&!nextOut)return showToast('Time Out cannot be cleared from a completed session.','error');
  if(!row.timeOut&&nextOut)return showToast('Use Face Terminal to record a missing Time Out. Review can correct existing timestamps, but cannot create a new attendance event.','error',8000);
  const iso=value=>value?new Date(value+':00+08:00').toISOString():'';
- const changes={timeIn:iso(nextIn),timeOut:iso(nextOut)};
+ const changes={timeIn:iso(nextIn)};if(row.timeOut)changes.timeOut=iso(nextOut);
  if(changes.timeOut&&Date.parse(changes.timeOut)<Date.parse(changes.timeIn))return showToast('Time Out must be after Time In.','error');
  if(!await confirmAction('Save attendance correction?',row.memberName+' · '+reason.trim()+'. The change will be audited and synchronized.'))return;
  try{await saveAttendanceCorrection(row,changes,reason,false);}catch(error){showToast(error.message||String(error),'error',8500);}
