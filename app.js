@@ -224,11 +224,10 @@ function fillMemberSites(preferred){
 }
 function updateMemberSite(){
  const sites=[...$('memberSite').selectedOptions].map(o=>state.sites.find(s=>s.id===o.value)).filter(Boolean);
- setText('memberSiteSummary',sites.length?sites.length+' Location'+(sites.length===1?'':'s')+' Selected':'No Location Selected');
- setText('assignedSiteDetails',state.editMember&&!state.editMember.template?
-   'This member is NOT ENROLLED. Face Enrollment and Work Location can be saved together using the existing server. Location-only saving requires an updated central backend.':
-   sites.length?sites.map(s=>s.name+' · '+Number(s.lat).toFixed(6)+', '+Number(s.lng).toFixed(6)+' ('+(s.radius||150)+' m GPS)').join(' | '):
-   'You can assign a Work Location now or later. Time In requires an enrolled face and a confirmed GPS Work Location.');
+ setText('memberSiteSummary',sites.length?sites.length+' Location'+(sites.length===1?'':'s')+' Selected':'Select Assigned Location');
+ setText('assignedSiteDetails',sites.length?
+   sites.map(s=>s.name+' · '+Number(s.lat).toFixed(6)+', '+Number(s.lng).toFixed(6)+' ('+(s.radius||150)+' m GPS)').join(' | '):
+   'Select at least one approved Work Location. Attendance requires an enrolled face and a valid GPS location.');
 }
 function parseMemberIdentity(full){
  const name=String(full||'').trim().replace(/\s+/g,' ');
