@@ -31,6 +31,12 @@
       'Close both eyes for one second, then open.':
       'Turn your head slightly left or right.';
   }
+  function speakOnce(phrase,kind='error',reason=''){
+    const now=Date.now();
+    if(state.lastTerminalVoice===phrase&&now-(state.lastTerminalVoiceAt||0)<2500)return false;
+    state.lastTerminalVoice=phrase;state.lastTerminalVoiceAt=now;
+    return speakTerminal(phrase,kind,reason||phrase);
+  }
   function advance(s,face,now=Date.now()){
     if(s.passed)return {ok:true,prompt:'Live Face Verified'};
     if(now-s.started>45000)return {ok:false,expired:true,prompt:'Live verification timed out.'};
@@ -121,8 +127,10 @@
             !(found.second&&found.second.distance-found.best.distance<AMBIGUITY_GAP);
           if(!identified){
             state.scanCandidate=null;state.scanCandidateCount=0;state.scanLiveness=null;
-            if(found.best)updateScanResult('Face Not Recognized','Please try again.','error');
-            else updateScanResult('No Enrolled Faces','Refresh the Member List.','error');
+            if(found.best){
+              updateScanResult('Face Not Recognized','Please try again.','error');
+              speakOnce('Face Not Recognized','error','face');
+            }else updateScanResult('No Enrolled Faces','Refresh the Member List.','error');
             setText('cameraBottomTag','Face Not Recognized');
           }else{
             const member=found.best.member;
