@@ -371,3 +371,33 @@ test('Three manual re-enrollment captures trigger one immediate save with a fres
   for(let i=0;i<3;i++){ctx.state.enrollReadyDescriptor=Array(128).fill(.1+i*.01);ctx.state.enrollReadyAt=Date.now();ctx.state.enrollLiveness={passed:true};await capture();}
   assert.equal(ctx.state.pendingDescriptors.length,3);assert.equal(ctx.state.enrollmentProof.memberId,'STABLE-KEY');assert.equal(saves,1);
 });
+
+test('Unified Attendance Logs nav and read-only timesheet estimates retain safe behavior',()=>{
+ const html=source('index.html'),sync=source('sync.js'),org=source('organization.js');
+ assert.equal((html.match(/data-page="records"/g)||[]).length,0);
+ assert.equal((html.match(/data-page="terminalLogs"/g)||[]).length,2);
+ assert.match(html,/id="terminalLogRecover"/);
+ assert.match(html,/<th>Work Location<\/th><th>Sync Status<\/th><th>Actions<\/th>/);
+ assert.match(org,/if\(page==='records'\)page='terminalLogs'/);
+ assert.match(sync,/async function recoverAttendance\(\)/);
+ const segment=sync.slice(sync.indexOf('async function recoverAttendance()'),sync.indexOf('return {init,start,stop,kick',sync.indexOf('async function recoverAttendance()')));
+ assert.match(segment,/cursor:0/);
+ assert.doesNotMatch(segment,/rawDelete|objectStore\([^)]*\)\.clear|replaceDB/);
+ const ctx={window:{addEventListener(){}},document:{addEventListener(){}},
+  TIPONCore:{phStamp(value){return new Date(Date.parse(value)+28800000).toISOString().slice(0,19).replace('T',' ');}},
+  Date,Map,Math,Number,String,Object,Array};
+ vm.createContext(ctx);
+ vm.runInContext(source('timesheet-preview.js'),ctx);
+ const rows=[
+  {memberId:'TEST-1',memberName:'Synthetic Member',timeIn:'2026-10-29T00:00:00Z',timeOut:'2026-10-29T05:00:00Z'},
+  {memberId:'TEST-1',memberName:'Synthetic Member',timeIn:'2026-10-29T06:00:00Z',timeOut:'2026-10-29T10:15:00Z'},
+  {memberId:'TEST-2',memberName:'Other Member',timeIn:'2026-10-29T10:00:00Z',timeOut:''}
+ ];
+ const result=ctx.window.TIPONTimesheet.summarize(rows,15,8);
+ assert.equal(result.rows.length,1);
+ assert.equal(result.rows[0].minutes,555);
+ assert.equal(result.rows[0].roundedMinutes,555);
+ assert.equal(result.rows[0].potentialOTMinutes,75);
+ assert.equal(result.excluded,1);
+ assert.doesNotMatch(source('timesheet-preview.js'),/rawSave|saveOne|replaceDB|deleteOne/);
+});
