@@ -1,5 +1,5 @@
 {
   "app": "TIPON Face Attendance",
-  "version": "5.5.55",
-  "label": "Fix blank Admin Attendance Logs with unified Admin/User history, sync status and safe central attendance recovery; preserve local events and pending changes."
+  "version": "5.5.56",
+  "label": "Read-only timesheet estimates with selectable report rounding and potential overtime thresholds; original attendance events are unchanged. Admin/User unified Attendance Logs and non-destructive ledger recovery remain enabled."
 }
