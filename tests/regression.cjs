@@ -479,3 +479,96 @@ test('Dashboard hides only its Work Location filter while Logs location remains'
  assert.match(org,/platform:'',site:'',valid:true/);
  assert.match(app,/\['terminalLogFrom','terminalLogTo','terminalLogCoop','terminalLogPlatform','terminalLogSite'\]/);
 });
+
+
+test('Sync warning counts only this account/device and distinguishes review from retry',()=>{
+ const ctx={state:{orgId:'org-1',deviceId:'local',user:actor,punches:[]},navigator:{onLine:true},
+  console,Date,Map,Set,Number,String,Math};
+ ctx.window=ctx;vm.createContext(ctx);
+ vm.runInContext(source('sync.js').replace('return {init,start,stop,kick',
+  'return {__queueSummary:queueSummary,init,start,stop,kick'),ctx);
+ const outbox=[
+  {id:'local-retry',orgId:'org-1',ownerId:actor.id,errorCode:'TIMEOUT',error:'Lost response'},
+  {id:'local-review',orgId:'org-1',ownerId:actor.id,errorCode:'NEEDS_REVIEW',error:'Review an invalid change'},
+  {id:'foreign',orgId:'org-1',ownerId:'somebody-else',errorCode:'NEEDS_REVIEW'},
+  {id:'other-org',orgId:'other-org',ownerId:actor.id,errorCode:'NEEDS_REVIEW'}
+ ];
+ const punches=[
+  {...event('p1','IN','2026-10-29T01:00:00Z'),deviceId:'local',cloudAck:false,syncError:'Timeout'},
+  {...event('p2','OUT','2026-10-29T02:00:00Z'),deviceId:'local',cloudAck:false,reviewStatus:'INVALID',syncError:'Review event'},
+  {...event('remote','IN','2026-10-29T01:00:00Z'),deviceId:'another-device',cloudAck:false,reviewStatus:'INVALID'},
+  {...event('acked','IN','2026-10-29T01:00:00Z'),deviceId:'local',cloudAck:true}
+ ];
+ const details=ctx.TIPONSync.__queueSummary(outbox,punches,'org-1',actor.id,'local');
+ assert.equal(details.queued,2);
+ assert.equal(details.needsReview,2);
+ assert.equal(details.total,4);
+ assert.equal(details.retrying,2);
+ assert.match(details.firstProblem,/invalid change/);
+ const otherAccount=ctx.TIPONSync.__queueSummary(outbox,punches,'org-1','somebody-else','unknown-device');
+ assert.equal(otherAccount.total,1);
+});
+test('Transport timeout on an attendance edit retains the durable operation and optimistic local data',async()=>{
+ const changeTime='2026-10-29T00:05:00Z';
+ const punched={...event('in','IN','2026-10-29T00:00:00Z'),
+  timestamp:changeTime,pendingCorrection:'pending',cloudAck:true,deviceId:'local'};
+ const punches=[punched],outbox=[{id:'queued-correction',type:'attendanceCorrections',orgId:'org-1',
+  ownerId:actor.id,baseRev:0,value:{sessionId:'session-1',eventIds:['in'],reason:'Correct shift clock',
+  changes:{timeIn:changeTime},original:{timeIn:'2026-10-29T00:00:00Z',timeOut:''}}}];
+ const tables={punches,outbox};
+ const ctx={console,Date,Map,Set,Number,Math,setTimeout,clearTimeout,
+  navigator:{onLine:true},state:{user:actor,orgId:'org-1',deviceId:'local',punches},$:()=>null,setText:()=>{},
+  TIPONOrgCore:Org,TIPONAuth:{ensureOnline:async()=> 'test-token'},
+  TIPONGitHubBridge:{request:async()=>{throw Object.assign(Error('Connection timed out'),{code:'TIMEOUT'});}},
+  getAll:async name=>tables[name],getOne:async(name,id)=>tables[name]?.find(x=>x.id===id),
+  OrgDB:{rawSave:async(name,item)=>{const items=tables[name],i=items.findIndex(x=>x.id===item.id);if(i>=0)items[i]=item;else items.push(item);},
+    rawDelete:async(name,id)=>{const items=tables[name],i=items.findIndex(x=>x.id===id);if(i>=0)items.splice(i,1);}}
+ };
+ ctx.window=ctx;vm.createContext(ctx);
+ vm.runInContext(source('sync.js').replace('return {init,start,stop,kick','return {__flush:flush,init,start,stop,kick'),ctx);
+ await ctx.TIPONSync.__flush();
+ assert.equal(outbox.length,1);
+ assert.equal(outbox[0].errorCode,'TIMEOUT');
+ assert.equal(outbox[0].everSent,true);
+ assert.equal(outbox[0].retryCount,1);
+ assert.equal(punches[0].timestamp,changeTime);
+ assert.equal(punches[0].pendingCorrection,'pending');
+ assert.equal(punches[0].deleted,undefined);
+});
+test('Lost attendance-correction acknowledgment is cleared only when the server-verified revision and timestamps match',async()=>{
+ const changeTime='2026-10-29T00:05:00Z',originalTime='2026-10-29T00:00:00Z';
+ const op={id:'ack-lost',type:'attendanceCorrections',everSent:true,orgId:'org-1',ownerId:actor.id,
+  baseRev:0,value:{sessionId:'session-1',eventIds:['in'],reason:'Correct time-in',
+   changes:{timeIn:changeTime},original:{timeIn:originalTime,timeOut:''}}};
+ const punched={...event('in','IN',changeTime),deviceId:'other',correctionRev:1,pendingCorrection:'pending'};
+ const punches=[punched],outbox=[op],tables={punches,outbox},calls=[];
+ const ctx={console,Date,Map,Set,Number,Math,navigator:{onLine:true},state:{user:actor,orgId:'org-1',deviceId:'local',punches},
+  $:()=>null,setText:()=>{},TIPONOrgCore:Org,TIPONAuth:{ensureOnline:async()=> 'test-token'},
+  TIPONGitHubBridge:{request:async payload=>{calls.push(payload);throw Error('No resend expected');}},
+  getAll:async name=>tables[name],getOne:async(name,id)=>tables[name]?.find(x=>x.id===id),
+  OrgDB:{rawSave:async(name,item)=>{const items=tables[name],i=items.findIndex(x=>x.id===item.id);if(i>=0)items[i]=item;else items.push(item);},
+    rawDelete:async(name,id)=>{const items=tables[name],i=items.findIndex(x=>x.id===id);if(i>=0)items.splice(i,1);}}
+ };
+ ctx.window=ctx;vm.createContext(ctx);
+ vm.runInContext(source('sync.js').replace('return {init,start,stop,kick',
+  'return {__flush:flush,__correctionAcknowledged:correctionAcknowledged,init,start,stop,kick'),ctx);
+ assert.equal(ctx.TIPONSync.__correctionAcknowledged(op,[{...punched,cloudAck:false}],null),false);
+ assert.equal(ctx.TIPONSync.__correctionAcknowledged(op,[{...punched,correctionRev:0}],null),false);
+ assert.equal(ctx.TIPONSync.__correctionAcknowledged(op,[{...punched,timestamp:'2026-10-29T00:01:00Z'}],null),false);
+ assert.equal(ctx.TIPONSync.__correctionAcknowledged(op,[punched],null),true);
+ await ctx.TIPONSync.__flush();
+ assert.equal(outbox.length,0);
+ assert.equal(punches[0].timestamp,changeTime);
+ assert.equal(punches[0].pendingCorrection,undefined);
+ assert.equal(calls.length,0);
+});
+test('Manual Attendance Logs sync has deduplicated status, automatic queue retry and awaits in-flight work',()=>{
+ const app=source('app.js'),sync=source('sync.js');
+ assert.match(app,/function showDirectorySyncNotice\(/);
+ assert.match(app,/const sync=await TIPONSync.submitPendingNow\(\)/);
+ assert.match(app,/local change\(s\) are saved and queued for automatic retry/);
+ assert.doesNotMatch(app,/record\(s\) still need synchronization or have sync errors/);
+ assert.match(sync,/async function submitPendingNow\(\)/);
+ assert.match(sync,/const preceding=activeRun/);
+ assert.match(sync,/function correctionAcknowledged\(/);
+});

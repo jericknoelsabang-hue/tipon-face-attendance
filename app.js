@@ -1573,23 +1573,40 @@ async function restoreEncryptedBackup(event){if(!isAdmin())return;if(window.TIPO
  }catch(err){toastError(err,'Backup restore failed');}
 }
 
-let directoryRefreshBusy=false;
+let directoryRefreshBusy=false,lastDirectorySyncNotice='',lastDirectorySyncNoticeAt=0;
+function showDirectorySyncNotice(message,level='info',duration=6500){
+ const now=Date.now();
+ if(message===lastDirectorySyncNotice&&now-lastDirectorySyncNoticeAt<12000)return;
+ lastDirectorySyncNotice=message;lastDirectorySyncNoticeAt=now;
+ showToast(message,level,duration);
+}
 async function refreshDirectoryView(kind,buttonId=''){
  if(directoryRefreshBusy)return;
  if(!navigator.onLine){showToast('Offline: saved records are still available. Connect to the internet to refresh from Google Sheets.','info');return;}
  directoryRefreshBusy=true;
  const button=$(buttonId||(kind==='members'?'memberRefresh':'terminalLogRefresh'));
- if(button)button.disabled=true;
+ const controls=[...new Set([button,$('terminalLogRefresh'),$('terminalLogSync'),$('memberRefresh')].filter(Boolean))];
+ const previous=controls.map(el=>[el,el.disabled]);
+ controls.forEach(el=>{el.disabled=true;});
  try{
-  const sync=await TIPONSync.run();
+  const sync=await TIPONSync.submitPendingNow();
   if(!sync?.readOk&&!sync?.ok)throw Error(sync?.error||'Central synchronization has not completed. Try Refresh again.');
   await loadCollections();
   if(kind==='members')renderMembers();
   else renderTerminalLogs();
-  if(sync.pending)showToast('Latest central records loaded. '+sync.pending+' record(s) still need synchronization or have sync errors.','info',6500);
-  else showToast('Latest central '+(kind==='members'?'member directory':'attendance logs')+' loaded.','success');
- }catch(error){toastError(error,'Refresh failed');}
- finally{directoryRefreshBusy=false;if(button)button.disabled=false;}
+  const subject=kind==='members'?'member directory':'attendance logs';
+  const details=sync.details||{};
+  if(details.needsReview){
+   showDirectorySyncNotice('Latest central '+subject+' loaded. '+details.needsReview+
+    ' local change(s) need review in Settings & Offline. '+(details.firstProblem||'No saved record was erased.'),'error',8500);
+  }else if(sync.error){
+   showDirectorySyncNotice('Latest central '+subject+' loaded, but an upload could not finish: '+sync.error,'error',8500);
+  }else if(details.queued||sync.pending){
+   showDirectorySyncNotice('Latest central '+subject+' loaded. '+(details.queued||sync.pending)+
+    ' local change(s) are saved and queued for automatic retry.','info',6500);
+  }else showDirectorySyncNotice('Latest central '+subject+' loaded.','success');
+ }catch(error){showDirectorySyncNotice('Refresh failed: '+(error?.message||String(error)),'error',8500);}
+ finally{directoryRefreshBusy=false;for(const [el,disabled] of previous)el.disabled=disabled;}
 }
 function bindEvents(){
  document.querySelectorAll('[data-page]').forEach(el=>el.addEventListener('click',()=>showPage(el.dataset.page)));

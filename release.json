@@ -1,5 +1,5 @@
 {
   "app": "TIPON Face Attendance",
-  "version": "5.5.60",
-  "label": "Restore original mobile/tablet workspace by removing mobile sidebar CSS overrides; remove Work Location filter from Absenteeism only. Attendance Logs filters and other features unchanged."
+  "version": "5.5.61",
+  "label": "Attendance synchronization reliability: scope sync status to this account/device, distinguish retry vs review, retain edits across transient timeouts, reconcile confirmed corrections after lost acknowledgments, and deduplicate refresh notices. No attendance records are erased."
 }

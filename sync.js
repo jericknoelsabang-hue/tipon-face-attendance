@@ -15,6 +15,26 @@ window.TIPONAPI=(()=>{
 })();
 window.TIPONSync=(()=>{
   let busy=false,timer=null,attempt=0,message='Sign in to enable organization sync.',lastSync='',stopped=true,activeRun=null,siteFastRetry=0,eventVersionSupported=null;
+  // Only changes owned by the signed-in account and attendance recorded by this
+  // device are actionable here. A central catalog may include other users' data.
+  let cachedOutbox=[];
+  function queueSummary(outbox,punches,orgId,ownerId,deviceId){
+    const owners=(outbox||[]).filter(op=>op&&String(op.orgId)===String(orgId)&&String(op.ownerId)===String(ownerId));
+    const local=(punches||[]).filter(p=>p&&String(p.orgId)===String(orgId)&&
+      String(p.deviceId)===String(deviceId)&&(!p.cloudAck||p.reviewStatus));
+    const reviewCodes=new Set(['NEEDS_REVIEW','CONFLICT','FORBIDDEN','NOT_FOUND','VALIDATION','PERMISSION','AUTHZ','ACTION']);
+    const reviewOps=owners.filter(op=>reviewCodes.has(String(op.errorCode||'').toUpperCase()));
+    const queuedOps=owners.filter(op=>!reviewCodes.has(String(op.errorCode||'').toUpperCase()));
+    const reviewEvents=local.filter(p=>!!p.reviewStatus);
+    const queuedEvents=local.filter(p=>!p.reviewStatus);
+    const queued=queuedOps.length+queuedEvents.length,needsReview=reviewOps.length+reviewEvents.length;
+    const retrying=queuedOps.filter(op=>!!(op.error||op.errorCode)).length+
+      queuedEvents.filter(p=>!!p.syncError).length;
+    const firstProblem=String(reviewOps[0]?.error||reviewEvents[0]?.syncError||'').slice(0,160);
+    return {queued,needsReview,total:queued+needsReview,retrying,firstProblem,
+      queuedOps:queuedOps.length,queuedEvents:queuedEvents.length};
+  }
+  function localQueue(){return queueSummary(cachedOutbox,state.punches,state.orgId,state.user?.id,state.deviceId);}
   // Pause a single Work Location while an Administrator resolves a stale outbox
   // operation against an authoritative central snapshot. Other locations and
   // attendance events continue to synchronize normally.
@@ -31,24 +51,23 @@ window.TIPONSync=(()=>{
     if(running){try{await running;}catch(_){/* Next read checks server state. */}}
   }
   function render(){
-    const s=TIPONAuth.current();const pending=state.punches.filter(p=>p.orgId===state.orgId&&!p.cloudAck&&!p.reviewStatus).length;
-    const review=state.punches.filter(p=>p.reviewStatus).length;
+    const s=TIPONAuth.current(),queue=localQueue(),pending=queue.queued,review=queue.needsReview;
     const liveStatus=!s?'Sign in to connect this device to central attendance.':!navigator.onLine?'Offline. New punches stay saved on this device until it reconnects.':eventVersionSupported===false?'Connected, but the server does not report attendance correction updates. Cross-device edits/deletes may need an Apps Script update.':busy?'Syncing attendance, members, and work locations…':lastSync?'Last central sync: '+lastSync+'. Automatic updates run while this app is open.':message;
     setText('attendanceLogSyncStatus',liveStatus);
     if($('attendanceLogSyncStatus'))$('attendanceLogSyncStatus').dataset.state=!navigator.onLine?'offline':eventVersionSupported===false?'warning':busy?'syncing':s&&lastSync?'connected':'waiting';
     setText('syncConnectionState',s?(busy?'Syncing organization data...':navigator.onLine?'Account connected; automatic retry enabled':'Offline: using this device\'s saved data'):'Sign in required');
-    setText('syncQueueState',pending+' local attendance events pending'+(review?' | '+review+' sync error(s)':''));
+    setText('syncQueueState',(pending?pending+' local change(s) awaiting automatic sync':'No local changes awaiting sync')+(review?' | '+review+' change(s) need review':''));
     setText('syncLastState',message+(lastSync?' | Last successful sync: '+lastSync:'')+(eventVersionSupported===false?' | Backend does not report attendance correction updates.':''));setText('recordSyncState',message);
     if($('syncNow'))$('syncNow').disabled=busy||!s;if($('syncRecordsNow'))$('syncRecordsNow').disabled=busy||!s;
     setText('orgSyncStamp',lastSync?'Last received: '+lastSync:'No central snapshot received yet.');
   }
   function syncStampId(){return 'tp5-last-sync:'+String(state.orgId||'')+':'+String(state.user?.id||'');}
   function start(){
-    stopped=false;lastSync='';
+    stopped=false;lastSync='';cachedOutbox=[];
     getOne('meta',syncStampId()).then(saved=>{if(!lastSync&&saved?.value){lastSync=saved.value;render();}}).catch(()=>{});
     kick();
   }
-  function stop(){stopped=true;clearTimeout(timer);}
+  function stop(){stopped=true;clearTimeout(timer);cachedOutbox=[];}
   function schedule(){clearTimeout(timer);if(stopped)return;
     const localEventsQueued=state.punches.some(p=>p.orgId===state.orgId&&!p.cloudAck&&!p.reviewStatus&&p.deviceId===state.deviceId);
      const base=localEventsQueued?7000:state.user?.role==='admin'?15000:5000;
@@ -126,6 +145,45 @@ window.TIPONSync=(()=>{
     if(completed)message=completed+' previously queued member deletion(s) confirmed by the central database.';
     return completed;
   }
+  // A lost response must never make an already-accepted attendance correction
+  // appear permanently unsynced. Only confirm against authoritative cloud-ACK
+  // events, a newer correction revision, and the exact requested final state.
+  function correctionAcknowledged(op,events,synthetic){
+    const details=op?.value||{},ids=details.eventIds||[];
+    if(!ids.length||events.length!==ids.length||events.some(p=>!p||!p.cloudAck||
+      !(Number(p.correctionRev)>Number(op.baseRev||0))))return false;
+    if(details.delete)return events.every(p=>p.deleted===true);
+    if(events.some(p=>p.deleted))return false;
+    const changes=details.changes||{},original=details.original||{};
+    const timeIn=changes.timeIn||original.timeIn,timeOut=changes.timeOut||original.timeOut;
+    if(!timeIn||timeOut===undefined)return false;
+    if(events.some(p=>p.type==='IN'&&p.timestamp!==timeIn))return false;
+    if(events.some(p=>p.type==='OUT'&&p.timestamp!==timeOut))return false;
+    if(timeOut&&!events.some(p=>p.type==='OUT')&&
+      (!synthetic||!synthetic.cloudAck||synthetic.deleted||synthetic.timestamp!==timeOut||
+       !(Number(synthetic.correctionRev)>Number(op.baseRev||0))))return false;
+    return true;
+  }
+  async function confirmCorrection(op,events){
+    // Clear only stale sync markers, never raw attendance or reported times.
+    for(const item of events){
+      if(!item||!('pendingCorrection' in item)&&!item.syncError&&!item.reviewStatus)continue;
+      const saved={...item};delete saved.pendingCorrection;delete saved.syncError;delete saved.reviewStatus;
+      await OrgDB.rawSave('punches',saved);
+    }
+    await OrgDB.rawDelete('outbox',op.id);
+  }
+  async function reconcileConfirmedCorrections(){
+    // Recheck even NEEDS_REVIEW operations: an earlier response could have
+    // been lost before the app received the cloud's correction revision.
+    const list=await getAll('outbox');
+    for(const op of list.filter(item=>item.type==='attendanceCorrections'&&item.everSent&&
+      item.orgId===state.orgId&&item.ownerId===state.user?.id)){
+      const events=await Promise.all((op.value?.eventIds||[]).map(id=>getOne('punches',id)));
+      const synthetic=await getOne('punches','attendance-correction-out:'+String(op.value?.sessionId||''));
+      if(correctionAcknowledged(op,events,synthetic))await confirmCorrection(op,events);
+    }
+  }
   async function flush(){
     const actor=state.user;
     const outbox=(await getAll('outbox')).filter(op=>op.orgId===state.orgId&&op.ownerId===actor.id)
@@ -197,8 +255,14 @@ window.TIPONSync=(()=>{
     const failSpecial=async(op,error)=>{
       const latest=await getOne('outbox',op.id);if(!latest)return;
       latest.error=String(error.message||error).slice(0,400);
-      latest.errorCode=['ACTION','CONFLICT','FORBIDDEN','NOT_FOUND','VALIDATION','OPEN_SESSION','OVERLAP'].includes(String(error.code||'').toUpperCase())?'NEEDS_REVIEW':String(error.code||'SERVER').toUpperCase();
+      const code=String(error.code||'SERVER').toUpperCase();
+      const retryable=['NETWORK','TIMEOUT','GATEWAY_OFFLINE','BUSY','RATE_LIMIT','SERVER','DEPENDENCY'].includes(code);
+      latest.errorCode=retryable?code:'NEEDS_REVIEW';
+      if(retryable)latest.retryCount=Math.min(30,(Number(latest.retryCount)||0)+1);
       await OrgDB.rawSave('outbox',latest);
+      // A timeout is not a server rejection; the request may already have
+      // committed. Keep local edits and the durable outbox for safe recheck.
+      if(retryable||op.type==='attendanceCorrections'&&code==='CONFLICT')return;
       if(op.type==='attendanceCorrections'){
         for(const eventId of op.value.eventIds||[]){
           const p=await getOne('punches',eventId);if(!p)continue;
@@ -318,7 +382,15 @@ window.TIPONSync=(()=>{
           await OrgDB.rawDelete('outbox',op.id);
         }else if(op.type==='attendanceCorrections'){
           const ids=op.value.eventIds||[],eventsForCorrection=await Promise.all(ids.map(id=>getOne('punches',id)));
+          const syntheticId='attendance-correction-out:'+String(op.value.sessionId);
+          const existingSynthetic=await getOne('punches',syntheticId);
+          if(op.everSent&&correctionAcknowledged(op,eventsForCorrection,existingSynthetic)){
+            await confirmCorrection(op,eventsForCorrection);continue;
+          }
           if(!eventsForCorrection.length||eventsForCorrection.some(p=>!p||!p.cloudAck||p.requiresSessionResolution))continue;
+          // Persist the sent marker before making an ambiguous network request.
+          // The next poll can safely recognize a commit even if its reply is lost.
+          if(!op.everSent){op.everSent=true;await OrgDB.rawSave('outbox',op);}
           const reply=await TIPONAPI.call({action:'attendanceCorrect',sessionId:op.value.sessionId,
             baseRev:Number(op.baseRev)||0,changes:op.value.changes||{},delete:!!op.value.delete,reason:op.value.reason});
           const correction=reply.correction;
@@ -334,8 +406,6 @@ window.TIPONSync=(()=>{
             p.correctionRev=Number(correction.rev)||0;delete p.pendingCorrection;delete p.syncError;delete p.reviewStatus;
             await OrgDB.rawSave('punches',p);
           }
-          const syntheticId='attendance-correction-out:'+String(op.value.sessionId);
-          const existingSynthetic=await getOne('punches',syntheticId);
           if(correction.deleted){
             if(existingSynthetic){existingSynthetic.deleted=true;existingSynthetic.correctionRev=Number(correction.rev)||0;await OrgDB.rawSave('punches',existingSynthetic);}
           }else if(correction.createdOut&&correction.timeOut){
@@ -353,7 +423,19 @@ window.TIPONSync=(()=>{
           }
           await OrgDB.rawDelete('outbox',op.id);
         }
-      }catch(error){await failSpecial(op,error);}
+      }catch(error){
+        if(op.type==='attendanceCorrections'&&String(error?.code||'').toUpperCase()==='CONFLICT'){
+          try{
+            await pull();
+            const originalEvents=await Promise.all((op.value.eventIds||[]).map(id=>getOne('punches',id)));
+            const synthetic=await getOne('punches','attendance-correction-out:'+String(op.value.sessionId));
+            if(correctionAcknowledged(op,originalEvents,synthetic)){
+              await confirmCorrection(op,originalEvents);continue;
+            }
+          }catch(reconcileError){console.warn('Attendance correction reconciliation deferred:',reconcileError);}
+        }
+        await failSpecial(op,error);
+      }
     }
     if(operations.length)await send(operations,[]);
   }
@@ -475,24 +557,26 @@ window.TIPONSync=(()=>{
          if(['AUTH','ACCOUNT','DEVICE_DISABLED'].includes(String(error?.code||'')))throw error;
          uploadFailure=error;
        }
-       await pull();await loadCollections();
+       await pull();await reconcileConfirmedCorrections();await loadCollections();
        if(uploadFailure)console.warn('Upload needs review; central attendance read succeeded:',uploadFailure);
       lastSync=TIPONCore.phStamp(new Date().toISOString());
       await OrgDB.rawSave('meta',{id:syncStampId(),value:lastSync,orgId:state.orgId,accountId:state.user.id});
-      const unsent=state.punches.filter(p=>p.orgId===state.orgId&&!p.cloudAck&&!p.reviewStatus&&p.deviceId===state.deviceId).length;
-      const waiting=(await getAll('outbox')).filter(o=>o.orgId===state.orgId&&o.error).length+
-        state.punches.filter(p=>p.reviewStatus).length+unsent;
-       message=uploadFailure?'Central attendance received; an upload failed: '+String(uploadFailure.message||uploadFailure).slice(0,180):
-         waiting?'Central data updated; '+waiting+' record(s) have sync errors. See Settings / Accounts.':
-         'Central attendance updated.';attempt=uploadFailure?Math.min(attempt+1,4):0;
-      result={ok:!uploadFailure,pending:waiting,error:uploadFailure?String(uploadFailure.message||uploadFailure):undefined,readOk:true};
+      cachedOutbox=await getAll('outbox');
+      const queue=localQueue();
+      message=uploadFailure?'Central attendance received; upload will retry: '+String(uploadFailure.message||uploadFailure).slice(0,180):
+        queue.needsReview?'Central data updated; '+queue.needsReview+' local change(s) need review. '+queue.firstProblem:
+        queue.queued?'Central data updated; '+queue.queued+' local change(s) remain queued for automatic sync.':
+        'Central attendance updated.';
+      attempt=uploadFailure||queue.retrying?Math.min(attempt+1,4):0;
+      result={ok:!uploadFailure,pending:queue.total,details:queue,
+        error:uploadFailure?String(uploadFailure.message||uploadFailure):undefined,readOk:true};
       const remainingSites=(await getAll('outbox')).filter(op=>op.orgId===state.orgId&&
         op.ownerId===state.user?.id&&op.type==='sites'&&
         !['NEEDS_REVIEW','FORBIDDEN','CONFLICT'].includes(op.errorCode));
       siteFastRetry=remainingSites.length?siteFastRetry+1:0;
       if(state.page==='terminalLogs')renderTerminalLogs();if(state.page==='dashboard')renderDashboard();if(state.page==='records')renderRecords();if(state.page==='members')renderMembers();if(state.page==='adminSites')window.TIPONAdminSites?.render();if(state.page==='accounts'&&isAdmin())await OrgUI.renderAccounts();if(state.page==='sites')renderSites();if(state.page==='scanner'){renderTerminal();renderTerminalLogs();const ready=state.members.filter(m=>m.active!==false&&!m.deleted&&m.descriptors?.length>=3).length;if(ready)updateScanResult('Member directory ready',ready+' enrolled face template(s) loaded on this terminal. Face matches are checked against assigned office GPS.','success');}TIPONPlatforms.render();
     }catch(e){siteFastRetry=0;message=e.message;attempt=Math.min(attempt+1,4);if(['AUTH','ACCOUNT','DEVICE_DISABLED'].includes(e.code))message+=' Sign out and sign in online.';result={ok:false,error:message,code:e.code||'SYNC'};}
-    finally{busy=false;render();schedule();}
+    finally{if(!result.readOk)try{cachedOutbox=await getAll('outbox');}catch(_){}busy=false;render();schedule();}
     return result;
   }
   // A concurrent timer/manual caller receives the same pending cycle.
