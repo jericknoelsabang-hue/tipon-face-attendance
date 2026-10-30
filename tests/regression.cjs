@@ -779,7 +779,7 @@ test('Empty date/MPC filters zero all Absenteeism KPIs, charts, donut and review
  assert.match(org,/\{coop,members:0,complete:0,missing:0\}/);
  assert.match(source('index.html'),/id="absReviewCount" hidden/);
 });
-test('Review flags: ABSENT without IN, Open Time In without OUT, AWOL after 3 consecutive no-time days',()=>{
+test('Review flags: Absent without IN, Open Time In without OUT, AWOL after 3 consecutive no-time days',()=>{
  const people=[
   {id:'absent',name:'Missing',coop:'Asiapro',template:{},active:true,createdAt:'2026-10-27T00:00:00Z'},
   {id:'open',name:'Open',coop:'Asiapro',template:{},active:true,createdAt:'2026-10-27T00:00:00Z'},
@@ -800,7 +800,7 @@ test('Review flags: ABSENT without IN, Open Time In without OUT, AWOL after 3 co
   Date.parse('2026-10-29T12:00:00Z'),'2026-10-27');
  const rows=c.TIPONAbsenteeism.reviewRecords(data,false);
  assert.equal(rows.find(x=>x.member.id==='absent'&&x.day==='2026-10-29').flag,'AWOL');
- assert.equal(rows.find(x=>x.member.id==='absent'&&x.day==='2026-10-27').flag,'ABSENT');
+ assert.equal(rows.find(x=>x.member.id==='absent'&&x.day==='2026-10-27').flag,'Absent');
  assert.equal(rows.find(x=>x.member.id==='open'&&x.day==='2026-10-29').flag,'Open Time In');
  assert.ok(!rows.some(x=>x.member.id==='paired'&&x.day==='2026-10-29'));
  assert.equal(data.summary.awolCount,1);
@@ -811,12 +811,12 @@ test('Review flags: ABSENT without IN, Open Time In without OUT, AWOL after 3 co
  const extraData=c.TIPONAbsenteeism.compute(people,[],noTimeOutOnly,[],'2026-10-29','Asiapro',
   Date.parse('2026-10-29T12:00:00Z'),'2026-10-27');
  const extra=c.TIPONAbsenteeism.reviewRecords(extraData,false);
- assert.equal(extra.find(x=>x.member.id==='absent'&&x.day==='2026-10-29').flag,'ABSENT');
+ assert.equal(extra.find(x=>x.member.id==='absent'&&x.day==='2026-10-29').flag,'Absent');
  assert.equal(extraData.summary.awolCount,0);
  c.TIPONOrgCore.scheduled=(member,site,day)=>member.id==='absent'&&day==='2026-10-28'?{kind:'LEAVE'}:{kind:'UNSCHEDULED'};
  const excused=c.TIPONAbsenteeism.compute(people,[],events,[],'2026-10-29','Asiapro',
   Date.parse('2026-10-29T12:00:00Z'),'2026-10-27');
- assert.equal(c.TIPONAbsenteeism.reviewRecords(excused,false).find(x=>x.member.id==='absent'&&x.day==='2026-10-29').flag,'ABSENT');
+ assert.equal(c.TIPONAbsenteeism.reviewRecords(excused,false).find(x=>x.member.id==='absent'&&x.day==='2026-10-29').flag,'Absent');
 });
 test('One dashboard filter controls all reports; no independent render overwrites the shared filter',()=>{
  const app=source('app.js'),org=source('organization.js'),abs=source('absenteeism.js'),html=source('index.html');
@@ -831,4 +831,98 @@ test('One dashboard filter controls all reports; no independent render overwrite
  assert.match(html,/id="dashboardCoop"/);
  assert.doesNotMatch(html,/id="dashboardPlatform"/);
  assert.doesNotMatch(html,/id="dashboardSite"/);
+});
+
+
+test('Admin attendance correction is not blocked by forbidden raw-punch upload',async()=>{
+ const admin={...actor,id:'admin-1',role:'admin'},now='2026-10-28T01:00:00Z';
+ const input={...event('in','IN',now),deviceId:'approved-kiosk',cloudAck:true};
+ const legacy={...event('old-local','OUT','2026-10-28T06:00:00Z'),sessionId:'unrelated-session',
+   deviceId:'shared-browser',cloudAck:false};
+ const punches=[input,legacy],outbox=[{id:'admin-fix',type:'attendanceCorrections',orgId:'org-1',ownerId:admin.id,baseRev:0,
+  value:{sessionId:'session-1',eventIds:['in'],reason:'Restore missing Time Out',
+   changes:{timeIn:now,timeOut:'2026-10-28T08:00:00Z'},original:{timeIn:now,timeOut:''}}}];
+ const tables={outbox,punches},calls=[];
+ const context={console,Date,Map,Set,Math,Number,setTimeout,clearTimeout,
+  navigator:{onLine:true},state:{user:admin,orgId:'org-1',deviceId:'shared-browser',punches},
+  $:()=>null,setText:()=>{},TIPONOrgCore:Org,TIPONAuth:{ensureOnline:async()=> 'admin-token'},
+  TIPONGitHubBridge:{request:async payload=>{
+   calls.push(payload);
+   if(payload.action==='submit')throw Object.assign(Error('Only approved User or Physical Kiosk accounts can upload attendance.'),{code:'FORBIDDEN'});
+   assert.equal(payload.action,'attendanceCorrect');
+   return {ok:true,protocol:Org.PROTOCOL,correction:{sessionId:'session-1',timeIn:now,
+    timeOut:'2026-10-28T08:00:00Z',createdOut:true,rev:1}};
+  }},
+  getAll:async type=>tables[type],getOne:async(type,id)=>tables[type]?.find(x=>x.id===id),
+  OrgDB:{rawSave:async(type,entity)=>{const a=tables[type],i=a.findIndex(x=>x.id===entity.id);
+    if(i<0)a.push(entity);else a[i]=entity;},
+   rawDelete:async(type,id)=>{const a=tables[type],i=a.findIndex(x=>x.id===id);if(i>=0)a.splice(i,1);}}
+ };
+ context.window=context;vm.createContext(context);
+ vm.runInContext(source('sync.js').replace('return {init,start,stop,kick','return {__flush:flush,init,start,stop,kick'),context);
+ await context.TIPONSync.__flush();
+ assert.deepEqual(calls.map(x=>x.action),['attendanceCorrect']);
+ assert.equal(outbox.length,0);
+ assert.equal(punches.find(p=>p.id==='old-local').cloudAck,false,'never delete or secretly upload unrelated pending events');
+ const synthetic=punches.find(p=>p.id==='attendance-correction-out:session-1');
+ assert.equal(synthetic?.timestamp,'2026-10-28T08:00:00Z');
+ assert.equal(synthetic.cloudAck,true);
+});
+test('User correction is submitted before a rejected unrelated raw attendance event',async()=>{
+ const now='2026-10-28T01:00:00Z',input={...event('in','IN',now),deviceId:'registered',cloudAck:true};
+ const other={...event('pending-out','OUT','2026-10-28T05:00:00Z'),sessionId:'other-session',deviceId:'registered',cloudAck:false};
+ const punches=[input,other],outbox=[{id:'user-fix',type:'attendanceCorrections',orgId:'org-1',ownerId:actor.id,baseRev:0,
+  value:{sessionId:'session-1',eventIds:['in'],reason:'Add missing Time Out',
+   changes:{timeIn:now,timeOut:'2026-10-28T08:00:00Z'},original:{timeIn:now,timeOut:''}}}];
+ const tables={punches,outbox},calls=[];
+ const context={console,Date,Map,Set,Math,Number,setTimeout,clearTimeout,
+  navigator:{onLine:true},state:{user:actor,orgId:'org-1',deviceId:'registered',punches},
+  $:()=>null,setText:()=>{},TIPONOrgCore:Org,TIPONAuth:{ensureOnline:async()=> 'user-token'},
+  TIPONGitHubBridge:{request:async payload=>{
+   calls.push(payload);
+   if(payload.action==='submit')throw Object.assign(Error('A queued punch was rejected'),{code:'FORBIDDEN'});
+   assert.equal(payload.action,'attendanceCorrect');
+   return {ok:true,protocol:Org.PROTOCOL,correction:{sessionId:'session-1',timeIn:now,
+    timeOut:'2026-10-28T08:00:00Z',createdOut:true,rev:1}};
+  }},
+  getAll:async type=>tables[type],getOne:async(type,id)=>tables[type]?.find(x=>x.id===id),
+  OrgDB:{rawSave:async(type,entity)=>{const a=tables[type],i=a.findIndex(x=>x.id===entity.id);
+    if(i<0)a.push(entity);else a[i]=entity;},
+   rawDelete:async(type,id)=>{const a=tables[type],i=a.findIndex(x=>x.id===id);if(i>=0)a.splice(i,1);}}
+ };
+ context.window=context;vm.createContext(context);
+ vm.runInContext(source('sync.js').replace('return {init,start,stop,kick','return {__flush:flush,init,start,stop,kick'),context);
+ await assert.rejects(context.TIPONSync.__flush(),/queued punch was rejected/i);
+ assert.deepEqual(calls.map(x=>x.action),['attendanceCorrect','submit']);
+ assert.equal(outbox.length,0,'successful correction must not be rolled back by an unrelated failed punch');
+ assert.equal(punches.find(p=>p.id==='pending-out').cloudAck,false);
+ assert.equal(punches.find(p=>p.id==='attendance-correction-out:session-1').cloudAck,true);
+});
+test('Edit Attendance remains responsive while server sync runs and never claims an unacknowledged save',()=>{
+ const app=source('app.js'),sync=source('sync.js'),html=source('index.html');
+ const save=app.slice(app.indexOf('async function saveAttendanceCorrection('),app.indexOf('function editAttendanceFromLog('));
+ assert.match(save,/await loadCollections\(\);renderTerminalLogs\(\);renderDashboard\(\)/);
+ assert.match(save,/void TIPONSync\.submitPendingNow\(\)\.then\(async\(result\)=>/);
+ assert.doesNotMatch(save,/const result=await TIPONSync\.submitPendingNow\(\)/);
+ assert.match(save,/if\(!pending\)/);
+ assert.match(save,/else if\(pending\.errorCode==='NEEDS_REVIEW'\)/);
+ assert.match(save,/Correction saved on this device|Attendance edit saved locally/);
+ assert.match(sync,/const mayUploadPunches=actor.role==='registrar'\|\|actor.role==='kiosk'/);
+ const before=sync.indexOf('for(const op of special){'),send=sync.indexOf('if\(events.length\)await send\(\[],events\);');
+ assert.ok(before>=0);
+ assert.ok(sync.indexOf('if(events.length)await send([],events);')>before);
+ assert.match(app,/function canCorrectAttendance\(\)/);
+ assert.match(app,/isAdmin\(\)\|\|u.role==='registrar'/);
+ assert.match(app,/if\(outDate&&outTime\)changes\.timeOut=attendanceInputStamp\(outDate,outTime\)/);
+ assert.match(html,/id="attendanceEditDateOut"/);
+ assert.match(html,/id="attendanceEditTimeOut"/);
+});
+test('Attendance Review uses correctly worded status flags without changing underlying policy',()=>{
+ const report=source('absenteeism.js'),html=source('index.html');
+ assert.match(report,/row\.outOnlyMembers\.forEach\(member=>add\(member,row\.day,'Absent'\)\)/);
+ assert.match(report,/\?'AWOL':'Absent'/);
+ assert.match(report,/,'Open Time In',session\.sessionId\)/);
+ assert.doesNotMatch(report,/flag,'ABSENT'/);
+ assert.match(html,/Absent: no Time In recorded/);
+ assert.match(html,/Open Time In: Time In recorded, but no valid Time Out/);
 });

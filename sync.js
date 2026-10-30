@@ -201,9 +201,13 @@ window.TIPONSync=(()=>{
       !(op.type==='sites'&&suspendedSiteIds.has(String(op.value?.id||''))));
     const siteQueue=eligible.filter(op=>op.type==='sites');
     const operations=actor.role==='kiosk'?[]:(siteQueue.length?siteQueue.slice(0,3):eligible.slice(0,5));
-    const events=state.punches.filter(p=>
+    // Backend submit events are limited to approved User/Physical Kiosk.
+    // Administrators can edit attendance through the distinct audited
+    // attendanceCorrect action, but must NEVER upload raw punches.
+    const mayUploadPunches=actor.role==='registrar'||actor.role==='kiosk';
+    const events=mayUploadPunches?state.punches.filter(p=>
       p.orgId===state.orgId&&!p.cloudAck&&!p.reviewStatus&&p.deviceId===state.deviceId)
-      .sort((a,b)=>Date.parse(a.timestamp)-Date.parse(b.timestamp)).slice(0,8);
+      .sort((a,b)=>Date.parse(a.timestamp)-Date.parse(b.timestamp)).slice(0,8):[];
     const special=outbox.filter(op=>specialTypes.includes(op.type)&&
       !['NEEDS_REVIEW','CONFLICT','FORBIDDEN','NOT_FOUND'].includes(op.errorCode));
     if(!operations.length&&!events.length&&!special.length)return;
@@ -303,8 +307,10 @@ window.TIPONSync=(()=>{
         }
       }
     };
-    if(events.length)await send([],events);
-    for(const op of special){
+    // Correct existing attendance independently of ordinary punch uploads.
+    // Preserve the original ordering of unrelated member/site operations.
+    const sendSpecial=async selected=>{
+    for(const op of selected){
       try{
         if(op.type==='memberEdits'||op.type==='memberFaceUpdates'){
           const memberId=String(op.value.memberId),baseRev=Number(op.baseRev)||0;
@@ -437,6 +443,10 @@ window.TIPONSync=(()=>{
         await failSpecial(op,error);
       }
     }
+    }
+    await sendSpecial(special.filter(op=>op.type==='attendanceCorrections'));
+    if(events.length)await send([],events);
+    await sendSpecial(special.filter(op=>op.type!=='attendanceCorrections'));
     if(operations.length)await send(operations,[]);
   }
   async function pullCatalog(version){

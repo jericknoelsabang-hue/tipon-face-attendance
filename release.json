@@ -1,5 +1,5 @@
 {
   "app": "TIPON Face Attendance",
-  "version": "5.5.65",
-  "label": "Unified Absenteeism, Attendance Review, Attendance and MPC filters: one selected date means exact day, two dates mean inclusive range. A filter with no attendance shows zero metrics and no review rows. Review Flag uses ABSENT (no Time In), Open Time In (missing Time Out), and provisional AWOL (three consecutive days without time, excluding rest/leave). Review count badge removed. No attendance data or unrelated modules changed."
+  "version": "5.5.66",
+  "label": "Attendance Review flags use professional casing (Absent, Open Time In, AWOL). Attendance Logs edits by Admin/User persist locally immediately and sync corrections independently from restricted raw punch uploads; missing Time Out can be supplied via Edit. No other features changed."
 }

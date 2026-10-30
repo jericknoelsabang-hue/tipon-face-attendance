@@ -1071,21 +1071,25 @@ function attendanceRowByKey(key){
 async function saveAttendanceCorrection(row,changes,reason,deleted=false){
  if(!canCorrectAttendance())throw Error('An approved Administrator or User session is required.');
  const sessionId=String(row.key);
- let queued=(await getAll('outbox')).find(item=>item.type==='attendanceCorrections'&&String(item.value?.sessionId)===sessionId&&item.orgId===state.orgId);
- // Reconcile an earlier edit before retrying it. This refreshes the central
- // revision and reuses one operation per session instead of duplicating edits.
- if(queued&&navigator.onLine){try{await TIPONSync.submitPendingNow();}catch(_){/* Keep the updated correction queued below. */}await loadCollections();}
+ const existing=(await getAll('outbox')).find(item=>
+   item.type==='attendanceCorrections'&&String(item.value?.sessionId)===sessionId&&item.orgId===state.orgId);
+ if(existing&&String(existing.ownerId)!==String(state.user.id))
+   throw Error('Another account has an unsynchronized edit for this session. Sign in with that account to finish syncing first.');
+ // A previously sent request may already be committed on the server; do not
+ // silently overwrite its outbox entry while its reply may be in flight.
+ if(existing?.everSent)
+   throw Error('An earlier edit is awaiting server confirmation. Use Sync Now and retry after the update appears.');
+ let queued=existing;
  const latest=attendanceRowByKey(sessionId)||row;
  const events=state.punches.filter(p=>(latest.eventIds||row.eventIds||[]).includes(p.id));
  if(!events.length)throw Error('Attendance events are not available on this device. Refresh the Attendance Logs and try again.');
  if(events.some(p=>p.requiresSessionResolution&&!p.cloudAck))throw Error('This cross-device session is still downloading. Sync the Attendance Logs, then save again.');
- queued=(await getAll('outbox')).find(item=>item.type==='attendanceCorrections'&&String(item.value?.sessionId)===sessionId&&item.orgId===state.orgId)||queued;
- const reuse=!!queued;
  const op=queued||{id:uuid(),type:'attendanceCorrections',orgId:state.orgId,ownerId:state.user.id,createdAt:new Date().toISOString(),everSent:false};
+ const previous=queued?.value?.original;
  op.value={sessionId,memberId:String(latest.memberId),eventIds:events.map(p=>p.id),changes:changes||{},delete:!!deleted,
-   reason:String(reason||'').trim(),original:{timeIn:latest.timeIn||'',timeOut:latest.timeOut||''}};
- op.baseRev=Number(latest.correctionRev)||0;op.orgId=state.orgId;op.ownerId=state.user.id;
- if(reuse&&navigator.onLine)op.everSent=false;
+   reason:String(reason||'').trim(),original:previous||{timeIn:latest.timeIn||'',timeOut:latest.timeOut||''}};
+ op.baseRev=queued?Number(queued.baseRev)||0:Number(latest.correctionRev)||0;
+ op.orgId=state.orgId;op.ownerId=state.user.id;
  delete op.error;delete op.errorCode;
  await new Promise((resolve,reject)=>{
   const tx=db.transaction(['punches','outbox'],'readwrite'),store=tx.objectStore('punches');
@@ -1101,13 +1105,31 @@ async function saveAttendanceCorrection(row,changes,reason,deleted=false){
   }
   tx.objectStore('outbox').put(op);tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error);tx.onabort=()=>reject(tx.error);
  });
- await loadCollections();renderTerminalLogs();renderDashboard();TIPONSync.kick();
- if(navigator.onLine){
-  const result=await TIPONSync.submitPendingNow(),pending=await getOne('outbox',op.id);
-  await loadCollections();renderTerminalLogs();renderDashboard();
-  if(!pending)showToast(deleted?'Attendance session deleted and synchronized.':'Attendance correction synchronized.','success');
-  else showToast('Sync Error: '+String(pending.error||result?.error||'Correction is queued and will retry when the connection is available.').slice(0,220),'error',9000);
- }else showToast('Correction saved on this device. It will sync automatically when internet returns.','info',7500);
+ await loadCollections();renderTerminalLogs();renderDashboard();
+ // Editing must not hold the modal open through the 30-second Apps Script
+ // gateway. A local durable save is not a server ACK; report it accurately.
+ if(!navigator.onLine){
+   showToast('Attendance edit saved locally. It will sync automatically when internet returns.','info',7500);
+   TIPONSync.kick();return;
+ }
+ showToast('Attendance edit saved locally. Syncing with the organization…','info',5500);
+ // Queue a real sync immediately, with the existing single-flight protection,
+ // but do not block the form or claim success until the correction is ACKed.
+ const expectedUser=state.user.id,operationId=op.id;
+ void TIPONSync.submitPendingNow().then(async(result)=>{
+   const pending=await getOne('outbox',operationId);
+   if(state.user?.id!==expectedUser)return;
+   if(!pending){
+     await loadCollections();renderTerminalLogs();renderDashboard();
+     showToast(deleted?'Attendance deletion synchronized.':'Attendance correction synchronized.','success');
+   }else if(pending.errorCode==='NEEDS_REVIEW'){
+     showToast('Attendance edit needs review: '+String(pending.error||'Server rejected this correction.').slice(0,190),'error',9000);
+   }else if(!result?.readOk){
+     showToast('Attendance edit is saved locally and will retry. '+String(result?.error||'Sync not completed.').slice(0,170),'info',8500);
+   }
+ }).catch(error=>{
+   if(state.user?.id===expectedUser)showToast('Attendance edit is saved locally. Sync will retry: '+String(error?.message||error).slice(0,170),'info',8500);
+ });
 }
 function editAttendanceFromLog(event){
  const button=event.target.closest('[data-attendance-edit]');if(!button||!canCorrectAttendance())return;
