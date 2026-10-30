@@ -908,9 +908,10 @@ test('Edit Attendance remains responsive while server sync runs and never claims
  assert.match(save,/else if\(pending\.errorCode==='NEEDS_REVIEW'\)/);
  assert.match(save,/Correction saved on this device|Attendance edit saved locally/);
  assert.match(sync,/const mayUploadPunches=actor.role==='registrar'\|\|actor.role==='kiosk'/);
- const before=sync.indexOf('for(const op of special){'),send=sync.indexOf('if\(events.length\)await send\(\[],events\);');
- assert.ok(before>=0);
- assert.ok(sync.indexOf('if(events.length)await send([],events);')>before);
+ const correction=sync.indexOf("await sendSpecial(special.filter(op=>op.type==='attendanceCorrections'));");
+ const punch=sync.indexOf('if(events.length)await send([],events);');
+ const unrelated=sync.indexOf("await sendSpecial(special.filter(op=>op.type!=='attendanceCorrections'));");
+ assert.ok(correction>=0&&punch>correction&&unrelated>punch);
  assert.match(app,/function canCorrectAttendance\(\)/);
  assert.match(app,/isAdmin\(\)\|\|u.role==='registrar'/);
  assert.match(app,/if\(outDate&&outTime\)changes\.timeOut=attendanceInputStamp\(outDate,outTime\)/);
