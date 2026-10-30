@@ -948,11 +948,7 @@ function filteredAttendanceRows(){
 }
 function renderRecords(){
  validateAttendanceDateRange('recordFrom','recordTo','recordDateError','exportExcel');
- if(isAdmin()){
-  const page=$('page-records');
-  [...page.children].forEach(el=>{if(el.id!=='terminalLogPanel')el.hidden=true;});
-  page.appendChild($('terminalLogPanel'));renderTerminalLogs();return;
- }
+ if(isAdmin()){return;}
  const old=$('recordSite').value;
  const sites=new Map(state.sites.map(s=>[s.id,s.name]));for(const p of state.punches)if(p.siteId&&!sites.has(p.siteId))sites.set(p.siteId,p.siteName);
  $('recordSite').innerHTML='<option value="">All locations</option>'+[...sites].map(([id,name])=>`<option value="${esc(id)}">${esc(name)}</option>`).join('');
