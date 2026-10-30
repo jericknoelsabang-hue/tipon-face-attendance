@@ -107,7 +107,7 @@ window.TIPONAuth=(()=>{
     // Restored sessions have already passed the persisted inactivity check.
     // Freshly authenticated interaction begins a new 90-second activity window.
     session={...value,lastActivityAt:Date.now()};
-    if(freshLogin){if(typeof resetSharedAttendanceFilters==='function')resetSharedAttendanceFilters();await showPage('dashboard');}
+    if(freshLogin&&typeof resetSharedAttendanceFilters==='function')resetSharedAttendanceFilters();
     lastActivityPersist=Date.now();
     state.user=session.account;state.orgId=session.orgId;
     const kioskOnly=value.account?.role==='kiosk';

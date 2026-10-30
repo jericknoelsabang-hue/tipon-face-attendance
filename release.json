@@ -1,5 +1,5 @@
 {
   "app": "TIPON Face Attendance",
-  "version": "5.5.56",
-  "label": "Read-only timesheet estimates with selectable report rounding and potential overtime thresholds; original attendance events are unchanged. Admin/User unified Attendance Logs and non-destructive ledger recovery remain enabled."
+  "version": "5.5.57",
+  "label": "Admin and User Attendance Logs, streamlined timesheet filters, and sign-in navigation fix."
 }

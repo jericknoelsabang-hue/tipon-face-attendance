@@ -124,7 +124,6 @@ enterApp=async function(options={}){
   );
   applyRoles();await showPage(startPage);refreshClock();
   void checkOfflineReady().catch(error=>console.warn('Offline readiness check:',error));
-  if(isAdmin()&&state.user.defaultPassword)showToast('Change the initial administrator password in Settings before organization rollout.','info',10000);
 };
 applyRoles=function(){
   const u=state.user,kioskOnly=u?.role==='kiosk';
@@ -186,7 +185,7 @@ showPage=async function(page){
     // A temporary network issue must not block the Work Location list.
     void TIPONPlatforms.refresh().catch(error=>console.warn('Business Platform directory refresh:',error.message||error));
   }
-  if(page==='settings')OrgUI.renderSettings();if(page==='scanner')TIPONCamera.render();if(page==='terminalLogs')renderTerminalLogs();
+  if(page==='settings')OrgUI.renderSettings();if(page==='scanner')TIPONCamera.render();if(page==='terminalLogs'){renderTerminalLogs();window.TIPONTimesheet?.render();}
 };
 const originalOpenMember=openMemberForm,originalOpenSite=openSiteForm;
 openMemberForm=async function(member){
@@ -568,6 +567,7 @@ window.OrgUI=(()=>{
   }
   function renderSettings(){
     if(!state.user)return;
+    if($('adminInitialPasswordNotice'))$('adminInitialPasswordNotice').hidden=!(isAdmin()&&state.user.defaultPassword);
     setText('signedInAs',`${state.user.name} | ${roleName(state.user.role)}`);
     setText('offlineAccountStatus','Offline account/kiosk lease valid until '+displayStamp(TIPONAuth.current().offlineUntil)+'. Revocation is checked when online; keep devices secured.');
 

@@ -1008,13 +1008,7 @@ function attendanceMemberName(row,memberNames){
  const historical=String(row.memberName||'').trim();
  return current||historical||'Name unavailable';
 }
-function attendanceSyncLabel(row){
- const ids=new Set(row.eventIds||[]);
- const events=state.punches.filter(p=>ids.has(p.id));
- if(events.some(p=>p.reviewStatus||p.pendingCorrection==='review'))return 'Sync Error';
- if(events.some(p=>p.pendingCorrection==='pending'||p.requiresSessionResolution||!p.cloudAck))return 'Pending Sync';
- return 'Synced';
-}
+
 function renderTerminalLogs(){
  if(!$('terminalLogRows'))return;
  const sites=[...state.sites],events=state.punches,shared=sharedAttendanceFilters;
@@ -1053,10 +1047,10 @@ function renderTerminalLogs(){
     row.timeIn?TIPONCore.phStamp(row.timeIn).slice(-8):'—',
     row.timeOut?TIPONCore.phStamp(row.timeOut).slice(-8):'—',
     row.timeOut?TIPONCore.phStamp(row.timeOut).slice(0,10):'—',
-    row.coop||'—',row.platform||'—',location,attendanceSyncLabel(row)
+    row.coop||'—',row.platform||'—',location
    ];
    return '<tr>'+data.map(value=>'<td>'+esc(value)+'</td>').join('')+'<td>'+action+'</td></tr>';
-  }).join(''):'<tr><td colspan="11"><div class="empty-state">No records are available in this view. Try Reset Filters or Recover Attendance. Stored records will not be erased.</div></td></tr>';
+  }).join(''):'<tr><td colspan="10"><div class="empty-state">No records are available in this view. Try Reset Filters or Refresh. Stored records will not be erased.</div></td></tr>';
   setText('terminalLogPageCount','Showing '+(filteredRows.length?offset+1:0)+'–'+Math.min(offset+pageSize,filteredRows.length)+' of '+filteredRows.length+' attendance records');
   setText('terminalLogPage','Page '+state.attendancePage+' of '+totalPages);
   if($('terminalLogPrev'))$('terminalLogPrev').disabled=state.attendancePage<=1;
@@ -1067,7 +1061,7 @@ function renderTerminalLogs(){
   setText('terminalLogPage','Page 1 of 1');
   if($('terminalLogPrev'))$('terminalLogPrev').disabled=true;
   if($('terminalLogNext'))$('terminalLogNext').disabled=true;
-  $('terminalLogRows').innerHTML='<tr><td colspan="11">'+esc(err.message)+'</td></tr>';
+  $('terminalLogRows').innerHTML='<tr><td colspan="10">'+esc(err.message)+'</td></tr>';
  }
 }
 function attendanceRowByKey(key){
@@ -1603,16 +1597,6 @@ function bindEvents(){
  attach('memberSearch','input',()=>{state.memberPage=1;renderMembers();});
  attach('memberRefresh','click',()=>refreshDirectoryView('members'));
  attach('terminalLogRefresh','click',()=>refreshDirectoryView('logs'));
- attach('terminalLogRecover','click',async()=>{
-  const button=$('terminalLogRecover');if(button.disabled)return;button.disabled=true;
-  try{
-   if(!navigator.onLine)throw Error('Internet is required to recover central attendance. Local records remain saved.');
-   const result=await TIPONSync.recoverAttendance();await loadCollections();renderTerminalLogs();
-   if(!result.readOk)throw Error(result.error||'The central attendance ledger was not received.');
-   showToast('Central attendance reloaded without erasing local records.','success',8500);
-  }catch(error){showToast('Attendance recovery: '+(error.message||String(error)),'error',9000);}
-  finally{button.disabled=false;}
- });
  attach('memberFilterFace','change',()=>{state.memberPage=1;renderMembers();});
  attach('memberResetFilters','click',()=>{
   $('memberSearch').value='';$('memberFilterFace').value='';state.memberPage=1;renderMembers();

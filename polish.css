@@ -99,3 +99,17 @@
 #appShell .tiny-button.delete{background:#b42332!important;border-color:#b42332!important;color:#fff!important}
 #appShell .tiny-button.delete:hover{background:#8f1725!important;border-color:#8f1725!important;color:#fff!important}
 @media(max-width:600px){.coop-banner{padding:20px}.coop-banner-heading{gap:12px}.coop-banner-heading img{width:56px;height:56px}.coop-banner-heading h2{font-size:27px}#coopDashboardCards{gap:10px}#coopDashboardCards .coop-summary{min-width:118px;flex-basis:118px}#coopDashboardCards .coop-monogram{width:118px;height:128px;background-size:1024px 342px}}
+
+/* v5.5.57 timesheet always visible */
+#page-terminalLogs .timesheet-panel{margin-top:18px;padding:22px 24px}
+#page-terminalLogs .timesheet-header h3{margin:0 0 16px;font-size:18px;font-weight:750;color:#193b60}
+#page-terminalLogs .timesheet-toolbar{display:grid;grid-template-columns:minmax(200px,1.5fr) minmax(155px,1fr) minmax(155px,1fr) auto;gap:12px;align-items:end;margin-bottom:16px}
+#page-terminalLogs .timesheet-toolbar label{display:grid;gap:7px;min-width:0;font-size:12px;font-weight:700;color:#34526f}
+#page-terminalLogs .timesheet-toolbar input{width:100%;min-width:0;min-height:42px;box-sizing:border-box;border:1px solid #dbe5ef;border-radius:9px;background:#fff;padding:9px 12px;font:inherit;color:#183c5c}
+#page-terminalLogs .timesheet-toolbar #timesheetExport{min-height:42px;height:42px;white-space:nowrap;align-self:end}
+#page-terminalLogs .timesheet-toolbar #timesheetExport:disabled{opacity:.55;cursor:not-allowed}
+#page-terminalLogs .timesheet-pager{justify-content:flex-end}
+#page-settings #adminInitialPasswordNotice{border:1px solid #f0c990;border-radius:10px;padding:10px 14px;margin:12px 0;color:#653e00;background:#fff7e8;font-size:13px;font-weight:650}
+#page-settings #adminInitialPasswordNotice[hidden]{display:none!important}
+@media(max-width:900px){#page-terminalLogs .timesheet-toolbar{grid-template-columns:repeat(2,minmax(0,1fr))}#page-terminalLogs .timesheet-toolbar #timesheetExport{justify-self:end}}
+@media(max-width:520px){#page-terminalLogs .timesheet-toolbar{grid-template-columns:1fr}#page-terminalLogs .timesheet-toolbar #timesheetExport{width:100%;justify-self:stretch}#page-terminalLogs .timesheet-panel{padding:16px}}
