@@ -637,3 +637,41 @@ test('MPC Breakdown refresh uses same member and attendance data without changin
  assert.doesNotMatch(html,/id="dashboardSite"/);
  assert.doesNotMatch(html,/id="dashboardPlatform"/);
 });
+
+
+test('Attendance three summary cards aggregate the exact MPC Breakdown rows, including an open shift',()=>{
+ const org=source('organization.js');
+ const start=org.indexOf('  function buildMpcBreakdown('),end=org.indexOf('  function renderMpc(){',start);
+ assert.ok(start>=0&&end>start);
+ const ctx={Map,Set,Date,String,Number,TIPONCore:Core};
+ vm.createContext(ctx);
+ vm.runInContext(org.slice(start,end)+'\nthis.build=buildMpcBreakdown;this.summary=summarizeMpcBreakdown;',ctx);
+ const registered=Array.from({length:7},(_,i)=>({id:'m'+i,memberNumber:'M'+i,coop:'Asiapro',active:true}));
+ const sessions=registered.slice(0,6).map(m=>({memberId:m.id,timeIn:'2026-10-29T00:00:00Z',timeOut:'2026-10-29T08:00:00Z'}));
+ sessions.push({memberId:'m6',timeIn:'2026-10-29T01:00:00Z',timeOut:''});
+ const ranked=ctx.build(registered,sessions,Org.COOPS,'2026-10-29','2026-10-29');
+ const summary=ctx.summary(ranked);
+ assert.equal(summary.members,7);
+ assert.equal(summary.complete,6);
+ assert.equal(summary.missing,1);
+ assert.equal(summary.members,summary.complete+summary.missing);
+ assert.equal(ctx.summary(ctx.build(registered,sessions,Org.COOPS,'2026-10-29','2026-10-29','Asiapro')).missing,1);
+ assert.equal(ctx.summary(ctx.build(registered,sessions,Org.COOPS,'2026-10-28','2026-10-28')).missing,7);
+ const mixed=[...registered,{id:'worklife-member',coop:'Worklife',active:true}];
+ const mixedRows=[...sessions,{memberId:'worklife-member',timeIn:'2026-10-29T00:00:00Z',timeOut:'2026-10-29T08:00:00Z'}];
+ const all=ctx.build(mixed,mixedRows,Org.COOPS,'2026-10-29','2026-10-29');
+ const full=ctx.summary(all);
+ assert.equal(full.members,8);
+ assert.equal(full.complete,7);
+ assert.equal(full.missing,1);
+ assert.equal(full.members,all.reduce((total,row)=>total+row.members,0));
+ assert.equal(full.complete,all.reduce((total,row)=>total+row.complete,0));
+ assert.equal(full.missing,all.reduce((total,row)=>total+row.missing,0));
+ const renderer=org.slice(end,org.indexOf('  function renderReports(){',end));
+ assert.match(renderer,/const ranked=buildMpcBreakdown\(/);
+ assert.match(renderer,/const total=summarizeMpcBreakdown\(ranked\)/);
+ assert.match(renderer,/'Registered \/ enrolled',total.members/);
+ assert.match(renderer,/'With In and Out',total.complete/);
+ assert.match(renderer,/'No Time In \/ Out',total.missing/);
+ assert.doesNotMatch(renderer,/const total=tally\(/);
+});

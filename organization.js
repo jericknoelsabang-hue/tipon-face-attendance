@@ -314,6 +314,15 @@ window.OrgUI=(()=>{
       return {coop,members:members.length,complete,missing:members.length-complete};
     }).sort((a,b)=>a.missing-b.missing||a.coop.localeCompare(b.coop));
   }
+
+  // Attendance summary cards must be the sum of the *same* MPC Breakdown
+  // rows, never an independent count of raw IN/OUT punches.
+  function summarizeMpcBreakdown(rows){
+    return (rows||[]).reduce((sum,row)=>{
+      sum.members+=row.members;sum.complete+=row.complete;sum.missing+=row.missing;
+      return sum;
+    },{members:0,complete:0,missing:0});
+  }
   function renderMpc(){
     if(!isAdmin()&&!canEdit())return;
     fillCoopSelect('dashboardCoop',true);
@@ -348,29 +357,10 @@ window.OrgUI=(()=>{
     const all=state.members.filter(m=>!m.deleted&&m.active!==false);
     const coops=isAdmin()?[...new Set([...TIPONOrgCore.COOPS,...all.map(m=>m.coop).filter(Boolean)])]:[state.user?.coop].filter(Boolean);
     $('coopDashboardCards').innerHTML=coops.map(coop=>'<article class="coop-summary" data-coop="'+esc(coop)+'"><span class="coop-monogram" aria-hidden="true">'+esc(coop.split(' ').map(w=>w[0]).join('').slice(0,3))+'</span><h3>'+esc(coop)+'</h3><strong>'+all.filter(m=>m.coop===coop).length+'</strong><small>Registered members</small></article>').join('');
-    const members=filteredMembers().filter(m=>!m.deleted&&m.active!==false);
-    const events=state.punches.filter(p=>!p.reviewStatus&&!p.deleted&&p.timestamp);
-    const punchDay=p=>TIPONCore.phStamp(p.timestamp).slice(0,10);
-    const tally=items=>{
-      let timedIn=0,timedOut=0,complete=0,missing=0;
-      for(const m of items){
-        const punches=events.filter(p=>String(p.memberId)===String(m.id)&&(!p.coop||p.coop===m.coop));
-        const ins=punches.filter(p=>p.type==='IN'&&punchDay(p)>=from&&punchDay(p)<=to);
-        // Attribute overnight Time Out to its original Time In session.
-        const outs=punches.filter(p=>p.type==='OUT'&&
-          (punchDay(p)>=from&&punchDay(p)<=to||
-           ins.some(i=>String(p.sessionId||'')===String(i.sessionId||i.id))));
-        const paired=ins.some(i=>outs.some(o=>String(o.sessionId||'')===String(i.sessionId||i.id)&&
-          Date.parse(o.timestamp)>=Date.parse(i.timestamp)));
-        if(ins.length)timedIn++;if(outs.length)timedOut++;if(paired)complete++;
-        if(!ins.length&&!outs.length)missing++;
-      }
-      return {members:items.length,timedIn,timedOut,complete,missing};
-    };
-    const total=tally(members);
-    $('dashboardSummary').innerHTML=[['Registered / enrolled',total.members],['With In and Out',total.complete],['No Time In / Out',total.missing]].map(([label,n])=>'<article class="kpi-card"><span>'+label+'</span><strong>'+n+'</strong><small>'+esc(day)+'</small></article>').join('');
     const logRows=projectTerminalLogEvents(state.punches.filter(p=>p&&!p.deleted&&!p.reviewStatus&&p.timestamp));
     const ranked=buildMpcBreakdown(filteredMembers().filter(m=>!m.deleted),logRows,coops,from,to,f.coop);
+    const total=summarizeMpcBreakdown(ranked);
+    $('dashboardSummary').innerHTML=[['Registered / enrolled',total.members],['With In and Out',total.complete],['No Time In / Out',total.missing]].map(([label,n])=>'<article class="kpi-card"><span>'+label+'</span><strong>'+n+'</strong><small>'+esc(day)+'</small></article>').join('');
     $('dashboardRanking').innerHTML=ranked.map((r,i)=>{const rate=r.members?100*r.missing/r.members:0;return '<tr><td>'+(i+1)+'</td><td><b>'+esc(r.coop)+'</b></td><td>'+r.members+'</td><td>'+r.complete+'</td><td>'+r.missing+'</td><td><div class="attendance-rate"><span style="width:'+rate+'%"></span></div><small>'+(r.members?rate.toFixed(1)+'%':'No members')+'</small></td></tr>';}).join('');
     window.TIPONAbsenteeism?.render({from:selectedFrom,to:selectedTo,coop:f.coop,platform:'',site:'',valid:true});
     const legacy=state.members.some(m=>!m.orgId)||state.sites.some(s=>!s.orgId)||state.punches.some(p=>!p.orgId);

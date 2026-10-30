@@ -1,5 +1,5 @@
 {
   "app": "TIPON Face Attendance",
-  "version": "5.5.62",
-  "label": "MPC Breakdown only: reconcile unique registered members with the normalized Attendance Logs, count incomplete/unpaired shifts without leaving members unclassified, honor Philippine Time-In workday filters and updated MPC assignments. Other dashboard KPIs unchanged."
+  "version": "5.5.63",
+  "label": "Attendance summary card counts now use the exact same MPC Breakdown rows and date/MPC filters. Registered, With In and Out and No Time In / Out reconcile to MPC totals, including open shifts. No other features changed."
 }
