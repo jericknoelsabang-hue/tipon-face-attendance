@@ -7,7 +7,7 @@
 #absPanel .ab-actions{display:flex;gap:13px;align-items:center;flex-wrap:wrap;justify-content:flex-end}
 #absPanel #absConnection{font-size:11px;color:#50718d;max-width:225px;text-align:right}
 #absPanel #absSyncNow{height:41px;min-height:41px}
-#absPanel .ab-kpi-grid{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:11px;margin:0 0 19px}
+#absPanel .ab-kpi-grid{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:11px;margin:0 0 19px}
 #absPanel .ab-kpi{display:flex;flex-direction:column;gap:6px;min-width:0;min-height:124px;padding:16px 14px;background:linear-gradient(150deg,#fff,#f8fbff);border:1px solid #e2eaf3;border-radius:13px}
 #absPanel .ab-kpi small{font-size:11px;color:#4c6682;font-weight:750}
 #absPanel .ab-kpi strong{font-size:clamp(23px,2.4vw,34px);line-height:1.2;color:#1671bd;letter-spacing:-.04em}
@@ -51,3 +51,6 @@
 #absPanel .ab-review-pager .btn{min-height:36px;height:36px;padding:0 14px}
 #absPanel .ab-review-pager .btn:disabled{opacity:.5;cursor:not-allowed}
 @media(max-width:600px){#absPanel .ab-review-pager{align-items:stretch;flex-direction:column}#absPanel .ab-review-pager .admin-list-pager-actions{justify-content:space-between}}
+
+/* v5.5.58: six Absenteeism KPI cards, including potential overtime. */
+@media (min-width:951px) and (max-width:1280px){#absPanel .ab-kpi-grid{grid-template-columns:repeat(3,minmax(0,1fr))}}

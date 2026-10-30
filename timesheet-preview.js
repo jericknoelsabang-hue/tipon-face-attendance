@@ -39,15 +39,16 @@ function render(){
  if(!$('timesheetPreview')||!state.user)return;
  try{
   const data=current(),pages=Math.max(1,Math.ceil(data.rows.length/LIMIT));page=Math.min(pages,Math.max(1,page));const from=(page-1)*LIMIT;
-  $('timesheetRows').innerHTML=data.rows.slice(from,from+LIMIT).map(r=>'<tr>'+[r.memberName,r.memberId,r.day,r.sessions,hrs(r.minutes),hrs(r.potentialOTMinutes)].map(x=>'<td>'+esc(x)+'</td>').join('')+'</tr>').join('')||'<tr><td colspan="6">No completed shifts match the Timesheet filters.</td></tr>';
+  $('timesheetPageCount').textContent='Showing '+(data.rows.length?from+1:0)+'–'+Math.min(from+LIMIT,data.rows.length)+' of '+data.rows.length+' timesheet records';
+  $('timesheetRows').innerHTML=data.rows.slice(from,from+LIMIT).map(r=>'<tr>'+[r.memberName,r.memberId,r.day,r.sessions,hrs(r.minutes)].map(x=>'<td>'+esc(x)+'</td>').join('')+'</tr>').join('')||'<tr><td colspan="5">No completed shifts match the Timesheet filters.</td></tr>';
   $('timesheetPage').textContent='Page '+page+' of '+pages;$('timesheetPrev').disabled=page<=1;$('timesheetNext').disabled=page>=pages;
- }catch(e){page=1;$('timesheetRows').innerHTML='<tr><td colspan="6">'+esc(e.message||String(e))+'</td></tr>';$('timesheetPage').textContent='Page 1 of 1';$('timesheetPrev').disabled=true;$('timesheetNext').disabled=true;}
+ }catch(e){page=1;$('timesheetPageCount').textContent='Showing 0 timesheet records';$('timesheetRows').innerHTML='<tr><td colspan="5">'+esc(e.message||String(e))+'</td></tr>';$('timesheetPage').textContent='Page 1 of 1';$('timesheetPrev').disabled=true;$('timesheetNext').disabled=true;}
 }
 function exportCsv(){
  let data;try{data=current();}catch(e){showToast(e.message||String(e),'error');return;}
  if(!data.rows.length){showToast('No completed shifts available for these filters.','info');return;}
  const cell=x=>{let v=String(x??'');if(/^[=+\-@\t\r]/.test(v))v="'"+v;return '"'+v.replace(/"/g,'""')+'"';};
- const grid=[['Member Name','Member ID','Date','Sessions','Elapsed Hours','Potential Overtime Hours'],...data.rows.map(r=>[r.memberName,r.memberId,r.day,r.sessions,hrs(r.minutes),hrs(r.potentialOTMinutes)])];
+ const grid=[['Member Name','Member ID','Date','Sessions','Elapsed Hours'],...data.rows.map(r=>[r.memberName,r.memberId,r.day,r.sessions,hrs(r.minutes)])];
  const csv='\ufeff'+grid.map(row=>row.map(cell).join(',')).join('\r\n');
  downloadBlob('TIPON_Timesheet_Estimate_'+todayPH()+'.csv',new Blob([csv],{type:'text/csv;charset=utf-8'}));showToast('Timesheet CSV exported.','success');
 }

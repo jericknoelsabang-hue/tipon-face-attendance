@@ -411,3 +411,31 @@ test('Unified Attendance Logs nav and read-only timesheet estimates retain safe 
  assert.equal(result.excluded,1);
  assert.doesNotMatch(source('timesheet-preview.js'),/rawSave|saveOne|replaceDB|deleteOne/);
 });
+
+test('Timesheet page counter and moved overtime dashboard KPI honor role and date filters',()=>{
+ const html=source('index.html'),ts=source('timesheet-preview.js'),abs=source('absenteeism.js');
+ assert.match(html,/id="timesheetPageCount"/);
+ assert.match(ts,/Showing .*timesheet records/);
+ assert.doesNotMatch(html,/<th>Potential Overtime \(8h\)<\/th>/);
+ assert.doesNotMatch(ts,/Potential Overtime Hours/);
+ assert.match(abs,/kpi\('Potential Overtime'/);
+ assert.match(source('organization.js'),/platform:\$\('dashboardPlatform'\)/);
+ const ctx={Date,Map,Set,Number,Math,Intl,console,document:{readyState:'complete',getElementById:()=>null,addEventListener(){}},
+  TIPONCore:Core,TIPONOrgCore:Org};
+ ctx.window=ctx;vm.createContext(ctx);
+ vm.runInContext(ts,ctx);vm.runInContext(abs,ctx);
+ const records=[
+  {memberId:'M1',memberName:'First',coop:'Asiapro',platform:'IMG',siteId:'site-1',timeIn:'2026-10-29T00:00:00Z',timeOut:'2026-10-29T05:00:00Z'},
+  {memberId:'M1',memberName:'First',coop:'Asiapro',platform:'IMG',siteId:'site-1',timeIn:'2026-10-29T06:00:00Z',timeOut:'2026-10-29T10:30:00Z'},
+  {memberId:'M2',memberName:'Other',coop:'Worklife',platform:'OCG',siteId:'site-2',timeIn:'2026-10-29T00:00:00Z',timeOut:'2026-10-29T09:00:00Z'},
+  {memberId:'M3',memberName:'Open',coop:'Asiapro',platform:'IMG',siteId:'site-1',timeIn:'2026-10-29T01:00:00Z',timeOut:''}
+ ];
+ const admin={role:'admin'};
+ const all=ctx.TIPONAbsenteeism.potentialOvertime(records,{from:'2026-10-29',to:'2026-10-29'},admin);
+ assert.equal(all.minutes,150);assert.equal(all.memberDays,2);assert.equal(all.excluded,1);
+ const user={role:'registrar',coop:'Asiapro',platform:'IMG'};
+ const scoped=ctx.TIPONAbsenteeism.potentialOvertime(records,{from:'2026-10-29',to:'2026-10-29'},user);
+ assert.equal(scoped.minutes,90);assert.equal(scoped.memberDays,1);
+ assert.equal(ctx.TIPONAbsenteeism.potentialOvertime(records,{from:'2026-10-28',to:'2026-10-28'},admin).minutes,0);
+ assert.equal(ctx.TIPONAbsenteeism.potentialOvertime(records,{site:'site-2'},admin).minutes,60);
+});

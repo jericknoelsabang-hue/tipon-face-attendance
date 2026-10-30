@@ -108,8 +108,12 @@
 #page-terminalLogs .timesheet-toolbar input{width:100%;min-width:0;min-height:42px;box-sizing:border-box;border:1px solid #dbe5ef;border-radius:9px;background:#fff;padding:9px 12px;font:inherit;color:#183c5c}
 #page-terminalLogs .timesheet-toolbar #timesheetExport{min-height:42px;height:42px;white-space:nowrap;align-self:end}
 #page-terminalLogs .timesheet-toolbar #timesheetExport:disabled{opacity:.55;cursor:not-allowed}
-#page-terminalLogs .timesheet-pager{justify-content:flex-end}
+#page-terminalLogs .timesheet-pager{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
 #page-settings #adminInitialPasswordNotice{border:1px solid #f0c990;border-radius:10px;padding:10px 14px;margin:12px 0;color:#653e00;background:#fff7e8;font-size:13px;font-weight:650}
 #page-settings #adminInitialPasswordNotice[hidden]{display:none!important}
 @media(max-width:900px){#page-terminalLogs .timesheet-toolbar{grid-template-columns:repeat(2,minmax(0,1fr))}#page-terminalLogs .timesheet-toolbar #timesheetExport{justify-self:end}}
 @media(max-width:520px){#page-terminalLogs .timesheet-toolbar{grid-template-columns:1fr}#page-terminalLogs .timesheet-toolbar #timesheetExport{width:100%;justify-self:stretch}#page-terminalLogs .timesheet-panel{padding:16px}}
+
+#page-terminalLogs .timesheet-pager .text-count{color:#6f849b;font-size:11px}
+#page-terminalLogs .timesheet-pager .admin-list-pager-actions{display:flex;gap:10px;align-items:center}
+@media(max-width:600px){#page-terminalLogs .timesheet-pager{flex-direction:column;align-items:stretch}#page-terminalLogs .timesheet-pager .admin-list-pager-actions{justify-content:space-between}}

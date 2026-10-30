@@ -100,6 +100,21 @@ window.TIPONAbsenteeism=(()=>{
    coverage:pct(sum.presentMemberDays,sum.eligibleMemberDays),noInRate:pct(sum.missingMemberDays,sum.eligibleMemberDays),
    summary,startDay,endDay};
  }
+ function potentialOvertime(rows,{from='',to='',coop='',platform='',site=''}={},account=null){
+  const scoped=(rows||[]).filter(row=>{
+   if(!row||!row.timeIn||!Number.isFinite(Date.parse(row.timeIn)))return false;
+   if(!account||(account.role!=='admin'&&!TIPONOrgCore.inScope(account,row)))return false;
+   const day=ph(row.timeIn);
+   return (!from||day>=from)&&(!to||day<=to)&&
+    (!coop||row.coop===coop)&&
+    (!platform||TIPONOrgCore.platformKey(row.platform)===TIPONOrgCore.platformKey(platform))&&
+    (!site||String(row.siteId||'')===String(site));
+  });
+  const estimate=window.TIPONTimesheet?.summarize(scoped,0,8);
+  if(!estimate)return {minutes:0,memberDays:0,excluded:0};
+  return {minutes:estimate.rows.reduce((sum,row)=>sum+row.potentialOTMinutes,0),
+   memberDays:estimate.rows.filter(row=>row.potentialOTMinutes>0).length,excluded:estimate.excluded};
+ }
  function kpi(label,value,note,kind){
   return '<article class="ab-kpi ab-'+kind+'"><small>'+escape(label)+'</small><strong>'+escape(value)+'</strong><span>'+escape(note)+'</span></article>';
  }
@@ -164,6 +179,8 @@ window.TIPONAbsenteeism=(()=>{
   }
   $('absPeriod').textContent=(!from&&!to?'Date range: All available history ('+data.startDay+' to '+data.endDay+')':
    'Date range: '+(from||data.startDay)+' to '+(to||data.endDay))+' · '+(coop||'All Cooperatives');
+  const overtimeSessions=projectTerminalLogEvents((state.punches||[]).filter(e=>e&&!e.deleted&&e.reviewStatus!=='rejected'));
+  const overtime=potentialOvertime(overtimeSessions,{from:from||data.startDay,to:to||data.endDay,coop,platform,site},state.user);
   const lastSync=window.TIPONSync?.lastSuccessfulSync?.()||'';
   const syncVerified=!!lastSync&&navigator.onLine;
   $('absConnection').textContent=!navigator.onLine?'Offline — records may be incomplete':
@@ -172,6 +189,8 @@ window.TIPONAbsenteeism=(()=>{
    kpi('Missing Time In',fmt(data.noInRate)+'%',summary.missingMemberDays+' unverified member-day(s)','red'),
    kpi('Headcount Coverage',fmt(data.coverage)+'%',summary.presentMemberDays+' of '+summary.eligibleMemberDays+' eligible member-days','blue'),
    kpi('Validated Manhours',fmt(Math.round(summary.hours*10)/10)+' h',summary.complete+' completed shifts in selected period','teal'),
+   kpi('Potential Overtime',new Intl.NumberFormat('en-PH',{minimumFractionDigits:2,maximumFractionDigits:2}).format(overtime.minutes/60)+' h',
+    overtime.memberDays+' member-day(s) above 8 h; estimate only, before break adjustments','teal'),
    kpi('Open Time Ins',summary.open,'Current open sessions in selected period','orange'),
    kpi('AWOL COUNT',summary.awolCount,'Schedule-based; verify before action','red')
   ].join('');
@@ -220,5 +239,5 @@ window.TIPONAbsenteeism=(()=>{
   if(next&&!next.dataset.bound){next.dataset.bound='1';next.addEventListener('click',()=>{reviewPage++;render(lastFilters);});}
  }
  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',bind,{once:true});else bind();
- return {compute,render,invalid};
+ return {compute,potentialOvertime,render,invalid};
 })();

@@ -1,5 +1,5 @@
 {
   "app": "TIPON Face Attendance",
-  "version": "5.5.57",
-  "label": "Admin and User Attendance Logs, streamlined timesheet filters, and sign-in navigation fix."
+  "version": "5.5.58",
+  "label": "Show timesheet record counts with Attendance Logs pagination layout; move potential overtime from the timesheet report to an 8-hour-per-member-day KPI in Absenteeism with role, date, MPC, BP and location filters."
 }
