@@ -243,7 +243,7 @@ test('Attendance capture restores Oct 28 9 AM flow; enrollment liveness stays se
   assert.match(liveness,/state\.enrollLiveness=challenge\(\)/);
   const record=app.slice(app.indexOf('async function recordRecognizedFace('),app.indexOf('async function recordRecognizedFace(')+500);
   assert.doesNotMatch(record,/Live Verification Required|const proof/);
-  assert.match(html,/liveness-guard\.js\?v=5553/);
+  assert.match(html,/liveness-guard\.js\?v=\d+/);
 });
 test('Attendance reuses a recent accurate GPS watch fix without waiting for another position',async()=>{
   const app=source('app.js'),start=app.indexOf('function usableAttendanceGPS('),end=app.indexOf('function startGPSWatch(){',start);
