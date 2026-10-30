@@ -107,6 +107,7 @@ window.TIPONAuth=(()=>{
     // Restored sessions have already passed the persisted inactivity check.
     // Freshly authenticated interaction begins a new 90-second activity window.
     session={...value,lastActivityAt:Date.now()};
+    if(freshLogin){if(typeof resetSharedAttendanceFilters==='function')resetSharedAttendanceFilters();await showPage('dashboard');}
     lastActivityPersist=Date.now();
     state.user=session.account;state.orgId=session.orgId;
     const kioskOnly=value.account?.role==='kiosk';
@@ -191,7 +192,7 @@ window.TIPONAuth=(()=>{
     ['recordRows','mpcOverviewCards','mpcRows','presenceRows','summaryRows','accountRows','deviceRows','reviewRows','memberRows','siteCards'].forEach(id=>{if($(id))$(id).innerHTML='';});
     document.querySelectorAll('dialog[open]').forEach(d=>d.close());
     $('appShell').hidden=true;$('mobileNav').hidden=true;$('loginPage').hidden=false;document.body.classList.remove('kiosk-mode');
-    $('loginPassword').value='';
+    $('loginUsername').value='';$('loginPassword').value='';
     status(reason==='idle'
       ?'Signed out automatically after 90 seconds of inactivity. Local attendance and pending uploads were retained.'
       :'Signed out. Local records and pending uploads were retained.');
@@ -251,7 +252,7 @@ window.TIPONAuth=(()=>{
     attach('idleContinueButton','click',()=>{touchActivity();});
     attach('idleSignOutButton','click',()=>{void signOut();});
     const restored=await restoreSession();if(restored){try{await signedIn(restored,{freshLogin:false});status('');return;}catch(error){console.warn('Could not resume the saved session.',error);}}
-    $('appShell').hidden=true;$('mobileNav').hidden=true;$('loginPage').hidden=false;
+    $('appShell').hidden=true;$('mobileNav').hidden=true;$('loginPage').hidden=false;$('loginUsername').value='';$('loginPassword').value='';
     // Only perform a health request when the connection card is clicked:
     // a competing Apps Script health request can delay username/password login.
     if($('authDiagnostics')){
