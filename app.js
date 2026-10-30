@@ -213,7 +213,7 @@ function renderMembers(){
  setText('memberCountLabel',data.length+' member'+(data.length===1?'':'s'));
  $('memberRows').innerHTML=visible.length?visible.map(m=>{
   const sites=sitesForMember(m),enrolled=m.active!==false&&!!(m.template||m.descriptors?.length>=3),pending=!!(m._pendingOp||m.pendingEdit||m.pendingFaceUpdate==='review'),names=sites.map(s=>s.name).join(', ');
-  const faceLabel=pending?'PENDING SYNC':enrolled?'ENROLLED':'NOT ENROLLED';
+  const faceLabel=pending?'Pending Sync':enrolled?'Enrolled':'Not Enrolled';
   const faceClass=pending?'amber':enrolled?'green':'red';
   return '<tr><td><div class="row-inline"><div class="initial-avatar">'+esc(initial(m.name))+'</div><div><b>'+esc(m.name)+'</b><small>ID: '+esc(m.memberNumber||m.id)+'</small></div></div></td>'+
    '<td>'+esc(m.coop)+'</td><td>'+esc(m.platform||sites[0]?.platform||'—')+'</td>'+
