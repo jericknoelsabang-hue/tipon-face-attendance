@@ -1,5 +1,5 @@
 /* TIPON KABILANG — Attendance Analytics.
- * Missing Time In is a review flag, not a confirmed absence or AWOL classification.
+ * Review flags (ABSENT / Open Time In / AWOL) require schedule and sync verification before any personnel action.
  */
 'use strict';
 window.TIPONAbsenteeism=(()=>{
@@ -33,17 +33,19 @@ window.TIPONAbsenteeism=(()=>{
    ...(schedules||[]).map(s=>ph(s.date||s.day||s.createdAt))
   ].filter(Boolean);
   const today=ph(new Date(now).toISOString()),endDay=to||today;
+  const knownStart=historyDays.length?[...historyDays].sort()[0]:today;
   const startDay=from||(historyDays.length?historyDays.sort()[0]:endDay);
   const days=daysBetween(startDay,endDay);
   if(!days.length)return {rows:[],focus:null,registered:0,unenrolled:0,coverage:0,noInRate:0,startDay,endDay,
    summary:{eligibleMemberDays:0,presentMemberDays:0,missingMemberDays:0,leaveMemberDays:0,awolMemberDays:0,
     awolCount:0,hours:0,complete:0,open:0}};
 
-  const ins=new Map(),outs=new Map(),sessions=new Map();
+  const ins=new Map(),outs=new Map(),sessions=new Map(),observed=new Set();
   for(const e of events||[]){
    if(!e||e.deleted||e.reviewStatus||!e.timestamp||!ids.has(String(e.memberId))||!['IN','OUT'].includes(e.type))continue;
    const time=Date.parse(e.timestamp),day=ph(e.timestamp);
    if(!day||!Number.isFinite(time))continue;
+   observed.add(String(e.memberId)+'|'+day);
    if(e.type==='IN'){if(!ins.has(day))ins.set(day,new Set());ins.get(day).add(String(e.memberId));}
    if(e.type==='OUT'){if(!outs.has(day))outs.set(day,new Set());outs.get(day).add(String(e.memberId));}
    const sessionId=String(e.sessionId||e.id||''),key=String(e.memberId)+':'+sessionId;
@@ -61,6 +63,22 @@ window.TIPONAbsenteeism=(()=>{
    else if(session.end===null)tally.open++;
    shifts.set(day,tally);
   }
+  // AWOL is a provisional review flag for three consecutive Philippine
+  // calendar days with neither Time In nor Time Out. Do not count days before
+  // the known registration/history start or approved REST/LEAVE/EXCUSED days.
+  function missingThreeCalendarDays(member,day){
+    const firstDay=ph(member.createdAt)||knownStart;
+    const dayMs=Date.parse(day+'T00:00:00Z');
+    if(!Number.isFinite(dayMs))return false;
+    for(let back=0;back<3;back++){
+      const probe=new Date(dayMs-back*86400000).toISOString().slice(0,10);
+      if(probe<firstDay||observed.has(String(member.id)+'|'+probe))return false;
+      let schedule={kind:'UNSCHEDULED'};
+      try{schedule=TIPONOrgCore.scheduled(member,loc.get(String(member.siteId||member.siteIds?.[0]||'')),probe,schedules||[]);}catch(_){}
+      if(['REST','LEAVE','EXCUSED'].includes(schedule.kind))return false;
+    }
+    return true;
+  }
   const rows=days.map(day=>{
    const roster=eligible.filter(m=>!ph(m.createdAt)||ph(m.createdAt)<=day);
    const presentSet=ins.get(day)||new Set();
@@ -73,12 +91,14 @@ window.TIPONAbsenteeism=(()=>{
     try{schedule=TIPONOrgCore.scheduled(member,loc.get(String(member.siteId||member.siteIds?.[0]||'')),day,schedules||[]);}catch(_){}
     if(['REST','LEAVE','EXCUSED'].includes(schedule.kind)){leave.push(member);continue;}
     missing.push(member);
-    if(schedule.kind==='REQUIRED'&&Number.isFinite(schedule.end)&&now>schedule.end)awolMembers.push(member);
+    if(missingThreeCalendarDays(member,day))awolMembers.push(member);
    }
    const tally=shifts.get(day)||{hours:0,complete:0,open:0};
-   const openSessions=day===endDay?[...sessions.values()].filter(session=>session.start!==null&&session.end===null&&
-    ph(new Date(session.start).toISOString())<=day).map(session=>({...session,member:byId.get(session.memberId)})).filter(session=>session.member):[];
-   return {day,eligible:roster.length,present,noIn:missing.length,outOnly:outOnly.length,leave:leave.length,
+   const openSessions=[...sessions.values()].filter(session=>session.start!==null&&
+    (session.end===null||session.end<=session.start)&&
+    ph(new Date(session.start).toISOString())===day)
+    .map(session=>({...session,member:byId.get(session.memberId)})).filter(session=>session.member);
+   return {day,eligible:roster.length,present,noIn:missing.length+outOnly.length,outOnly:outOnly.length,leave:leave.length,
     provisional:awolMembers.length,hours:tally.hours,complete:tally.complete,open:openSessions.length,
     missing,outOnlyMembers:outOnly,awolMembers,openSessions};
   });
@@ -93,8 +113,10 @@ window.TIPONAbsenteeism=(()=>{
    hours:a.hours+row.hours,complete:a.complete+row.complete
   }),{eligibleMemberDays:0,presentMemberDays:0,missingMemberDays:0,leaveMemberDays:0,awolMemberDays:0,hours:0,complete:0});
   const awolIds=new Set(rows.flatMap(row=>row.awolMembers.map(m=>String(m.id))));
-  const open=[...sessions.values()].filter(session=>session.start!==null&&session.end===null&&
-   ph(new Date(session.start).toISOString())<=endDay);
+  const open=[...sessions.values()].filter(session=>session.start!==null&&
+    (session.end===null||session.end<=session.start)&&
+    ph(new Date(session.start).toISOString())>=startDay&&
+    ph(new Date(session.start).toISOString())<=endDay);
   const summary={...sum,awolCount:awolIds.size,open:open.length};
   return {rows,focus,registered,unenrolled:Math.max(0,registered-(focus?.eligible||0)),
    coverage:pct(sum.presentMemberDays,sum.eligibleMemberDays),noInRate:pct(sum.missingMemberDays,sum.eligibleMemberDays),
@@ -151,48 +173,72 @@ window.TIPONAbsenteeism=(()=>{
   };
   for(const row of data.rows){
    const awol=new Set(row.awolMembers.map(m=>String(m.id)));
-   row.outOnlyMembers.forEach(member=>add(member,row.day,'Time Out Found — Check Sync'));
-   row.missing.forEach(member=>add(member,row.day,awol.has(String(member.id))?'AWOL — Verify Schedule':'Time In Not Verified'));
+   row.outOnlyMembers.forEach(member=>add(member,row.day,'ABSENT'));
+   row.missing.forEach(member=>add(member,row.day,awol.has(String(member.id))?'AWOL':'ABSENT'));
    row.openSessions.forEach(session=>add(session.member,ph(new Date(session.start).toISOString()),'Open Time In',session.sessionId));
   }
   return [...records.values()].sort((a,b)=>b.day.localeCompare(a.day)||
    String(a.member.name||'').localeCompare(String(b.member.name||''))||a.flag.localeCompare(b.flag));
  }
- function render({from='',to='',coop='',platform='',site='',valid=true}={}){
-  lastFilters={from,to,coop,platform,site,valid};
-  const filterKey=[from,to,coop,platform,site,valid].join('|');
+ function renderEmpty({from='',to='',coop='',allHistory=false}={}){
+  reviewPage=1;
+  const period=allHistory?'All available history':from===to?'Date: '+from:'Date range: '+from+' to '+to;
+  $('absPeriod').textContent=period+' · '+(coop||'All Cooperatives')+' · No recorded attendance';
+  const lastSync=window.TIPONSync?.lastSuccessfulSync?.()||'';
+  $('absConnection').textContent=!navigator.onLine?'Offline — records may be incomplete':
+    lastSync?'Last Sync: '+lastSync:'Sync required — records may be incomplete';
+  $('absKPIs').innerHTML=[
+    kpi('Missing Time In','0%','0 unverified members','red'),
+    kpi('Headcount Coverage','0%','0 of 0 enrolled members','blue'),
+    kpi('Validated Manhours','0.0 h','0 completed shifts','teal'),
+    kpi('Potential Overtime','0.00 h','0 member-days above 8 h','teal'),
+    kpi('Open Time Ins',0,'0 open sessions','orange'),
+    kpi('AWOL COUNT',0,'No attendance data for the selected filter','red')
+  ].join('');
+  // No activity means no inferred absence, AWOL, or roster headcount.
+  $('absHeadcount').innerHTML='';$('absHours').innerHTML='';
+  $('absDonutNumber').textContent='0';$('absDonut').style.background='#e6edf5';
+  $('absDonut').setAttribute('aria-label','No attendance records for the selected filters');
+  $('absStatusLegend').innerHTML='';
+  $('absReviewCount').textContent='';
+  $('absReviewRows').innerHTML='<tr><td colspan="5">No attendance records for the selected filters.</td></tr>';
+  $('absReviewMore').textContent='Showing 0 review records';
+  $('absReviewPrev').disabled=true;$('absReviewNext').disabled=true;
+  $('absReviewPage').textContent='Page 1 of 1';
+ }
+ function render({from='',to='',coop='',platform='',site='',valid=true,allHistory=false,noData=false}={}){
+  lastFilters={from,to,coop,platform,site,valid,allHistory,noData};
+  const filterKey=[from,to,coop,platform,site,valid,allHistory,noData].join('|');
   if(filterKey!==lastFilterKey){reviewPage=1;lastFilterKey=filterKey;}
   if(!valid){invalid();return;}
   if(!state.user||!['admin','registrar'].includes(state.user.role)||!$('absPanel'))return;
+  if(noData){renderEmpty({from,to,coop,allHistory});return;}
   const data=compute(state.members,state.sites,state.punches,state.schedules,to,coop,Date.now(),from,platform,site);
   const focus=data.focus,summary=data.summary;
-  if(!focus){
-   $('absPeriod').textContent='No attendance dates are available for the selected filters.';
-   $('absKPIs').innerHTML='<p class="ab-empty">No attendance records match this date range.</p>';
-   $('absHeadcount').innerHTML=chart([],'head');$('absHours').innerHTML=chart([],'hours');
-   $('absDonutNumber').textContent='0';$('absDonut').style.background='#e6edf5';$('absStatusLegend').innerHTML='';
-   $('absReviewCount').textContent='0 to review';
-   $('absReviewRows').innerHTML='<tr><td colspan="5">No attendance discrepancies in the available records.</td></tr>';
-   $('absReviewMore').textContent='Showing 0 review records';
-   $('absReviewPrev').disabled=true;$('absReviewNext').disabled=true;$('absReviewPage').textContent='Page 1 of 1';
-   return;
-  }
-  $('absPeriod').textContent=(!from&&!to?'Date range: All available history ('+data.startDay+' to '+data.endDay+')':
-   'Date range: '+(from||data.startDay)+' to '+(to||data.endDay))+' · '+(coop||'All Cooperatives');
+  if(!focus){renderEmpty({from,to,coop,allHistory});return;}
+  $('absPeriod').textContent=(allHistory?'Date range: All available history ('+data.startDay+' to '+data.endDay+')':
+    from===to?'Date: '+from:'Date range: '+from+' to '+to)+' · '+(coop||'All Cooperatives');
   const overtimeSessions=projectTerminalLogEvents((state.punches||[]).filter(e=>e&&!e.deleted&&e.reviewStatus!=='rejected'));
   const overtime=potentialOvertime(overtimeSessions,{from:from||data.startDay,to:to||data.endDay,coop,platform,site},state.user);
   const lastSync=window.TIPONSync?.lastSuccessfulSync?.()||'';
   const syncVerified=!!lastSync&&navigator.onLine;
   $('absConnection').textContent=!navigator.onLine?'Offline — records may be incomplete':
    syncVerified?'Last Sync: '+lastSync:'Sync required — records may be incomplete';
+  const rangeSelected=!allHistory&&from&&to&&from!==to;
+  const noInValue=rangeSelected?data.noInRate:pct(focus.noIn,focus.eligible);
+  const coverageValue=rangeSelected?data.coverage:pct(focus.present,focus.eligible);
+  const missingNote=rangeSelected?summary.missingMemberDays+' unverified member-day(s) in period':
+    focus.noIn+' unverified member(s) on '+focus.day;
+  const coverageNote=rangeSelected?summary.presentMemberDays+' of '+summary.eligibleMemberDays+' eligible member-days':
+    focus.present+' of '+focus.eligible+' enrolled members on '+focus.day;
   $('absKPIs').innerHTML=[
-   kpi('Missing Time In',fmt(pct(focus.noIn,focus.eligible))+'%',focus.noIn+' unverified member(s) on '+focus.day,'red'),
-   kpi('Headcount Coverage',fmt(pct(focus.present,focus.eligible))+'%',focus.present+' of '+focus.eligible+' enrolled members on '+focus.day,'blue'),
+   kpi('Missing Time In',fmt(noInValue)+'%',missingNote,'red'),
+   kpi('Headcount Coverage',fmt(coverageValue)+'%',coverageNote,'blue'),
    kpi('Validated Manhours',fmt(Math.round(summary.hours*10)/10)+' h',summary.complete+' completed shifts in selected period','teal'),
    kpi('Potential Overtime',new Intl.NumberFormat('en-PH',{minimumFractionDigits:2,maximumFractionDigits:2}).format(overtime.minutes/60)+' h',
     overtime.memberDays+' member-day(s) above 8 h; estimate only, before break adjustments','teal'),
-   kpi('Open Time Ins',summary.open,'Current open sessions in selected period','orange'),
-   kpi('AWOL COUNT',summary.awolCount,'Schedule-based; verify before action','red')
+   kpi('Open Time Ins',summary.open,'Open sessions in selected period','orange'),
+   kpi('AWOL COUNT',summary.awolCount,'3+ consecutive days with no recorded time; verify before action','red')
   ].join('');
   $('absHeadcount').innerHTML=chart(data.rows,'head');
   $('absHours').innerHTML=chart(data.rows,'hours');
@@ -207,12 +253,7 @@ window.TIPONAbsenteeism=(()=>{
   const review=reviewRecords(data,syncVerified),totalPages=Math.max(1,Math.ceil(review.length/PAGE_SIZE));
   reviewPage=Math.max(1,Math.min(reviewPage,totalPages));
   const offset=(reviewPage-1)*PAGE_SIZE,visible=review.slice(offset,offset+PAGE_SIZE);
-  // Historical review contains member-DAY discrepancies: the same person
-  // can appear on several days. Keep all rows, but show the snapshot subset
-  // explicitly so it is not confused with the daily MPC headcount.
-  const snapshotReview=review.filter(item=>item.day===focus.day);
-  $('absReviewCount').textContent=review.length+' to review in period ('+
-    snapshotReview.length+' on '+focus.day+')';
+  $('absReviewCount').textContent='';
   $('absReviewRows').innerHTML=visible.length?visible.map(item=>
    '<tr><td>'+escape(item.member.memberNumber||item.member.id)+'</td><td>'+escape(item.member.name)+'</td><td>'+escape(item.member.coop)+'</td><td>'+escape(item.day)+'</td><td><span class="ab-flag">'+escape(item.flag)+'</span></td></tr>'
   ).join(''):'<tr><td colspan="5">No attendance discrepancies in the available records.</td></tr>';
@@ -244,5 +285,5 @@ window.TIPONAbsenteeism=(()=>{
   if(next&&!next.dataset.bound){next.dataset.bound='1';next.addEventListener('click',()=>{reviewPage++;render(lastFilters);});}
  }
  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',bind,{once:true});else bind();
- return {compute,potentialOvertime,render,invalid};
+ return {compute,reviewRecords,potentialOvertime,render,invalid};
 })();

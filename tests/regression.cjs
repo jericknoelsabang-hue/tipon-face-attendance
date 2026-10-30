@@ -190,7 +190,8 @@ test('Absenteeism with blank filters includes all history and flags open session
   assert.equal(JSON.stringify(data.rows.map(row=>row.day)),JSON.stringify(['2026-10-26','2026-10-27','2026-10-28','2026-10-29']));
   assert.equal(data.summary.open,1);
   assert.equal(data.summary.awolCount,1);
-  assert.ok(data.rows[3].openSessions.some(session=>session.member.id==='M1'));
+  assert.ok(data.rows[2].openSessions.some(session=>session.member.id==='M1'));
+  assert.equal(data.rows[3].openSessions.length,0);
   assert.ok(data.rows[3].awolMembers.some(member=>member.id==='M2'));
 });
 test('User transfers an in-scope member to valid selected Cooperative/BP without changing face data',()=>{
@@ -628,7 +629,7 @@ test('MPC Breakdown reconciles Member List with normalized Attendance Logs and c
 });
 test('MPC Breakdown refresh uses same member and attendance data without changing other dashboards',()=>{
  const org=source('organization.js'),app=source('app.js'),sync=source('sync.js'),html=source('index.html');
- assert.match(org,/buildMpcBreakdown\(filteredMembers\(\)\.filter\(m=>!m\.deleted\),logRows,coops,snapshotDay,snapshotDay,f\.coop\)/);
+ assert.match(org,/buildMpcBreakdown\(reportMembers,logRows,coops,summaryFrom,summaryTo,f\.coop\)/);
  assert.match(org,/projectTerminalLogEvents\(state\.punches\.filter\(p=>p&&!p\.deleted&&!p\.reviewStatus&&p\.timestamp\)\)/);
  assert.match(org,/\$\('dashboardSummary'\)\.innerHTML=/);
  assert.match(org,/renderMpc\(\);/);
@@ -705,16 +706,17 @@ test('October 30 snapshot fixes historic 7/6/1 versus current-day 7/5/2 mismatch
  assert.equal(reference.reduce((sum,row)=>sum+row.complete,0),5);
  const render=orgSource.slice(end,orgSource.indexOf('  function renderReports(){',end));
  assert.match(render,/const snapshotDay=to,f=dashboardFilter\(\)/);
- assert.match(render,/buildMpcBreakdown\(filteredMembers\(\)\.filter\(m=>!m\.deleted\),logRows,coops,snapshotDay,snapshotDay,f\.coop\)/);
+ assert.match(render,/const summaryFrom=windowRange.selected\?from:snapshotDay/);
+ assert.match(render,/buildMpcBreakdown\(reportMembers,logRows,coops,summaryFrom,summaryTo,f\.coop\)/);
  assert.match(render,/Snapshot: /);
- assert.match(source('index.html'),/snapshot day \(To Date, or today\)/);
+ assert.match(source('index.html'),/selected date filter/);
 });
 test('Absenteeism snapshot figures and Attendance Review distinguish daily members from historic member-days',()=>{
  const abs=source('absenteeism.js');
- assert.match(abs,/kpi\('Missing Time In',fmt\(pct\(focus.noIn,focus.eligible\)\)/);
- assert.match(abs,/kpi\('Headcount Coverage',fmt\(pct\(focus.present,focus.eligible\)\)/);
- assert.match(abs,/const snapshotReview=review.filter\(item=>item.day===focus.day\)/);
- assert.match(abs,/review.length\+' to review in period/);
+ assert.match(abs,/const noInValue=rangeSelected\?data.noInRate:pct\(focus.noIn,focus.eligible\)/);
+ assert.match(abs,/const coverageValue=rangeSelected\?data.coverage:pct\(focus.present,focus.eligible\)/);
+ assert.match(abs,/\$\('absReviewCount'\)\.textContent=''/);
+ assert.doesNotMatch(abs,/review.length\+' to review in period/);
  // With five Time Ins and two missing, snapshot KPIs are 71.4%/28.6%.
  const percent=(numerator,denominator)=>denominator?Math.round(1000*numerator/denominator)/10:0;
  assert.equal(percent(5,7),71.4);
@@ -722,4 +724,110 @@ test('Absenteeism snapshot figures and Attendance Review distinguish daily membe
  const sourceOrg=source('organization.js');
  assert.match(sourceOrg,/const snapshotDay=to/);
  assert.doesNotMatch(sourceOrg,/const total=tally\(members\)/);
+});
+
+
+test('Dashboard header uses exact day for one date, inclusive range for both, and shared data gate',()=>{
+ const org=source('organization.js'),start=org.indexOf('  function buildMpcBreakdown('),
+   end=org.indexOf('  function renderMpc(){',start);
+ assert.ok(start>=0&&end>start);
+ const c={Date,Map,Set,String,Number,TIPONCore:Core};vm.createContext(c);
+ vm.runInContext(org.slice(start,end)+'\nthis.dateWindow=dashboardDateWindow;this.hasData=dashboardHasAttendance;',c);
+ const history=['2026-10-28','2026-10-29','2026-10-30'],today='2026-10-30';
+ const fromOnly=c.dateWindow('2026-10-14','',today,history);
+ assert.deepEqual(JSON.parse(JSON.stringify(fromOnly)),{from:'2026-10-14',to:'2026-10-14',selected:true});
+ const toOnly=c.dateWindow('','2026-10-14',today,history);
+ assert.deepEqual(JSON.parse(JSON.stringify(toOnly)),{from:'2026-10-14',to:'2026-10-14',selected:true});
+ const range=c.dateWindow('2026-10-28','2026-10-30',today,history);
+ assert.deepEqual(JSON.parse(JSON.stringify(range)),{from:'2026-10-28',to:'2026-10-30',selected:true});
+ const blank=c.dateWindow('','',today,history);
+ assert.deepEqual(JSON.parse(JSON.stringify(blank)),{from:'2026-10-28',to:'2026-10-30',selected:false});
+ const members=[{id:'member1',memberNumber:'001',coop:'Asiapro'}];
+ const session=[{memberId:'member1',timeIn:'2026-10-29T00:00:00Z',timeOut:'2026-10-29T08:00:00Z'}];
+ assert.equal(c.hasData(session,members,'2026-10-14','2026-10-14'),false);
+ assert.equal(c.hasData(session,members,'2026-10-28','2026-10-30'),true);
+ assert.equal(c.hasData(session,members,'2026-10-30','2026-10-30'),false);
+ assert.equal(c.hasData(session,members,'2026-10-29','2026-10-29'),true);
+ assert.equal(c.hasData(session,[{id:'different'}],'2026-10-29','2026-10-29'),false);
+ assert.equal(c.hasData([{...session[0],projectionIssue:'Corrupt session'}],members,'2026-10-29','2026-10-29'),false);
+});
+test('Empty date/MPC filters zero all Absenteeism KPIs, charts, donut and review without fabricating absence',()=>{
+ const elements=new Map();
+ const element=id=>{if(!elements.has(id))elements.set(id,{style:{},textContent:'',innerHTML:'',
+  disabled:false,setAttribute(){},hidden:false});return elements.get(id);};
+ const c={Date,Map,Set,Number,Math,Intl,console,navigator:{onLine:true},
+   state:{user:{role:'admin'}},
+   document:{readyState:'loading',addEventListener(){},getElementById:element}};
+ c.window=c;c.TIPONSync={lastSuccessfulSync:()=>''};vm.createContext(c);
+ vm.runInContext(source('absenteeism.js'),c);
+ c.TIPONAbsenteeism.render({from:'2026-10-14',to:'2026-10-14',coop:'Asiapro',allHistory:false,noData:true});
+ assert.match(element('absKPIs').innerHTML,/Missing Time In/);
+ assert.match(element('absKPIs').innerHTML,/0\.00 h/);
+ assert.match(element('absKPIs').innerHTML,/Headcount Coverage/);
+ assert.equal(element('absDonutNumber').textContent,'0');
+ assert.equal(element('absHeadcount').innerHTML,'');
+ assert.equal(element('absHours').innerHTML,'');
+ assert.match(element('absPeriod').textContent,/2026-10-14/);
+ assert.match(element('absReviewRows').innerHTML,/No attendance records for the selected filters/);
+ assert.equal(element('absReviewMore').textContent,'Showing 0 review records');
+ assert.equal(element('absReviewCount').textContent,'');
+ assert.equal(element('absReviewPrev').disabled,true);
+ assert.equal(element('absReviewNext').disabled,true);
+ const org=source('organization.js');
+ assert.match(org,/const ranked=hasAttendance\?/);
+ assert.match(org,/\{coop,members:0,complete:0,missing:0\}/);
+ assert.match(source('index.html'),/id="absReviewCount" hidden/);
+});
+test('Review flags: ABSENT without IN, Open Time In without OUT, AWOL after 3 consecutive no-time days',()=>{
+ const people=[
+  {id:'absent',name:'Missing',coop:'Asiapro',template:{},active:true,createdAt:'2026-10-27T00:00:00Z'},
+  {id:'open',name:'Open',coop:'Asiapro',template:{},active:true,createdAt:'2026-10-27T00:00:00Z'},
+  {id:'paired',name:'Present',coop:'Asiapro',template:{},active:true,createdAt:'2026-10-27T00:00:00Z'}
+ ];
+ const events=[
+  {...event('early-open','IN','2026-10-27T01:00:00Z'),memberId:'open',sessionId:'early'},
+  {...event('early-out','OUT','2026-10-27T08:00:00Z'),memberId:'open',sessionId:'early'},
+  {...event('current-open','IN','2026-10-29T01:00:00Z'),memberId:'open',sessionId:'current-open'},
+  {...event('paired-in','IN','2026-10-29T01:00:00Z'),memberId:'paired',sessionId:'paired'},
+  {...event('paired-out','OUT','2026-10-29T08:00:00Z'),memberId:'paired',sessionId:'paired'}
+ ];
+ const c={Date,Map,Set,Number,Math,Intl,state:{user:{role:'admin'}},
+  TIPONOrgCore:{scheduled:()=>({kind:'UNSCHEDULED'}),platformKey:Org.platformKey},
+  document:{readyState:'loading',addEventListener(){},getElementById:()=>null}};
+ c.window=c;vm.createContext(c);vm.runInContext(source('absenteeism.js'),c);
+ const data=c.TIPONAbsenteeism.compute(people,[],events,[],'2026-10-29','Asiapro',
+  Date.parse('2026-10-29T12:00:00Z'),'2026-10-27');
+ const rows=c.TIPONAbsenteeism.reviewRecords(data,false);
+ assert.equal(rows.find(x=>x.member.id==='absent'&&x.day==='2026-10-29').flag,'AWOL');
+ assert.equal(rows.find(x=>x.member.id==='absent'&&x.day==='2026-10-27').flag,'ABSENT');
+ assert.equal(rows.find(x=>x.member.id==='open'&&x.day==='2026-10-29').flag,'Open Time In');
+ assert.ok(!rows.some(x=>x.member.id==='paired'&&x.day==='2026-10-29'));
+ assert.equal(data.summary.awolCount,1);
+ assert.equal(data.summary.open,1);
+ assert.equal(data.rows[2].openSessions.length,1);
+ assert.equal(data.rows[2].noIn,1);
+ const noTimeOutOnly=[...events,{...event('out-alone','OUT','2026-10-29T10:00:00Z'),memberId:'absent',sessionId:'orphan'}];
+ const extraData=c.TIPONAbsenteeism.compute(people,[],noTimeOutOnly,[],'2026-10-29','Asiapro',
+  Date.parse('2026-10-29T12:00:00Z'),'2026-10-27');
+ const extra=c.TIPONAbsenteeism.reviewRecords(extraData,false);
+ assert.equal(extra.find(x=>x.member.id==='absent'&&x.day==='2026-10-29').flag,'ABSENT');
+ assert.equal(extraData.summary.awolCount,0);
+ c.TIPONOrgCore.scheduled=(member,site,day)=>member.id==='absent'&&day==='2026-10-28'?{kind:'LEAVE'}:{kind:'UNSCHEDULED'};
+ const excused=c.TIPONAbsenteeism.compute(people,[],events,[],'2026-10-29','Asiapro',
+  Date.parse('2026-10-29T12:00:00Z'),'2026-10-27');
+ assert.equal(c.TIPONAbsenteeism.reviewRecords(excused,false).find(x=>x.member.id==='absent'&&x.day==='2026-10-29').flag,'ABSENT');
+});
+test('One dashboard filter controls all reports; no independent render overwrites the shared filter',()=>{
+ const app=source('app.js'),org=source('organization.js'),abs=source('absenteeism.js'),html=source('index.html');
+ assert.match(org,/const windowRange=dashboardDateWindow\(selectedFrom,selectedTo,today,historyDays\)/);
+ assert.match(org,/window\.TIPONAbsenteeism\?\.render\(\{from,to,coop:f\.coop,platform:'',site:'',valid:true,allHistory:!windowRange.selected,noData:!hasAttendance\}\)/);
+ assert.match(org,/buildMpcBreakdown\(reportMembers,logRows,coops,summaryFrom,summaryTo,f\.coop\)/);
+ assert.doesNotMatch(app,/if\(window.TIPONAbsenteeism\)TIPONAbsenteeism.render/);
+ assert.match(abs,/const rangeSelected=!allHistory&&from&&to&&from!==to/);
+ assert.doesNotMatch(abs,/const snapshotReview/);
+ assert.match(html,/id="dashboardFrom"/);
+ assert.match(html,/id="dashboardTo"/);
+ assert.match(html,/id="dashboardCoop"/);
+ assert.doesNotMatch(html,/id="dashboardPlatform"/);
+ assert.doesNotMatch(html,/id="dashboardSite"/);
 });

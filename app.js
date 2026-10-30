@@ -113,7 +113,7 @@ function applySharedAttendanceFilters(source='dashboard',render=true){
  [['dashboardFrom','terminalLogFrom',f.from],['dashboardTo','terminalLogTo',f.to],['dashboardCoop','terminalLogCoop',f.coop],['','terminalLogSite',f.site]].forEach(([a,b,v])=>{if($(a))$(a).value=v;if($(b))$(b).value=v;});
  if($('terminalLogPlatform'))$('terminalLogPlatform').value=f.platform;
  if($('recordFrom'))$('recordFrom').value=f.from;if($('recordTo'))$('recordTo').value=f.to;if($('recordSite'))$('recordSite').value=f.site;
- if(render){state.attendancePage=1;renderDashboard();renderTerminalLogs();renderRecords();if(window.TIPONAbsenteeism)TIPONAbsenteeism.render({...f,valid:!(f.from&&f.to&&f.to<f.from)});}
+ if(render){state.attendancePage=1;renderDashboard();renderTerminalLogs();renderRecords();}
 }
 function resetSharedAttendanceFilters(){Object.keys(sharedAttendanceFilters).forEach(k=>sharedAttendanceFilters[k]='');applySharedAttendanceFilters('dashboard',true);}
 
@@ -138,7 +138,7 @@ async function showPage(page){
   document.querySelectorAll('.page').forEach(section=>section.hidden=section.id!==`page-${page}`);
   document.querySelectorAll('[data-page]').forEach(button=>button.classList.toggle('active',button.dataset.page===page));
   setText('crumbTitle',pageNames[page]);window.scrollTo({top:0,behavior:'instant'});
-  if(page==='adminSites'){window.TIPONAdminSites?.render();}if(page==='dashboard'){applySharedAttendanceFilters('dashboard',false);renderDashboard();if(window.TIPONAbsenteeism)TIPONAbsenteeism.render({...sharedAttendanceFilters,valid:!(sharedAttendanceFilters.from&&sharedAttendanceFilters.to&&sharedAttendanceFilters.to<sharedAttendanceFilters.from)});}if(page==='scanner'){renderTerminal();if(!state.scanning)startScanner();}if(page==='terminalLogs'){applySharedAttendanceFilters('dashboard',false);renderTerminalLogs();}if(page==='members')renderMembers();if(page==='sites'){renderSites();if(typeof renderOfficeDirectory==='function')renderOfficeDirectory();}if(page==='records'){applySharedAttendanceFilters('dashboard',false);renderRecords();}if(page==='settings')await checkOfflineReady();
+  if(page==='adminSites'){window.TIPONAdminSites?.render();}if(page==='dashboard'){applySharedAttendanceFilters('dashboard',false);renderDashboard();}if(page==='scanner'){renderTerminal();if(!state.scanning)startScanner();}if(page==='terminalLogs'){applySharedAttendanceFilters('dashboard',false);renderTerminalLogs();}if(page==='members')renderMembers();if(page==='sites'){renderSites();if(typeof renderOfficeDirectory==='function')renderOfficeDirectory();}if(page==='records'){applySharedAttendanceFilters('dashboard',false);renderRecords();}if(page==='settings')await checkOfflineReady();
 }
 function renderDashboard(){const today=todayPH(),f=sharedAttendanceFilters;const todayPunches=state.punches.filter(e=>!e.deleted&&!e.reviewStatus&&(!f.from||TIPONCore.phStamp(e.timestamp).slice(0,10)>=f.from)&&(!f.to||TIPONCore.phStamp(e.timestamp).slice(0,10)<=f.to)&&(!f.site||String(e.siteId)===String(f.site))&&(!f.coop||e.coop===f.coop)&&(!f.platform||TIPONOrgCore.platformKey(e.platform)===TIPONOrgCore.platformKey(f.platform)));const present=new Set(todayPunches.filter(e=>e.type==='IN').map(e=>e.memberId));
  setText('metricMembers',state.members.length);setText('metricPresent',present.size);setText('metricPunches',todayPunches.length);setText('metricSites',state.sites.length);

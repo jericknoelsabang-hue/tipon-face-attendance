@@ -323,6 +323,33 @@ window.OrgUI=(()=>{
       return sum;
     },{members:0,complete:0,missing:0});
   }
+  // One selected date is an exact-day filter. Both dates define an inclusive
+  // range. With neither selected, daily cards keep today's snapshot while the
+  // analytics trends and historical review retain the available history.
+  function dashboardDateWindow(fromValue,toValue,today,historyDays){
+    const from=String(fromValue||''),to=String(toValue||'');
+    if(from&&to)return {from,to,selected:true};
+    if(from||to){const day=from||to;return {from:day,to:day,selected:true};}
+    const history=(historyDays||[]).filter(day=>/^\d{4}-\d{2}-\d{2}$/.test(day)).sort();
+    return {from:history.length&&history[0]<=today?history[0]:today,to:today,selected:false};
+  }
+  function dashboardHasAttendance(rows,members,from,to){
+    // The same work-date attribution as Attendance Logs: Time In day, or
+    // Time Out day if the session lacks Time In. Deleted/rejected rows have
+    // already been excluded from the normalized input.
+    const keys=new Set();
+    for(const member of members||[]){
+      if(!member||member.deleted)continue;
+      for(const id of [member.id,member.memberNumber])if(id!=null&&String(id).trim())keys.add(String(id).trim());
+    }
+    return (rows||[]).some(row=>{
+      if(!row||row.projectionIssue||!keys.has(String(row.memberId||'').trim()))return false;
+      const timestamp=row.timeIn||row.timeOut;
+      if(!timestamp||!Number.isFinite(Date.parse(timestamp)))return false;
+      const day=TIPONCore.phStamp(timestamp).slice(0,10);
+      return (!from||day>=from)&&(!to||day<=to);
+    });
+  }
   function renderMpc(){
     if(!isAdmin()&&!canEdit())return;
     fillCoopSelect('dashboardCoop',true);
@@ -336,7 +363,8 @@ window.OrgUI=(()=>{
       ...state.members.filter(m=>m&&!m.deleted&&m.createdAt).map(m=>TIPONCore.phStamp(m.createdAt).slice(0,10)),
       ...state.schedules.filter(item=>item&&!item.deleted&&(item.date||item.day||item.createdAt)).map(item=>TIPONCore.phStamp(item.date||item.day||item.createdAt).slice(0,10))
     ].filter(day=>/^\d{4}-\d{2}-\d{2}$/.test(day));
-    const from=selectedFrom||(historyDays.length?historyDays.sort()[0]:today),to=selectedTo||today;
+    const windowRange=dashboardDateWindow(selectedFrom,selectedTo,today,historyDays);
+    const {from,to}=windowRange;
     const valid=validateAttendanceDateRange('dashboardFrom','dashboardTo','dashboardDateError');
     const futureFrom=selectedFrom&&!selectedTo&&selectedFrom>today;
     if(!valid||futureFrom){
@@ -361,11 +389,21 @@ window.OrgUI=(()=>{
     const coops=isAdmin()?[...new Set([...TIPONOrgCore.COOPS,...all.map(m=>m.coop).filter(Boolean)])]:[state.user?.coop].filter(Boolean);
     $('coopDashboardCards').innerHTML=coops.map(coop=>'<article class="coop-summary" data-coop="'+esc(coop)+'"><span class="coop-monogram" aria-hidden="true">'+esc(coop.split(' ').map(w=>w[0]).join('').slice(0,3))+'</span><h3>'+esc(coop)+'</h3><strong>'+all.filter(m=>m.coop===coop).length+'</strong><small>Registered members</small></article>').join('');
     const logRows=projectTerminalLogEvents(state.punches.filter(p=>p&&!p.deleted&&!p.reviewStatus&&p.timestamp));
-    const ranked=buildMpcBreakdown(filteredMembers().filter(m=>!m.deleted),logRows,coops,snapshotDay,snapshotDay,f.coop);
+    const reportMembers=filteredMembers().filter(m=>!m.deleted);
+    const hasAttendance=dashboardHasAttendance(logRows,reportMembers,from,to);
+    // Selected filters control every dashboard report. Without an explicit
+    // date, preserve the existing daily Attendance/MPC snapshot.
+    const summaryFrom=windowRange.selected?from:snapshotDay;
+    const summaryTo=windowRange.selected?to:snapshotDay;
+    const ranked=hasAttendance?
+      buildMpcBreakdown(reportMembers,logRows,coops,summaryFrom,summaryTo,f.coop):
+      coops.filter(coop=>!f.coop||coop===f.coop).map(coop=>({coop,members:0,complete:0,missing:0}));
     const total=summarizeMpcBreakdown(ranked);
-    $('dashboardSummary').innerHTML=[['Registered / enrolled',total.members],['With In and Out',total.complete],['No Time In / Out',total.missing]].map(([label,n])=>'<article class="kpi-card"><span>'+label+'</span><strong>'+n+'</strong><small>Snapshot: '+esc(snapshotDay)+'</small></article>').join('');
-    $('dashboardRanking').innerHTML=ranked.map((r,i)=>{const rate=r.members?100*r.missing/r.members:0;return '<tr><td>'+(i+1)+'</td><td><b>'+esc(r.coop)+'</b></td><td>'+r.members+'</td><td>'+r.complete+'</td><td>'+r.missing+'</td><td><div class="attendance-rate"><span style="width:'+rate+'%"></span></div><small>'+(r.members?rate.toFixed(1)+'%':'No members')+'</small></td></tr>';}).join('');
-    window.TIPONAbsenteeism?.render({from:selectedFrom,to:selectedTo,coop:f.coop,platform:'',site:'',valid:true});
+    const reportCaption=windowRange.selected?
+      (from===to?'Date: '+from:'Period: '+from+' to '+to):'Snapshot: '+snapshotDay;
+    $('dashboardSummary').innerHTML=[['Registered / enrolled',total.members],['With In and Out',total.complete],['No Time In / Out',total.missing]].map(([label,n])=>'<article class="kpi-card"><span>'+label+'</span><strong>'+n+'</strong><small>'+esc(reportCaption)+'</small></article>').join('');
+    $('dashboardRanking').innerHTML=ranked.map((r,i)=>{const rate=r.members?100*r.missing/r.members:0;return '<tr><td>'+(i+1)+'</td><td><b>'+esc(r.coop)+'</b></td><td>'+r.members+'</td><td>'+r.complete+'</td><td>'+r.missing+'</td><td><div class="attendance-rate"><span style="width:'+rate+'%"></span></div><small>'+(!hasAttendance?'0.0%':r.members?rate.toFixed(1)+'%':'No members')+'</small></td></tr>';}).join('');
+    window.TIPONAbsenteeism?.render({from,to,coop:f.coop,platform:'',site:'',valid:true,allHistory:!windowRange.selected,noData:!hasAttendance});
     const legacy=state.members.some(m=>!m.orgId)||state.sites.some(s=>!s.orgId)||state.punches.some(p=>!p.orgId);
     if($('legacyNotice'))$('legacyNotice').hidden=!legacy;
   }

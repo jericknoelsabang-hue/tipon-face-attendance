@@ -1,5 +1,5 @@
 {
   "app": "TIPON Face Attendance",
-  "version": "5.5.64",
-  "label": "Dashboard/report date-basis correction: Attendance Summary and MPC Breakdown use the same snapshot day (To Date or today), consistent with Absenteeism headcount. Attendance Review preserves historical member-day exceptions and labels the snapshot count. No changes to record storage, security, or other features."
+  "version": "5.5.65",
+  "label": "Unified Absenteeism, Attendance Review, Attendance and MPC filters: one selected date means exact day, two dates mean inclusive range. A filter with no attendance shows zero metrics and no review rows. Review Flag uses ABSENT (no Time In), Open Time In (missing Time Out), and provisional AWOL (three consecutive days without time, excluding rest/leave). Review count badge removed. No attendance data or unrelated modules changed."
 }
