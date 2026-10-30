@@ -1,5 +1,5 @@
 {
   "app": "TIPON Face Attendance",
-  "version": "5.5.54",
-  "label": "Centered login welcome, blue confirm action, and readable face enrollment status labels."
+  "version": "5.5.55",
+  "label": "Fix blank Admin Attendance Logs with unified Admin/User history, sync status and safe central attendance recovery; preserve local events and pending changes."
 }

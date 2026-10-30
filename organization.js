@@ -175,7 +175,8 @@ function refreshWorkspaceViews(){
 }
 window.addEventListener('tipon:workspace-data-updated',refreshWorkspaceViews);
 showPage=async function(page){
-  if(!TIPONOrgCore.allowed(state.user,page)||(page==='scanner'&&!hasTerminalSession())){showToast('Your account does not have permission for that screen.','error');return;}
+  if(page==='records')page='terminalLogs';
+  if(!TIPONOrgCore.allowed(state.user,page)||(page==='scanner'&&!hasTerminalSession())){showToast('This screen is not available to your current account role.','info');return;}
   await originalShowPage(page);applyRoles();
   if(state.user)await OrgDB.rawSave('meta',{id:'tp5-last-page:'+state.user.id,page});
   if(page==='accounts')await OrgUI.renderAccounts();

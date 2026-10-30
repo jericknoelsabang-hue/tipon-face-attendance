@@ -515,5 +515,14 @@ window.TIPONSync=(()=>{
     window.addEventListener('online',kick);window.addEventListener('offline',render);document.addEventListener('visibilitychange',()=>{if(!document.hidden)kick();});
     navigator.serviceWorker?.addEventListener('message',event=>{if(event.data?.type==='TIPON_SYNC_REQUEST')kick();});render();
   }
-  return {init,start,stop,kick,render,run,submitPendingNow,pauseSite,waitUntilIdle,isBusy:()=>busy,lastSuccessfulSync:()=>lastSync};
+  async function recoverAttendance(){
+   if(!state.user||!state.orgId)throw Error('Sign in before recovering attendance.');
+   if(!navigator.onLine)throw Error('Internet is required to recover the central attendance ledger.');
+   await waitUntilIdle();
+   const id=cursorId(),prior=await getOne('meta',id);
+   // Reset server read cursor only; never clear saved punches, biometric data, or outbox.
+   await OrgDB.rawSave('meta',{...prior,id,cursor:0,eventVersion:undefined,orgId:state.orgId});
+   return run();
+  }
+  return {init,start,stop,kick,render,run,submitPendingNow,recoverAttendance,pauseSite,waitUntilIdle,isBusy:()=>busy,lastSuccessfulSync:()=>lastSync};
 })();
