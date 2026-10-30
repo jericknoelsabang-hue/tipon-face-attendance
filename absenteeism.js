@@ -18,7 +18,11 @@ window.TIPONAbsenteeism=(()=>{
   for(let t=a;t<=b&&out.length<36600;t+=86400000)out.push(new Date(t).toISOString().slice(0,10));
   return out;
  }
- function compute(members=[],sites=[],events=[],schedules=[],to='',coop='',now=Date.now(),from=''){
+ function compute(members=[],sites=[],events=[],schedules=[],to='',coop='',now=Date.now(),from='',platform='',site=''){
+  const siteSet=new Set((sites||[]).filter(s=>!site||String(s.id)===String(site)).map(s=>String(s.id)));
+  const scopedMembers=(members||[]).filter(m=>(!platform||TIPONOrgCore.platformKey(m.platform)===TIPONOrgCore.platformKey(platform))&&(!site||String(m.siteId||m.siteIds?.[0]||'')===String(site)));
+  const scopedEvents=(events||[]).filter(e=>(!platform||TIPONOrgCore.platformKey(e.platform)===TIPONOrgCore.platformKey(platform))&&(!site||String(e.siteId||'')===String(site)));
+  members=scopedMembers;events=scopedEvents;sites=(sites||[]).filter(s=>!site||siteSet.has(String(s.id)));
   const eligible=(members||[]).filter(m=>m&&!m.deleted&&m.active!==false&&(m.template||m.descriptors?.length>=3)&&(!coop||m.coop===coop));
   const all=(members||[]).filter(m=>m&&!m.deleted&&(!coop||m.coop===coop));
   const ids=new Set(eligible.map(m=>String(m.id))),byId=new Map(eligible.map(m=>[String(m.id),m]));
@@ -139,13 +143,13 @@ window.TIPONAbsenteeism=(()=>{
   return [...records.values()].sort((a,b)=>b.day.localeCompare(a.day)||
    String(a.member.name||'').localeCompare(String(b.member.name||''))||a.flag.localeCompare(b.flag));
  }
- function render({from='',to='',coop='',valid=true}={}){
-  lastFilters={from,to,coop,valid};
-  const filterKey=[from,to,coop,valid].join('|');
+ function render({from='',to='',coop='',platform='',site='',valid=true}={}){
+  lastFilters={from,to,coop,platform,site,valid};
+  const filterKey=[from,to,coop,platform,site,valid].join('|');
   if(filterKey!==lastFilterKey){reviewPage=1;lastFilterKey=filterKey;}
   if(!valid){invalid();return;}
   if(!state.user||!['admin','registrar'].includes(state.user.role)||!$('absPanel'))return;
-  const data=compute(state.members,state.sites,state.punches,state.schedules,to,coop,Date.now(),from);
+  const data=compute(state.members,state.sites,state.punches,state.schedules,to,coop,Date.now(),from,platform,site);
   const focus=data.focus,summary=data.summary;
   if(!focus){
    $('absPeriod').textContent='No attendance dates are available for the selected filters.';
