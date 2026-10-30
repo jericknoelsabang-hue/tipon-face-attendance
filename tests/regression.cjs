@@ -572,3 +572,68 @@ test('Manual Attendance Logs sync has deduplicated status, automatic queue retry
  assert.match(sync,/const preceding=activeRun/);
  assert.match(sync,/function correctionAcknowledged\(/);
 });
+
+
+test('MPC Breakdown reconciles Member List with normalized Attendance Logs and counts incomplete shifts',()=>{
+ const orgSource=source('organization.js'),begin=orgSource.indexOf('  function buildMpcBreakdown('),
+   end=orgSource.indexOf('  function renderMpc(){',begin);
+ assert.ok(begin>=0&&end>begin,'MPC Breakdown pure counting helper exists');
+ const context={Date,Map,Set,String,Number,TIPONCore:Core};
+ vm.createContext(context);
+ vm.runInContext(orgSource.slice(begin,end)+'\nthis.countBreakdown=buildMpcBreakdown;',context);
+ const run=context.countBreakdown;
+ const members=Array.from({length:7},(_,i)=>({id:'m'+(i+1),memberNumber:'00'+(i+1),
+   name:'Synthetic Member '+(i+1),coop:'Asiapro',active:true,deleted:false}));
+ const events=[];
+ for(const [i,m] of members.slice(0,6).entries()){
+   events.push({...event('in'+i,'IN','2026-10-29T00:00:00Z'),memberId:m.id,sessionId:'s'+i});
+   events.push({...event('out'+i,'OUT','2026-10-29T08:00:00Z'),memberId:m.id,sessionId:'s'+i});
+ }
+ events.push({...event('open','IN','2026-10-29T01:00:00Z'),memberId:'m7',sessionId:'open'});
+ const normalized=Org.project(events),all=run(members,normalized,Org.COOPS,'2026-10-29','2026-10-29');
+ const asi=all.find(row=>row.coop==='Asiapro');
+ assert.equal(all.length,8);
+ assert.equal(asi.members,7);
+ assert.equal(asi.complete,6);
+ assert.equal(asi.missing,1);
+ assert.equal(asi.members,asi.complete+asi.missing);
+ assert.equal(all.find(row=>row.coop==='Worklife').members,0);
+ const selected=run(members,normalized,Org.COOPS,'2026-10-29','2026-10-29','Asiapro');
+ assert.equal(selected.length,1);
+ const before=run(members,normalized,Org.COOPS,'2026-10-28','2026-10-28','Asiapro')[0];
+ assert.equal(before.complete,0);assert.equal(before.missing,7);
+ const duplicates=run(members,[...normalized,normalized[0]],Org.COOPS,'2026-10-29','2026-10-29');
+ assert.equal(duplicates.find(row=>row.coop==='Asiapro').complete,6);
+ const invalid=run(members,[...normalized,{memberId:'m7',timeIn:'2026-10-29T01:00:00Z',
+  timeOut:'2026-10-29T08:00:00Z',projectionIssue:'Conflicting session'}],Org.COOPS,'2026-10-29','2026-10-29');
+ assert.equal(invalid.find(row=>row.coop==='Asiapro').missing,1);
+ const transferred=members.map(m=>m.id==='m1'?{...m,coop:'Worklife'}:m);
+ const moved=run(transferred,normalized,Org.COOPS,'2026-10-29','2026-10-29');
+ assert.equal(moved.find(row=>row.coop==='Worklife').members,1);
+ assert.equal(moved.find(row=>row.coop==='Worklife').complete,1);
+ assert.equal(moved.find(row=>row.coop==='Asiapro').members,6);
+ const softDeleted=members.map(m=>m.id==='m7'?{...m,deleted:true}:m);
+ assert.equal(run(softDeleted,normalized,Org.COOPS,'2026-10-29','2026-10-29').find(row=>row.coop==='Asiapro').members,6);
+ const inactive=members.map(m=>m.id==='m7'?{...m,active:false}:m);
+ assert.equal(run(inactive,normalized,Org.COOPS,'2026-10-29','2026-10-29').find(row=>row.coop==='Asiapro').members,7);
+ const alias=run([{...members[0],id:'uuid-1',memberNumber:'001'}],
+  [{memberId:'001',timeIn:'2026-10-29T00:00:00Z',timeOut:'2026-10-29T08:00:00Z'}],Org.COOPS,'2026-10-29','2026-10-29');
+ assert.equal(alias.find(row=>row.coop==='Asiapro').complete,1);
+ const overnight=run(members,[{memberId:'m1',timeIn:'2026-10-29T15:00:00Z',
+  timeOut:'2026-10-29T22:00:00Z'}],Org.COOPS,'2026-10-29','2026-10-29');
+ assert.equal(overnight.find(row=>row.coop==='Asiapro').complete,1);
+ const nextDay=run(members,[{memberId:'m1',timeIn:'2026-10-29T15:00:00Z',
+  timeOut:'2026-10-29T22:00:00Z'}],Org.COOPS,'2026-10-30','2026-10-30');
+ assert.equal(nextDay.find(row=>row.coop==='Asiapro').complete,0);
+});
+test('MPC Breakdown refresh uses same member and attendance data without changing other dashboards',()=>{
+ const org=source('organization.js'),app=source('app.js'),sync=source('sync.js'),html=source('index.html');
+ assert.match(org,/buildMpcBreakdown\(filteredMembers\(\)\.filter\(m=>!m\.deleted\),logRows,coops,from,to,f\.coop\)/);
+ assert.match(org,/projectTerminalLogEvents\(state\.punches\.filter\(p=>p&&!p\.deleted&&!p\.reviewStatus&&p\.timestamp\)\)/);
+ assert.match(org,/\$\('dashboardSummary'\)\.innerHTML=/);
+ assert.match(org,/renderMpc\(\);/);
+ assert.match(sync,/if\(state\.page==='dashboard'\)renderDashboard\(\)/);
+ assert.match(app,/await loadCollections\(\);renderMembers\(\);renderDashboard\(\)/);
+ assert.doesNotMatch(html,/id="dashboardSite"/);
+ assert.doesNotMatch(html,/id="dashboardPlatform"/);
+});

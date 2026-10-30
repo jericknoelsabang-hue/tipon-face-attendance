@@ -1,5 +1,5 @@
 {
   "app": "TIPON Face Attendance",
-  "version": "5.5.61",
-  "label": "Attendance synchronization reliability: scope sync status to this account/device, distinguish retry vs review, retain edits across transient timeouts, reconcile confirmed corrections after lost acknowledgments, and deduplicate refresh notices. No attendance records are erased."
+  "version": "5.5.62",
+  "label": "MPC Breakdown only: reconcile unique registered members with the normalized Attendance Logs, count incomplete/unpaired shifts without leaving members unclassified, honor Philippine Time-In workday filters and updated MPC assignments. Other dashboard KPIs unchanged."
 }

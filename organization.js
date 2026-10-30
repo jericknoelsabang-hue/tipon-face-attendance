@@ -279,6 +279,41 @@ window.OrgUI=(()=>{
   function csv(name,headers,rows){const safe=v=>{let s=String(v??'');if(/^[=+\-@\t\r]/.test(s))s="'"+s;return '"'+s.replace(/"/g,'""')+'"';};downloadBlob(name,new Blob(['\ufeff'+[headers,...rows].map(r=>r.map(safe).join(',')).join('\r\n')],{type:'text/csv;charset=utf-8'}));}
   function dashboardFilter(){return {coop:isAdmin()?$('dashboardCoop').value:(state.user?.coop||''),platform:isAdmin()?'':(state.user?.platform||'')};}
   function filteredMembers(){const f=dashboardFilter(),sites=new Map(state.sites.map(x=>[x.id,x]));return state.members.filter(m=>(!f.coop||m.coop===f.coop)&&(!f.platform||TIPONOrgCore.platformKey(m.platform||sites.get(m.siteId)?.platform)===TIPONOrgCore.platformKey(f.platform)));}
+  // MPC Breakdown uses the same current registered-member roster as Member List
+  // and the same normalized sessions that are displayed in Attendance Logs.
+  // Counts are unique members, not raw punches or number of shifts.
+  function buildMpcBreakdown(registry,attendanceRows,cooperativeNames,from,to,selectedCoop=''){
+    const people=(registry||[]).filter(m=>m&&!m.deleted&&m.id&&(!selectedCoop||m.coop===selectedCoop));
+    const byId=new Map(people.map(m=>[String(m.id).trim(),m])),byNumber=new Map();
+    for(const member of people){
+      const number=String(member.memberNumber||'').trim();
+      if(!number)continue;
+      if(byNumber.has(number)&&byNumber.get(number)!==member)byNumber.set(number,null);
+      else if(!byNumber.has(number))byNumber.set(number,member);
+    }
+    const completedIds=new Set();
+    for(const row of attendanceRows||[]){
+      if(!row||row.projectionIssue||!row.timeIn||!row.timeOut)continue;
+      const start=Date.parse(row.timeIn),end=Date.parse(row.timeOut);
+      if(!Number.isFinite(start)||!Number.isFinite(end)||end<=start||end-start>86400000)continue;
+      // Overnight shifts belong to the Philippine workday of Time In, just
+      // like the date filter in Attendance Logs.
+      const workday=TIPONCore.phStamp(row.timeIn).slice(0,10);
+      if(from&&workday<from||to&&workday>to)continue;
+      const memberId=String(row.memberId||'').trim();
+      const member=byId.get(memberId)||byNumber.get(memberId);
+      if(member)completedIds.add(String(member.id));
+    }
+    const names=[...new Set([...(cooperativeNames||[]),...people.map(m=>m.coop)].filter(Boolean))]
+      .filter(coop=>!selectedCoop||coop===selectedCoop);
+    return names.map(coop=>{
+      const members=people.filter(m=>m.coop===coop);
+      const complete=members.filter(m=>completedIds.has(String(m.id))).length;
+      // An open/incomplete shift belongs in the second bucket, not an
+      // uncounted gap. This is not an absence or payroll determination.
+      return {coop,members:members.length,complete,missing:members.length-complete};
+    }).sort((a,b)=>a.missing-b.missing||a.coop.localeCompare(b.coop));
+  }
   function renderMpc(){
     if(!isAdmin()&&!canEdit())return;
     fillCoopSelect('dashboardCoop',true);
@@ -334,7 +369,8 @@ window.OrgUI=(()=>{
     };
     const total=tally(members);
     $('dashboardSummary').innerHTML=[['Registered / enrolled',total.members],['With In and Out',total.complete],['No Time In / Out',total.missing]].map(([label,n])=>'<article class="kpi-card"><span>'+label+'</span><strong>'+n+'</strong><small>'+esc(day)+'</small></article>').join('');
-    const ranked=coops.filter(c=>!f.coop||c===f.coop).map(coop=>({coop,...tally(members.filter(m=>m.coop===coop))})).sort((a,b)=>a.missing-b.missing||a.coop.localeCompare(b.coop));
+    const logRows=projectTerminalLogEvents(state.punches.filter(p=>p&&!p.deleted&&!p.reviewStatus&&p.timestamp));
+    const ranked=buildMpcBreakdown(filteredMembers().filter(m=>!m.deleted),logRows,coops,from,to,f.coop);
     $('dashboardRanking').innerHTML=ranked.map((r,i)=>{const rate=r.members?100*r.missing/r.members:0;return '<tr><td>'+(i+1)+'</td><td><b>'+esc(r.coop)+'</b></td><td>'+r.members+'</td><td>'+r.complete+'</td><td>'+r.missing+'</td><td><div class="attendance-rate"><span style="width:'+rate+'%"></span></div><small>'+(r.members?rate.toFixed(1)+'%':'No members')+'</small></td></tr>';}).join('');
     window.TIPONAbsenteeism?.render({from:selectedFrom,to:selectedTo,coop:f.coop,platform:'',site:'',valid:true});
     const legacy=state.members.some(m=>!m.orgId)||state.sites.some(s=>!s.orgId)||state.punches.some(p=>!p.orgId);
