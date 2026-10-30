@@ -444,8 +444,8 @@ test('Absenteeism dashboard removes BP while retaining all eight MPC options',()
  const html=source('index.html'),app=source('app.js'),org=source('organization.js');
  assert.match(html,/id="dashboardCoop"/);
  assert.doesNotMatch(html,/id="dashboardPlatform"/);
- assert.match(html,/id="dashboardSite"/);
- assert.match(app,/if\(source==='dashboard'\)sharedAttendanceFilters.platform=''/);
+ assert.doesNotMatch(html,/id="dashboardSite"/);
+ assert.match(app,/if\(source==='dashboard'\)\{sharedAttendanceFilters.platform='';sharedAttendanceFilters.site='';\}/);
  assert.match(app,/fillCoopSelect\('dashboardCoop',true\)/);
  assert.doesNotMatch(app,/fillLogFilter\('dashboardCoop',\[\.\.\.state.members/);
  assert.match(app,/fillLogFilter\('terminalLogPlatform'/);
@@ -458,4 +458,24 @@ test('Absenteeism dashboard removes BP while retaining all eight MPC options',()
  vm.runInNewContext(org.slice(from,to)+';fillCoopSelect("dashboardCoop",true);',ctx);
  for(const coop of Org.COOPS)assert.ok(el.innerHTML.includes('<option value="'+coop+'">'+coop+'</option>'),coop);
  assert.ok(el.innerHTML.includes('<option value="">All cooperatives</option>'));
+});
+
+test('Mobile workspace restores the pre-regression bottom navigation and content layout',()=>{
+ const css=source('style.css'),html=source('index.html');
+ assert.match(css,/@media\(max-width:740px\)\{[^\n]*\.app-shell\{display:block\}\.sidebar\{display:none\}/);
+ assert.match(css,/@media\(max-width:740px\)\{[^\n]*\.mobile-nav\{position:fixed/);
+ assert.doesNotMatch(css,/@media\(max-width:740px\)\{\.sidebar\{display:flex/);
+ assert.match(html,/<main id="pageHost">/);
+ for(const id of ['page-terminalLogs','page-members','page-scanner'])assert.ok(html.includes('id="'+id+'"'));
+});
+test('Dashboard hides only its Work Location filter while Logs location remains',()=>{
+ const html=source('index.html'),app=source('app.js'),org=source('organization.js');
+ assert.doesNotMatch(html,/id="dashboardSite"/);
+ assert.match(html,/id="terminalLogSite"/);
+ assert.match(html,/id="dashboardCoop"/);
+ assert.doesNotMatch(app,/dashboardSite/);
+ assert.doesNotMatch(org,/dashboardSite/);
+ assert.match(app,/sharedAttendanceFilters.site=''/);
+ assert.match(org,/platform:'',site:'',valid:true/);
+ assert.match(app,/\['terminalLogFrom','terminalLogTo','terminalLogCoop','terminalLogPlatform','terminalLogSite'\]/);
 });

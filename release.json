@@ -1,5 +1,5 @@
 {
   "app": "TIPON Face Attendance",
-  "version": "5.5.59",
-  "label": "Absenteeism dashboard: remove Business Platform filter and populate MPC dropdown using all eight canonical TIPON cooperatives; retain Attendance Logs BP filter and existing permissions."
+  "version": "5.5.60",
+  "label": "Restore original mobile/tablet workspace by removing mobile sidebar CSS overrides; remove Work Location filter from Absenteeism only. Attendance Logs filters and other features unchanged."
 }
