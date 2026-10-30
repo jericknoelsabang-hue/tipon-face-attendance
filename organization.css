@@ -138,3 +138,5 @@ body:not([data-terminal-access="allowed"]) [data-terminal-only]{display:none!imp
 }
 #adminMemberDialog #adminMemberSites .multi-select-option{width:100%}
 #adminMemberDialog #adminMemberSites .multi-select-option input{flex:0 0 auto}
+
+.login-form-wrap .login-intro{text-align:center}
