@@ -101,6 +101,17 @@ function applyRoles(){document.querySelectorAll('[data-roles]').forEach(el=>el.h
 function refreshClock(){const now=new Date();setText('liveDateTime',now.toLocaleString('en-PH',{timeZone:PH_TIMEZONE,weekday:'short',month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}));setText('bigDate',now.toLocaleDateString('en-PH',{timeZone:PH_TIMEZONE,weekday:'long',month:'short',day:'numeric',year:'numeric'}));const connected=navigator.onLine;setText('connectionText',connected?'Online / local storage':'Offline / local storage');setText('headerOnlineText',connected?'Network online':state.offlineReady?'Offline ready':'Offline / setup needed');$('onlineDot').className=`status-dot ${connected?'success':'offline'}`;$('headerOnlineDot').className=`status-dot ${connected?'success':'offline'}`;}
 
 const pageNames={dashboard:'Dashboard',scanner:'Face Terminal',terminalLogs:'Attendance Logs',members:'Member List',sites:'Work Locations',records:'Attendance Logs',settings:'Settings & Offline',adminSites:'Work Locations List'};
+const sharedAttendanceFilters={from:'',to:'',coop:'',platform:'',site:''};
+function readSharedAttendanceFilters(source='dashboard'){
+ const ids=source==='logs'?['terminalLogFrom','terminalLogTo','terminalLogCoop','terminalLogPlatform','terminalLogSite']:['dashboardFrom','dashboardTo','dashboardCoop','dashboardPlatform','dashboardSite'];
+ ids.forEach((id,i)=>{const el=$(id);if(el)sharedAttendanceFilters[['from','to','coop','platform','site'][i]]=el.value||'';});return {...sharedAttendanceFilters};
+}
+function applySharedAttendanceFilters(source='dashboard',render=true){
+ const f=readSharedAttendanceFilters(source);
+ [['dashboardFrom','terminalLogFrom',f.from],['dashboardTo','terminalLogTo',f.to],['dashboardCoop','terminalLogCoop',f.coop],['dashboardPlatform','terminalLogPlatform',f.platform],['dashboardSite','terminalLogSite',f.site]].forEach(([a,b,v])=>{if($(a))$(a).value=v;if($(b))$(b).value=v;});
+ if(render){state.attendancePage=1;renderDashboard();renderTerminalLogs();if($('recordFrom')){$('recordFrom').value=f.from;$('recordTo').value=f.to;if($('recordSite'))$('recordSite').value=f.site;renderRecords();}if(window.TIPONAbsenteeism)TIPONAbsenteeism.render({from:f.from,to:f.to,coop:f.coop,valid:!(f.from&&f.to&&f.to<f.from)});}
+}
+function resetSharedAttendanceFilters(){Object.keys(sharedAttendanceFilters).forEach(k=>sharedAttendanceFilters[k]='');applySharedAttendanceFilters('dashboard',true);}
 
 function validateAttendanceDateRange(fromId,toId,errorId,actionId=''){
  const fromField=$(fromId),toField=$(toId),error=$(errorId);
@@ -127,7 +138,7 @@ async function showPage(page){
 }
 function renderDashboard(){const today=todayPH();const todayPunches=state.punches.filter(e=>e.day===today&&!e.reviewStatus);const present=new Set(todayPunches.filter(e=>e.type==='IN').map(e=>e.memberId));
  setText('metricMembers',state.members.length);setText('metricPresent',present.size);setText('metricPunches',todayPunches.length);setText('metricSites',state.sites.length);
- $('recentList').innerHTML=state.punches.length?state.punches.slice(0,5).map(e=>`<div class="recent-item"><div class="initial-avatar">${esc(initial(e.memberName))}</div><div class="desc"><b>${esc(e.memberName)}</b><small>${esc(e.siteName)}</small></div><div><time>${esc(displayTime(e.timestamp))}</time><span class="badge ${e.type==='IN'?'green':'amber'}">TIME ${e.type}</span></div></div>`).join(''):`<div class="empty-state">${pageIcon('clock')}No attendance recorded yet.</div>`;
+ $('recentList').innerHTML=state.punches.filter(e=>!e.deleted&&e.day===today&&!e.reviewStatus).length?state.punches.filter(e=>!e.deleted&&e.day===today&&!e.reviewStatus).sort((a,b)=>Date.parse(b.timestamp)-Date.parse(a.timestamp)).slice(0,5).map(e=>`<div class="recent-item"><div class="initial-avatar">${esc(initial(e.memberName))}</div><div class="desc"><b>${esc(e.memberName)}</b><small>${esc(e.siteName)}</small></div><div><time>${esc(displayTime(e.timestamp))}</time><span class="badge ${e.type==='IN'?'green':'amber'}">TIME ${e.type}</span></div></div>`).join(''):`<div class="empty-state">${pageIcon('clock')}No attendance recorded yet.</div>`;
  const ready=[['Work locations',state.sites.length>0,`${state.sites.length} configured`],['Member facial enrollment',state.members.some(m=>m.active!==false&&!m.deleted&&m.descriptors?.length>=3),`${state.members.filter(m=>m.active!==false&&!m.deleted&&m.descriptors?.length>=3).length} enrolled`],['Offline AI resources',state.offlineReady,state.offlineReady?'Downloaded':'Setup required'],['Attendance stored locally',true,'Device-local database']];
  $('readinessList').innerHTML=ready.map(([label,ok,sub])=>`<div class="readiness-row"><span class="readiness-icon ${ok?'':'warn'}">${pageIcon(ok?'check':'alert')}</span><div class="desc"><b>${esc(label)}</b><small>${esc(sub)}</small></div></div>`).join('');
 }
@@ -141,7 +152,8 @@ function renderTerminal(){
   setText('currentLat',d?d.latitude.toFixed(6):'—');setText('currentLng',d?d.longitude.toFixed(6):'—');setText('currentAccuracy',d?`${Math.round(d.accuracy)} m`:'—');setText('currentGpsTime',d?displayTime(d.timestamp):'—');setText('gpsStatusBadge',d?'GPS received':'Not checked');
   $('gpsStatusBadge').className=`badge ${d?'green':'gray'}`;
   setText('scannerModelState',state.modelReady?'AI: Loaded':'AI: Not loaded');
-  $('terminalRecent').innerHTML=state.punches.length?state.punches.slice(0,4).map(e=>`<div class="mini-feed-item"><div class="initial-avatar">${esc(initial(e.memberName))}</div><div class="desc"><b>${esc(e.memberName)} <span class="badge ${e.type==='IN'?'green':'amber'}">${e.type}</span></b><small>${esc(displayStamp(e.timestamp))} · ${esc(e.siteName)}</small></div></div>`).join(''):`<div class="empty-state">No check-ins yet</div>`;
+  const todayEvents=state.punches.filter(e=>!e.deleted&&e.day===todayPH()&&!e.reviewStatus).sort((a,b)=>Date.parse(b.timestamp)-Date.parse(a.timestamp));
+  $('terminalRecent').innerHTML=todayEvents.length?todayEvents.slice(0,4).map(e=>`<div class="mini-feed-item"><div class="initial-avatar">${esc(initial(e.memberName))}</div><div class="desc"><b>${esc(e.memberName)} <span class="badge ${e.type==='IN'?'green':'amber'}">${e.type}</span></b><small>${esc(displayStamp(e.timestamp))} · ${esc(e.siteName)}</small></div></div>`).join(''):`<div class="empty-state">No check-ins yet</div>`;
 }
 function updateScanResult(title,detail,kind='neutral'){const el=$('scanResult');if(!el)return;el.className=`scan-message ${kind}`;el.innerHTML=`${pageIcon(kind==='success'?'check':kind==='error'?'alert':'scan')}<div><b>${esc(title)}</b><p>${esc(detail)}</p></div>`;if(kind==='error'&&state.page==='scanner')speakTerminal(title+'. '+detail,'error',title);}
 
@@ -932,7 +944,7 @@ async function useGpsForSite(){if(isAdmin()){showToast('Administrators select th
 function filteredAttendanceRows(){
  if(!validateAttendanceDateRange('recordFrom','recordTo','recordDateError','exportExcel'))throw Error('To Date cannot be earlier than From Date.');
  const data=TIPONCore.rows(state.punches,state.deviceId);
- return TIPONCore.filterRows(data,$('recordFrom').value,$('recordTo').value,$('recordSite').value);
+ return TIPONCore.filterRows(data,sharedAttendanceFilters.from,sharedAttendanceFilters.to,sharedAttendanceFilters.site);
 }
 function renderRecords(){
  validateAttendanceDateRange('recordFrom','recordTo','recordDateError','exportExcel');
@@ -978,9 +990,9 @@ function projectTerminalLogEvents(events){
  return rows.sort((a,b)=>Date.parse(a.timeIn||a.timeOut)-Date.parse(b.timeIn||b.timeOut)||String(a.key).localeCompare(String(b.key)));
 }
 function filteredTerminalLogRows(){
- const from=$('terminalLogFrom').value,to=$('terminalLogTo').value,
-  siteId=$('terminalLogSite').value,admin=isAdmin();
- const coop=admin?$('terminalLogCoop').value:'',platform=admin?$('terminalLogPlatform').value:'',search=String($('terminalLogSearch')?.value||'').trim().toLowerCase();
+ const filters=readSharedAttendanceFilters('logs');
+ const from=filters.from,to=filters.to,siteId=filters.site,admin=isAdmin();
+ const coop=admin?filters.coop:'',platform=admin?filters.platform:'',search=String($('terminalLogSearch')?.value||'').trim().toLowerCase();
  if(!validateAttendanceDateRange('terminalLogFrom','terminalLogTo','terminalLogDateError','terminalLogExport'))throw Error('To Date cannot be earlier than From Date.');
  return projectTerminalLogEvents(state.punches.filter(p=>!p.deleted&&p.reviewStatus!=='rejected')).filter(r=>{
   const stamp=r.timeIn||r.timeOut,day=TIPONCore.phStamp(stamp).slice(0,10);
@@ -1008,7 +1020,6 @@ function attendanceSyncLabel(row){
 }
 function renderTerminalLogs(){
  if(!$('terminalLogRows'))return;
- if(state.page==='terminalLogs')$('page-terminalLogs').appendChild($('terminalLogPanel'));
  const sites=[...state.sites],events=state.punches;
  if(isAdmin()){
   fillLogFilter('terminalLogCoop',[...state.members.map(m=>m.coop),...events.map(p=>p.coop)],'All cooperatives');
@@ -1021,6 +1032,8 @@ function renderTerminalLogs(){
  selector.innerHTML='<option value="">All work locations</option>'+
   [...sitesById].map(([id,name])=>'<option value="'+esc(id)+'">'+esc(name||id)+'</option>').join('');
  if(sitesById.has(selected))selector.value=selected;
+ if($('dashboardSite'))$('dashboardSite').innerHTML='<option value="">All work locations</option>'+[...sitesById].map(([id,name])=>'<option value="'+esc(id)+'">'+esc(name||id)+'</option>').join('');
+ if($('dashboardPlatform'))fillLogFilter('dashboardPlatform',[...state.members.map(m=>m.platform),...sites.map(x=>x.platform),...events.map(p=>p.platform)],'All business platforms');
  try{
   const filteredRows=filteredTerminalLogRows(),pageSize=10;
   const totalPages=Math.max(1,Math.ceil(filteredRows.length/pageSize));
@@ -1030,7 +1043,6 @@ function renderTerminalLogs(){
   $('terminalLogRows').innerHTML=rows.length?rows.map(row=>{
    const location=row.location||sitesById.get(row.siteId)||'—';
    const stamp=row.timeIn||row.timeOut;
-   const status=row.projectionIssue?'Sync Error':attendanceSyncLabel(row);
    const localInput=value=>value?TIPONCore.phStamp(value).replace(' ','T').slice(0,16):'';
    const action=canCorrectAttendance()?'<div class="row-inline">'+
      '<button type="button" class="tiny-button" data-attendance-edit="'+esc(row.key)+'" data-in="'+esc(localInput(row.timeIn))+'" data-out="'+esc(localInput(row.timeOut))+'">Edit</button>'+
@@ -1042,10 +1054,10 @@ function renderTerminalLogs(){
     row.timeIn?TIPONCore.phStamp(row.timeIn).slice(-8):'—',
     row.timeOut?TIPONCore.phStamp(row.timeOut).slice(-8):'—',
     row.timeOut?TIPONCore.phStamp(row.timeOut).slice(0,10):'—',
-    row.coop||'—',row.platform||'—',location,status
+    row.coop||'—',row.platform||'—',location
    ];
    return '<tr>'+data.map(value=>'<td>'+esc(value)+'</td>').join('')+'<td>'+action+'</td></tr>';
-  }).join(''):'<tr><td colspan="11"><div class="empty-state">No attendance records match the current filters. Use Reset Filters to show all available records. Stored attendance has not been deleted.</div></td></tr>';
+  }).join(''):'<tr><td colspan="10"><div class="empty-state">No attendance records match the current filters. Use Reset Filters to show all available records. Stored attendance has not been deleted.</div></td></tr>';
   setText('terminalLogPageCount','Showing '+(filteredRows.length?offset+1:0)+'–'+Math.min(offset+pageSize,filteredRows.length)+' of '+filteredRows.length+' attendance records');
   setText('terminalLogPage','Page '+state.attendancePage+' of '+totalPages);
   if($('terminalLogPrev'))$('terminalLogPrev').disabled=state.attendancePage<=1;
@@ -1056,7 +1068,7 @@ function renderTerminalLogs(){
   setText('terminalLogPage','Page 1 of 1');
   if($('terminalLogPrev'))$('terminalLogPrev').disabled=true;
   if($('terminalLogNext'))$('terminalLogNext').disabled=true;
-  $('terminalLogRows').innerHTML='<tr><td colspan="11">'+esc(err.message)+'</td></tr>';
+  $('terminalLogRows').innerHTML='<tr><td colspan="10">'+esc(err.message)+'</td></tr>';
  }
 }
 function attendanceRowByKey(key){
@@ -1598,13 +1610,10 @@ function bindEvents(){
  });
  attach('memberPrev','click',()=>{state.memberPage=Math.max(1,(state.memberPage||1)-1);renderMembers();});
  attach('memberNext','click',()=>{state.memberPage=(state.memberPage||1)+1;renderMembers();});
- const rerenderLogFilters=()=>{state.attendancePage=1;renderTerminalLogs();};
- attach('terminalLogSearch','input',rerenderLogFilters);
+ const rerenderLogFilters=()=>applySharedAttendanceFilters('logs',true);
+ attach('terminalLogSearch','input',()=>{state.attendancePage=1;renderTerminalLogs();});
  ['terminalLogFrom','terminalLogTo','terminalLogCoop','terminalLogPlatform','terminalLogSite'].forEach(id=>attach(id,'change',rerenderLogFilters));
- attach('terminalLogReset','click',()=>{
-  ['terminalLogSearch','terminalLogFrom','terminalLogTo','terminalLogCoop','terminalLogPlatform','terminalLogSite'].forEach(id=>$(id).value='');
-  state.attendancePage=1;renderTerminalLogs();
- });
+ attach('terminalLogReset','click',()=>{if($('terminalLogSearch'))$('terminalLogSearch').value='';resetSharedAttendanceFilters();});
  attach('terminalLogPrev','click',()=>{state.attendancePage=Math.max(1,(state.attendancePage||1)-1);renderTerminalLogs();});
  attach('terminalLogNext','click',()=>{state.attendancePage=(state.attendancePage||1)+1;renderTerminalLogs();});
  attach('terminalLogExport','click',exportTerminalLogs);attach('terminalLogSync','click',()=>refreshDirectoryView('logs','terminalLogSync'));
@@ -1642,8 +1651,10 @@ function bindEvents(){
   showToast('Attendance mode: '+btn.textContent.trim(),'info');
  }));
  attach('refreshGps','click',async()=>{try{await readGPS();showToast('Current GPS location refreshed.','success');}catch(err){toastError(err,'GPS check failed');}});
- ['recordFrom','recordTo','recordSite'].forEach(id=>attach(id,'change',renderRecords));
- attach('clearRecordFilters','click',()=>{$('recordFrom').value='';$('recordTo').value='';$('recordSite').value='';renderRecords();});
+ ['recordFrom','recordTo','recordSite'].forEach(id=>attach(id,'change',()=>{sharedAttendanceFilters.from=$('recordFrom').value;sharedAttendanceFilters.to=$('recordTo').value;sharedAttendanceFilters.site=$('recordSite').value;applySharedAttendanceFilters('dashboard',true);}));
+ attach('clearRecordFilters','click',resetSharedAttendanceFilters);
+ ['dashboardFrom','dashboardTo','dashboardCoop','dashboardPlatform','dashboardSite'].forEach(id=>attach(id,'change',()=>applySharedAttendanceFilters('dashboard',true)));
+ attach('dashboardResetFilters','click',resetSharedAttendanceFilters);
  attach('exportExcel','click',exportExcel);
  attach('downloadOffline','click',installOfflinePack);attach('verifyOffline','click',async()=>{const ready=await checkOfflineReady();showToast(ready?'All offline AI assets are ready.':'Some offline AI assets are missing. Complete the download while online.',ready?'success':'error');});
  attach('installApp','click',async()=>{if(state.installPrompt){state.installPrompt.prompt();await state.installPrompt.userChoice;state.installPrompt=null;}else showToast('To install: Android Chrome → menu → Install app; iPhone Safari → Share → Add to Home Screen.','info',7500);});
