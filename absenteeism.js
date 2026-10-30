@@ -186,8 +186,8 @@ window.TIPONAbsenteeism=(()=>{
   $('absConnection').textContent=!navigator.onLine?'Offline — records may be incomplete':
    syncVerified?'Last Sync: '+lastSync:'Sync required — records may be incomplete';
   $('absKPIs').innerHTML=[
-   kpi('Missing Time In',fmt(data.noInRate)+'%',summary.missingMemberDays+' unverified member-day(s)','red'),
-   kpi('Headcount Coverage',fmt(data.coverage)+'%',summary.presentMemberDays+' of '+summary.eligibleMemberDays+' eligible member-days','blue'),
+   kpi('Missing Time In',fmt(pct(focus.noIn,focus.eligible))+'%',focus.noIn+' unverified member(s) on '+focus.day,'red'),
+   kpi('Headcount Coverage',fmt(pct(focus.present,focus.eligible))+'%',focus.present+' of '+focus.eligible+' enrolled members on '+focus.day,'blue'),
    kpi('Validated Manhours',fmt(Math.round(summary.hours*10)/10)+' h',summary.complete+' completed shifts in selected period','teal'),
    kpi('Potential Overtime',new Intl.NumberFormat('en-PH',{minimumFractionDigits:2,maximumFractionDigits:2}).format(overtime.minutes/60)+' h',
     overtime.memberDays+' member-day(s) above 8 h; estimate only, before break adjustments','teal'),
@@ -207,7 +207,12 @@ window.TIPONAbsenteeism=(()=>{
   const review=reviewRecords(data,syncVerified),totalPages=Math.max(1,Math.ceil(review.length/PAGE_SIZE));
   reviewPage=Math.max(1,Math.min(reviewPage,totalPages));
   const offset=(reviewPage-1)*PAGE_SIZE,visible=review.slice(offset,offset+PAGE_SIZE);
-  $('absReviewCount').textContent=review.length+' to review';
+  // Historical review contains member-DAY discrepancies: the same person
+  // can appear on several days. Keep all rows, but show the snapshot subset
+  // explicitly so it is not confused with the daily MPC headcount.
+  const snapshotReview=review.filter(item=>item.day===focus.day);
+  $('absReviewCount').textContent=review.length+' to review in period ('+
+    snapshotReview.length+' on '+focus.day+')';
   $('absReviewRows').innerHTML=visible.length?visible.map(item=>
    '<tr><td>'+escape(item.member.memberNumber||item.member.id)+'</td><td>'+escape(item.member.name)+'</td><td>'+escape(item.member.coop)+'</td><td>'+escape(item.day)+'</td><td><span class="ab-flag">'+escape(item.flag)+'</span></td></tr>'
   ).join(''):'<tr><td colspan="5">No attendance discrepancies in the available records.</td></tr>';

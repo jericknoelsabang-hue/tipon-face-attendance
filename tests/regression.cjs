@@ -628,7 +628,7 @@ test('MPC Breakdown reconciles Member List with normalized Attendance Logs and c
 });
 test('MPC Breakdown refresh uses same member and attendance data without changing other dashboards',()=>{
  const org=source('organization.js'),app=source('app.js'),sync=source('sync.js'),html=source('index.html');
- assert.match(org,/buildMpcBreakdown\(filteredMembers\(\)\.filter\(m=>!m\.deleted\),logRows,coops,from,to,f\.coop\)/);
+ assert.match(org,/buildMpcBreakdown\(filteredMembers\(\)\.filter\(m=>!m\.deleted\),logRows,coops,snapshotDay,snapshotDay,f\.coop\)/);
  assert.match(org,/projectTerminalLogEvents\(state\.punches\.filter\(p=>p&&!p\.deleted&&!p\.reviewStatus&&p\.timestamp\)\)/);
  assert.match(org,/\$\('dashboardSummary'\)\.innerHTML=/);
  assert.match(org,/renderMpc\(\);/);
@@ -674,4 +674,52 @@ test('Attendance three summary cards aggregate the exact MPC Breakdown rows, inc
  assert.match(renderer,/'With In and Out',total.complete/);
  assert.match(renderer,/'No Time In \/ Out',total.missing/);
  assert.doesNotMatch(renderer,/const total=tally\(/);
+});
+
+
+test('October 30 snapshot fixes historic 7/6/1 versus current-day 7/5/2 mismatch',()=>{
+ const orgSource=source('organization.js'),begin=orgSource.indexOf('  function buildMpcBreakdown('),
+  end=orgSource.indexOf('  function renderMpc(){',begin);
+ const ctx={Date,Map,Set,String,Number,TIPONCore:Core};
+ vm.createContext(ctx);
+ vm.runInContext(orgSource.slice(begin,end)+'\nthis.group=buildMpcBreakdown;this.total=summarizeMpcBreakdown;',ctx);
+ const members=Array.from({length:7},(_,i)=>({id:'member-'+i,coop:'Asiapro',active:true,memberNumber:'test-'+i}));
+ const events=[];
+ // Six members completed an older day; only five completed the snapshot day.
+ for(let i=0;i<6;i++){
+  events.push({...event('older-in-'+i,'IN','2026-10-28T00:00:00Z'),memberId:members[i].id,sessionId:'old-'+i});
+  events.push({...event('older-out-'+i,'OUT','2026-10-28T00:05:00Z'),memberId:members[i].id,sessionId:'old-'+i});
+ }
+ for(let i=0;i<5;i++){
+  events.push({...event('today-in-'+i,'IN','2026-10-30T00:00:00Z'),memberId:members[i].id,sessionId:'today-'+i});
+  events.push({...event('today-out-'+i,'OUT','2026-10-30T00:05:00Z'),memberId:members[i].id,sessionId:'today-'+i});
+ }
+ const rows=Org.project(events);
+ const historical=ctx.total(ctx.group(members,rows,Org.COOPS,'2026-10-28','2026-10-30'));
+ assert.equal(historical.members,7);assert.equal(historical.complete,6);assert.equal(historical.missing,1);
+ const snapshot=ctx.total(ctx.group(members,rows,Org.COOPS,'2026-10-30','2026-10-30'));
+ assert.equal(snapshot.members,7);
+ assert.equal(snapshot.complete,5);
+ assert.equal(snapshot.missing,2);
+ const reference=Org.COOPS.map(coop=>ctx.group(members,rows,[coop],'2026-10-30','2026-10-30',coop)[0]);
+ assert.equal(reference.reduce((sum,row)=>sum+row.complete,0),5);
+ const render=orgSource.slice(end,orgSource.indexOf('  function renderReports(){',end));
+ assert.match(render,/const snapshotDay=to,f=dashboardFilter\(\)/);
+ assert.match(render,/buildMpcBreakdown\(filteredMembers\(\)\.filter\(m=>!m\.deleted\),logRows,coops,snapshotDay,snapshotDay,f\.coop\)/);
+ assert.match(render,/Snapshot: /);
+ assert.match(source('index.html'),/snapshot day \(To Date, or today\)/);
+});
+test('Absenteeism snapshot figures and Attendance Review distinguish daily members from historic member-days',()=>{
+ const abs=source('absenteeism.js');
+ assert.match(abs,/kpi\('Missing Time In',fmt\(pct\(focus.noIn,focus.eligible\)\)/);
+ assert.match(abs,/kpi\('Headcount Coverage',fmt\(pct\(focus.present,focus.eligible\)\)/);
+ assert.match(abs,/const snapshotReview=review.filter\(item=>item.day===focus.day\)/);
+ assert.match(abs,/review.length\+' to review in period/);
+ // With five Time Ins and two missing, snapshot KPIs are 71.4%/28.6%.
+ const percent=(numerator,denominator)=>denominator?Math.round(1000*numerator/denominator)/10:0;
+ assert.equal(percent(5,7),71.4);
+ assert.equal(percent(2,7),28.6);
+ const sourceOrg=source('organization.js');
+ assert.match(sourceOrg,/const snapshotDay=to/);
+ assert.doesNotMatch(sourceOrg,/const total=tally\(members\)/);
 });

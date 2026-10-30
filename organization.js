@@ -353,14 +353,17 @@ window.OrgUI=(()=>{
     }
     // Compatibility: day-based legacy actions still read dashboardDay.
     $('dashboardDay').value=to;
-    const day=!selectedFrom&&!selectedTo?'All available history':from===to?from:from+' to '+to, f=dashboardFilter();
+    // Attendance summary is a daily snapshot, like the Absenteeism donut.
+    // Blank filters leave historical charts/review intact; the three cards
+    // and MPC Breakdown use the snapshot day (To Date, otherwise today).
+    const snapshotDay=to,f=dashboardFilter();
     const all=state.members.filter(m=>!m.deleted&&m.active!==false);
     const coops=isAdmin()?[...new Set([...TIPONOrgCore.COOPS,...all.map(m=>m.coop).filter(Boolean)])]:[state.user?.coop].filter(Boolean);
     $('coopDashboardCards').innerHTML=coops.map(coop=>'<article class="coop-summary" data-coop="'+esc(coop)+'"><span class="coop-monogram" aria-hidden="true">'+esc(coop.split(' ').map(w=>w[0]).join('').slice(0,3))+'</span><h3>'+esc(coop)+'</h3><strong>'+all.filter(m=>m.coop===coop).length+'</strong><small>Registered members</small></article>').join('');
     const logRows=projectTerminalLogEvents(state.punches.filter(p=>p&&!p.deleted&&!p.reviewStatus&&p.timestamp));
-    const ranked=buildMpcBreakdown(filteredMembers().filter(m=>!m.deleted),logRows,coops,from,to,f.coop);
+    const ranked=buildMpcBreakdown(filteredMembers().filter(m=>!m.deleted),logRows,coops,snapshotDay,snapshotDay,f.coop);
     const total=summarizeMpcBreakdown(ranked);
-    $('dashboardSummary').innerHTML=[['Registered / enrolled',total.members],['With In and Out',total.complete],['No Time In / Out',total.missing]].map(([label,n])=>'<article class="kpi-card"><span>'+label+'</span><strong>'+n+'</strong><small>'+esc(day)+'</small></article>').join('');
+    $('dashboardSummary').innerHTML=[['Registered / enrolled',total.members],['With In and Out',total.complete],['No Time In / Out',total.missing]].map(([label,n])=>'<article class="kpi-card"><span>'+label+'</span><strong>'+n+'</strong><small>Snapshot: '+esc(snapshotDay)+'</small></article>').join('');
     $('dashboardRanking').innerHTML=ranked.map((r,i)=>{const rate=r.members?100*r.missing/r.members:0;return '<tr><td>'+(i+1)+'</td><td><b>'+esc(r.coop)+'</b></td><td>'+r.members+'</td><td>'+r.complete+'</td><td>'+r.missing+'</td><td><div class="attendance-rate"><span style="width:'+rate+'%"></span></div><small>'+(r.members?rate.toFixed(1)+'%':'No members')+'</small></td></tr>';}).join('');
     window.TIPONAbsenteeism?.render({from:selectedFrom,to:selectedTo,coop:f.coop,platform:'',site:'',valid:true});
     const legacy=state.members.some(m=>!m.orgId)||state.sites.some(s=>!s.orgId)||state.punches.some(p=>!p.orgId);

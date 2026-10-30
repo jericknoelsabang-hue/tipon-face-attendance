@@ -1,5 +1,5 @@
 {
   "app": "TIPON Face Attendance",
-  "version": "5.5.63",
-  "label": "Attendance summary card counts now use the exact same MPC Breakdown rows and date/MPC filters. Registered, With In and Out and No Time In / Out reconcile to MPC totals, including open shifts. No other features changed."
+  "version": "5.5.64",
+  "label": "Dashboard/report date-basis correction: Attendance Summary and MPC Breakdown use the same snapshot day (To Date or today), consistent with Absenteeism headcount. Attendance Review preserves historical member-day exceptions and labels the snapshot count. No changes to record storage, security, or other features."
 }
