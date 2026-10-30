@@ -419,7 +419,7 @@ test('Timesheet page counter and moved overtime dashboard KPI honor role and dat
  assert.doesNotMatch(html,/<th>Potential Overtime \(8h\)<\/th>/);
  assert.doesNotMatch(ts,/Potential Overtime Hours/);
  assert.match(abs,/kpi\('Potential Overtime'/);
- assert.match(source('organization.js'),/platform:\$\('dashboardPlatform'\)/);
+ assert.match(source('organization.js'),/platform:''/);
  const ctx={Date,Map,Set,Number,Math,Intl,console,document:{readyState:'complete',getElementById:()=>null,addEventListener(){}},
   TIPONCore:Core,TIPONOrgCore:Org};
  ctx.window=ctx;vm.createContext(ctx);
@@ -438,4 +438,24 @@ test('Timesheet page counter and moved overtime dashboard KPI honor role and dat
  assert.equal(scoped.minutes,90);assert.equal(scoped.memberDays,1);
  assert.equal(ctx.TIPONAbsenteeism.potentialOvertime(records,{from:'2026-10-28',to:'2026-10-28'},admin).minutes,0);
  assert.equal(ctx.TIPONAbsenteeism.potentialOvertime(records,{site:'site-2'},admin).minutes,60);
+});
+
+test('Absenteeism dashboard removes BP while retaining all eight MPC options',()=>{
+ const html=source('index.html'),app=source('app.js'),org=source('organization.js');
+ assert.match(html,/id="dashboardCoop"/);
+ assert.doesNotMatch(html,/id="dashboardPlatform"/);
+ assert.match(html,/id="dashboardSite"/);
+ assert.match(app,/if\(source==='dashboard'\)sharedAttendanceFilters.platform=''/);
+ assert.match(app,/fillCoopSelect\('dashboardCoop',true\)/);
+ assert.doesNotMatch(app,/fillLogFilter\('dashboardCoop',\[\.\.\.state.members/);
+ assert.match(app,/fillLogFilter\('terminalLogPlatform'/);
+ assert.doesNotMatch(org,/renderDashboardPlatformFilter/);
+ assert.equal(Org.COOPS.length,8);
+ const from=org.indexOf('function fillCoopSelect('),to=org.indexOf('function parseMemberCSV(',from);
+ assert.ok(from>0&&to>from);
+ const el={value:'',innerHTML:''};
+ const ctx={TIPONOrgCore:Org,$:()=>el,esc:v=>v};
+ vm.runInNewContext(org.slice(from,to)+';fillCoopSelect("dashboardCoop",true);',ctx);
+ for(const coop of Org.COOPS)assert.ok(el.innerHTML.includes('<option value="'+coop+'">'+coop+'</option>'),coop);
+ assert.ok(el.innerHTML.includes('<option value="">All cooperatives</option>'));
 });

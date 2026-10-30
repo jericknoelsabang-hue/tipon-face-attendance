@@ -279,14 +279,9 @@ window.OrgUI=(()=>{
   function csv(name,headers,rows){const safe=v=>{let s=String(v??'');if(/^[=+\-@\t\r]/.test(s))s="'"+s;return '"'+s.replace(/"/g,'""')+'"';};downloadBlob(name,new Blob(['\ufeff'+[headers,...rows].map(r=>r.map(safe).join(',')).join('\r\n')],{type:'text/csv;charset=utf-8'}));}
   function dashboardFilter(){return {coop:isAdmin()?$('dashboardCoop').value:(state.user?.coop||''),platform:isAdmin()?'':(state.user?.platform||'')};}
   function filteredMembers(){const f=dashboardFilter(),sites=new Map(state.sites.map(x=>[x.id,x]));return state.members.filter(m=>(!f.coop||m.coop===f.coop)&&(!f.platform||TIPONOrgCore.platformKey(m.platform||sites.get(m.siteId)?.platform)===TIPONOrgCore.platformKey(f.platform)));}
-  function renderDashboardPlatformFilter(){
-    const el=$('dashboardPlatform');if(!el)return;const value=el.value;
-    const names=TIPONOrgCore.platformNames([...(TIPONPlatforms?.names()||[]),...state.members.map(m=>m.platform),...state.punches.map(e=>e.platform),value]);
-    const html='<option value="">All business platforms</option>'+names.map(p=>`<option value="${esc(p)}">${esc(p)}</option>`).join('');
-    if(el.innerHTML!==html)el.innerHTML=html;el.value=value;
-  }
   function renderMpc(){
     if(!isAdmin()&&!canEdit())return;
+    fillCoopSelect('dashboardCoop',true);
     if(!isAdmin()&&state.user){$('dashboardCoop').value=state.user.coop||'';$('dashboardCoop').disabled=true;}else $('dashboardCoop').disabled=false;
     // Blank date filters mean all available history. The native date inputs
     // remain blank until the User explicitly chooses a range.
@@ -314,7 +309,6 @@ window.OrgUI=(()=>{
     }
     // Compatibility: day-based legacy actions still read dashboardDay.
     $('dashboardDay').value=to;
-    renderDashboardPlatformFilter();
     const day=!selectedFrom&&!selectedTo?'All available history':from===to?from:from+' to '+to, f=dashboardFilter();
     const all=state.members.filter(m=>!m.deleted&&m.active!==false);
     const coops=isAdmin()?[...new Set([...TIPONOrgCore.COOPS,...all.map(m=>m.coop).filter(Boolean)])]:[state.user?.coop].filter(Boolean);
@@ -342,7 +336,7 @@ window.OrgUI=(()=>{
     $('dashboardSummary').innerHTML=[['Registered / enrolled',total.members],['With In and Out',total.complete],['No Time In / Out',total.missing]].map(([label,n])=>'<article class="kpi-card"><span>'+label+'</span><strong>'+n+'</strong><small>'+esc(day)+'</small></article>').join('');
     const ranked=coops.filter(c=>!f.coop||c===f.coop).map(coop=>({coop,...tally(members.filter(m=>m.coop===coop))})).sort((a,b)=>a.missing-b.missing||a.coop.localeCompare(b.coop));
     $('dashboardRanking').innerHTML=ranked.map((r,i)=>{const rate=r.members?100*r.missing/r.members:0;return '<tr><td>'+(i+1)+'</td><td><b>'+esc(r.coop)+'</b></td><td>'+r.members+'</td><td>'+r.complete+'</td><td>'+r.missing+'</td><td><div class="attendance-rate"><span style="width:'+rate+'%"></span></div><small>'+(r.members?rate.toFixed(1)+'%':'No members')+'</small></td></tr>';}).join('');
-    window.TIPONAbsenteeism?.render({from:selectedFrom,to:selectedTo,coop:f.coop,platform:$('dashboardPlatform')?.value||'',site:$('dashboardSite')?.value||'',valid:true});
+    window.TIPONAbsenteeism?.render({from:selectedFrom,to:selectedTo,coop:f.coop,platform:'',site:$('dashboardSite')?.value||'',valid:true});
     const legacy=state.members.some(m=>!m.orgId)||state.sites.some(s=>!s.orgId)||state.punches.some(p=>!p.orgId);
     if($('legacyNotice'))$('legacyNotice').hidden=!legacy;
   }

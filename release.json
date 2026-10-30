@@ -1,5 +1,5 @@
 {
   "app": "TIPON Face Attendance",
-  "version": "5.5.58",
-  "label": "Show timesheet record counts with Attendance Logs pagination layout; move potential overtime from the timesheet report to an 8-hour-per-member-day KPI in Absenteeism with role, date, MPC, BP and location filters."
+  "version": "5.5.59",
+  "label": "Absenteeism dashboard: remove Business Platform filter and populate MPC dropdown using all eight canonical TIPON cooperatives; retain Attendance Logs BP filter and existing permissions."
 }

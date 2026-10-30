@@ -103,12 +103,15 @@ function refreshClock(){const now=new Date();setText('liveDateTime',now.toLocale
 const pageNames={dashboard:'Dashboard',scanner:'Face Terminal',terminalLogs:'Attendance Logs',members:'Member List',sites:'Work Locations',records:'Attendance Logs',settings:'Settings & Offline',adminSites:'Work Locations List'};
 const sharedAttendanceFilters={from:'',to:'',coop:'',platform:'',site:''};
 function readSharedAttendanceFilters(source='dashboard'){
- const ids=source==='logs'?['terminalLogFrom','terminalLogTo','terminalLogCoop','terminalLogPlatform','terminalLogSite']:source==='records'?['recordFrom','recordTo','','','recordSite']:['dashboardFrom','dashboardTo','dashboardCoop','dashboardPlatform','dashboardSite'];
- ids.forEach((id,i)=>{const el=$(id);if(el)sharedAttendanceFilters[['from','to','coop','platform','site'][i]]=el.value||'';});return {...sharedAttendanceFilters};
+ const ids=source==='logs'?['terminalLogFrom','terminalLogTo','terminalLogCoop','terminalLogPlatform','terminalLogSite']:source==='records'?['recordFrom','recordTo','','','recordSite']:['dashboardFrom','dashboardTo','dashboardCoop','','dashboardSite'];
+ ids.forEach((id,i)=>{const el=$(id);if(el)sharedAttendanceFilters[['from','to','coop','platform','site'][i]]=el.value||'';});
+ if(source==='dashboard')sharedAttendanceFilters.platform='';
+ return {...sharedAttendanceFilters};
 }
 function applySharedAttendanceFilters(source='dashboard',render=true){
  const f=readSharedAttendanceFilters(source);
- [['dashboardFrom','terminalLogFrom',f.from],['dashboardTo','terminalLogTo',f.to],['dashboardCoop','terminalLogCoop',f.coop],['dashboardPlatform','terminalLogPlatform',f.platform],['dashboardSite','terminalLogSite',f.site]].forEach(([a,b,v])=>{if($(a))$(a).value=v;if($(b))$(b).value=v;});
+ [['dashboardFrom','terminalLogFrom',f.from],['dashboardTo','terminalLogTo',f.to],['dashboardCoop','terminalLogCoop',f.coop],['dashboardSite','terminalLogSite',f.site]].forEach(([a,b,v])=>{if($(a))$(a).value=v;if($(b))$(b).value=v;});
+ if($('terminalLogPlatform'))$('terminalLogPlatform').value=f.platform;
  if($('recordFrom'))$('recordFrom').value=f.from;if($('recordTo'))$('recordTo').value=f.to;if($('recordSite'))$('recordSite').value=f.site;
  if(render){state.attendancePage=1;renderDashboard();renderTerminalLogs();renderRecords();if(window.TIPONAbsenteeism)TIPONAbsenteeism.render({...f,valid:!(f.from&&f.to&&f.to<f.from)});}
 }
@@ -1024,9 +1027,8 @@ function renderTerminalLogs(){
   [...sitesById].map(([id,name])=>'<option value="'+esc(id)+'">'+esc(name||id)+'</option>').join('');
  if(sitesById.has(selected))selector.value=selected;
  if($('dashboardSite'))$('dashboardSite').innerHTML='<option value="">All work locations</option>'+[...sitesById].map(([id,name])=>'<option value="'+esc(id)+'">'+esc(name||id)+'</option>').join('');
- if($('dashboardPlatform'))fillLogFilter('dashboardPlatform',[...state.members.map(m=>m.platform),...sites.map(x=>x.platform),...events.map(p=>p.platform)],'All business platforms');
- if($('dashboardCoop'))fillLogFilter('dashboardCoop',[...state.members.map(m=>m.coop),...events.map(p=>p.coop)],'All cooperatives');
- for(const [id,value] of [['dashboardFrom',shared.from],['dashboardTo',shared.to],['dashboardCoop',shared.coop],['dashboardPlatform',shared.platform],['dashboardSite',shared.site],['terminalLogFrom',shared.from],['terminalLogTo',shared.to],['terminalLogCoop',shared.coop],['terminalLogPlatform',shared.platform],['terminalLogSite',shared.site]])if($(id))$(id).value=value;
+ if($('dashboardCoop'))fillCoopSelect('dashboardCoop',true);
+ for(const [id,value] of [['dashboardFrom',shared.from],['dashboardTo',shared.to],['dashboardCoop',shared.coop],['dashboardSite',shared.site],['terminalLogFrom',shared.from],['terminalLogTo',shared.to],['terminalLogCoop',shared.coop],['terminalLogPlatform',shared.platform],['terminalLogSite',shared.site]])if($(id))$(id).value=value;
  try{
   const filteredRows=filteredTerminalLogRows(),pageSize=10;
   const totalPages=Math.max(1,Math.ceil(filteredRows.length/pageSize));
@@ -1646,7 +1648,7 @@ function bindEvents(){
  attach('refreshGps','click',async()=>{try{await readGPS();showToast('Current GPS location refreshed.','success');}catch(err){toastError(err,'GPS check failed');}});
  ['recordFrom','recordTo','recordSite'].forEach(id=>attach(id,'change',()=>applySharedAttendanceFilters('records',true)));
  attach('clearRecordFilters','click',resetSharedAttendanceFilters);
- ['dashboardFrom','dashboardTo','dashboardCoop','dashboardPlatform','dashboardSite'].forEach(id=>attach(id,'change',()=>applySharedAttendanceFilters('dashboard',true)));
+ ['dashboardFrom','dashboardTo','dashboardCoop','dashboardSite'].forEach(id=>attach(id,'change',()=>applySharedAttendanceFilters('dashboard',true)));
  attach('dashboardResetFilters','click',resetSharedAttendanceFilters);
  attach('exportExcel','click',exportExcel);
  attach('downloadOffline','click',installOfflinePack);attach('verifyOffline','click',async()=>{const ready=await checkOfflineReady();showToast(ready?'All offline AI assets are ready.':'Some offline AI assets are missing. Complete the download while online.',ready?'success':'error');});
