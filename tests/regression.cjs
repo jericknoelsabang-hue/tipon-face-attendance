@@ -669,7 +669,8 @@ test('Attendance three summary cards aggregate the exact MPC Breakdown rows, inc
  assert.equal(full.complete,all.reduce((total,row)=>total+row.complete,0));
  assert.equal(full.missing,all.reduce((total,row)=>total+row.missing,0));
  const renderer=org.slice(end,org.indexOf('  function renderReports(){',end));
- assert.match(renderer,/const ranked=buildMpcBreakdown\(/);
+ assert.match(renderer,/const ranked=hasAttendance\?/);
+ assert.match(renderer,/buildMpcBreakdown\(reportMembers,logRows,coops,summaryFrom,summaryTo,f\.coop\)/);
  assert.match(renderer,/const total=summarizeMpcBreakdown\(ranked\)/);
  assert.match(renderer,/'Registered \/ enrolled',total.members/);
  assert.match(renderer,/'With In and Out',total.complete/);
