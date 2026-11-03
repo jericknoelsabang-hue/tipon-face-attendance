@@ -24,12 +24,8 @@
       openRatio:0,openFrames:0,closed:false,closedAt:0,
       baseYaw:null,yawFrames:0,passed:false};
   }
-  // Attendance uses one natural blink after a stable face match. Enrollment
-  // retains the existing two-step challenge because it changes biometric data.
-  function challenge(){
-    const random=crypto.getRandomValues(new Uint8Array(1))[0];
-    return makeChallenge(random%2?['turn','blink']:['blink','turn']);
-  }
+  // Each manual enrollment capture requires one fresh blink.
+  function challenge(){return makeChallenge(['blink']);}
   function blinkChallenge(){return makeChallenge(['blink']);}
   function prompt(s){
     return s.order[s.step]==='blink'?
@@ -103,7 +99,7 @@
   const baseStop=stopScanner;
   stopScanner=async function(...args){state.scanLiveness=null;return baseStop(...args);};
   // Attendance scanning uses the original two-consecutive-frame flow in app.js.
-  // Enrollment uses the same random two-step challenge.
+  // Enrollment requires a fresh blink before each sample.
   const originalBeginEnrollment=beginEnrollment;
   beginEnrollment=async function(...args){
     state.enrollLiveness=challenge();
@@ -130,16 +126,12 @@
       setText('enrollCount','0 / 3 samples');$('enrollProgress').style.width='0%';
       setText('enrollStatus','Different face detected. Repeat the live check.');return;
     }
-    if(previous&&euclidean(previous,descriptor)<.023){
-      state.enrollReadyDescriptor=null;state.enrollLiveness=challenge();button.disabled=true;
-      setText('enrollStatus','Move your head slightly, complete the live check, then capture again.');return;
-    }
     state.enrollCollected.push(descriptor);state.enrollReadyDescriptor=null;button.disabled=true;
     setText('enrollCount',state.enrollCollected.length+' / 3 samples');
     $('enrollProgress').style.width=(state.enrollCollected.length/3*100)+'%';
     if(state.enrollCollected.length<3){
       state.enrollLiveness=challenge();button.textContent='Capture Sample '+(state.enrollCollected.length+1)+' of 3';
-      setText('enrollStatus','Sample captured. Complete the next live check, then capture again.');return;
+      setText('enrollStatus','Sample captured. Blink once, then capture the next sample.');return;
     }
     const finalConflict=findEnrolledFaceConflict(state.enrollCollected,memberId);
     if(finalConflict){

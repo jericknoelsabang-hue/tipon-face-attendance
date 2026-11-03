@@ -20,7 +20,7 @@ window.TIPONSiteScopes=(()=>{
   const count=coops.length*platforms.length;
   const hint=$('siteScopeHint');
   if(hint)hint.textContent=count
-   ?count+' authorized work location record'+(count===1?'':'s')+' will be created or updated (one per MPC / Business Platform pair). Maximum 12 combinations.'
+   ?count+' authorized work location record'+(count===1?'':'s')+' will be created or updated (one per MPC / Business Platform pair).'
    :'Select at least one Cooperative and one Business Platform. Each selected combination will have the same GPS and address.';
  }
  function checkboxes(id,options,current){
@@ -50,7 +50,6 @@ window.TIPONSiteScopes=(()=>{
   const coops=values('siteCoopChoices'),platforms=values('sitePlatformChoices');
   if(!coops.length||!platforms.length)throw Error('Select at least one Cooperative and one Business Platform.');
   const count=coops.length*platforms.length;
-  if(count>12)throw Error('Maximum 12 MPC / Business Platform combinations per Save. Reduce your selection.');
   const rows=coops.flatMap(coop=>platforms.map(platform=>({coop,platform})));
   if(previous&&!rows.some(row=>row.coop===previous.coop&&normalized(row.platform)===normalized(previous.platform))){
    throw Error('When editing an existing location, keep its original MPC and Business Platform selected. Add other combinations without replacing the existing location scope.');

@@ -1,5 +1,5 @@
 {
   "app": "TIPON Face Attendance",
-  "version": "5.5.66",
-  "label": "Attendance Review flags use professional casing (Absent, Open Time In, AWOL). Attendance Logs edits by Admin/User persist locally immediately and sync corrections independently from restricted raw punch uploads; missing Time Out can be supplied via Edit. No other features changed."
+  "version": "5.5.67",
+  "label": "Multiple Cooperative and Business Platform location saves; automatic member acknowledgment recovery; one blink per manual face sample."
 }

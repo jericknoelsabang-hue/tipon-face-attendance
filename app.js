@@ -561,7 +561,7 @@ async function persistMemberForm(){
  const liveProof=state.enrollmentProof;
  if(!liveProof||liveProof.memberId!==id||!Number.isFinite(liveProof.at)||
     liveProof.at>Date.now()||Date.now()-liveProof.at>20*60*1000){
-   showToast('Complete live blink and head-turn verification before saving Face Enrollment.','error');
+   showToast('Complete one blink for each of the three face captures before saving.','error');
    return;
  }
  // New facial enrollment can be completed without a GPS assignment.
@@ -599,7 +599,7 @@ async function persistMemberForm(){
    const record={...(old||{}),id,memberNumber,name,coop,platform,siteId:siteIds[0],siteIds,
      descriptors,template,consentAt,enrolledBy:state.user.id,
      enrolledByUsername:state.user.username||'',
-     createdAt:old?.createdAt||now,updatedAt:now,active:true,faceEnrollmentStatus:'enrolled',
+     createdBy:old?.createdBy||state.user.id,createdAt:old?.createdAt||now,updatedAt:now,active:true,faceEnrollmentStatus:'enrolled',
      orgId:state.orgId,rev:Number(old?.rev)||0};
    const serverRecord={...record};
    ['descriptors','orgId','_row','_pendingOp','pendingEdit','syncIssue','templateError'].forEach(key=>delete serverRecord[key]);
@@ -628,6 +628,7 @@ async function persistMemberForm(){
      tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error);tx.onabort=()=>reject(tx.error);
    });
    await loadCollections();$('memberDialog').close();renderMembers();renderDashboard();
+   TIPONSync.kick();
    let syncOutcome={ok:false,error:'Saved locally. Sync will retry when internet is available.'};
    if(navigator.onLine){
      try{syncOutcome=await TIPONSync.submitPendingNow();}
@@ -654,7 +655,11 @@ async function handleMemberTableClick(event){
    del=event.target.closest('[data-member-delete]');
  if(edit){
   const member=state.members.find(x=>x.id===edit.dataset.memberEdit&&!x.deleted);
-  if(member)openMemberForm(member);
+  if(member){
+   if(member._pendingOp&&navigator.onLine)await TIPONSync.submitPendingNow();
+   const fresh=await getOne('members',member.id);
+   if(fresh&&!fresh.deleted)openMemberForm(state.members.find(x=>x.id===member.id)||fresh);
+  }
   return;
  }
  if(!del)return;
@@ -665,8 +670,9 @@ async function handleMemberTableClick(event){
   showToast('Only an Administrator or authorized User in this MPC/BP can delete this member.','error');
   return;
  }
+ if(member._pendingOp&&navigator.onLine){await TIPONSync.submitPendingNow();await loadCollections();Object.assign(member,await getOne('members',member.id));}
  const stored=await getOne('members',member.id);
- if(stored?._pendingOp||member._pendingOp){
+ if(stored?._pendingOp){
   showToast('This member has an unconfirmed edit. Complete central sync before deleting.','error');
   return;
  }
@@ -1478,7 +1484,7 @@ async function beginEnrollment(){
  state.consentAcknowledgedAt=new Date().toISOString();
  if($('memberDialog').open)$('memberDialog').close();if(!$('enrollDialog').open)$('enrollDialog').showModal();state.enrollActive=true;state.enrollCollected=[];state.enrollBlinkClosed=false;state.enrollBlinkSeen=false;state.enrollBlinkOpen=0;state.enrollBlinkBaselineFrames=0;state.enrollBlinkClosedAt=0;
  const run=(state.enrollRun||0)+1;state.enrollRun=run;TIPONCamera.render();
- setText('enrollCount','0 / 3 samples');setText('enrollStatus','Preparing live detection. Face the camera, keep both eyes open briefly, then blink slowly (close for one second and reopen).');$('enrollProgress').style.width='0%';$('retryEnrollment').hidden=true;
+ setText('enrollCount','0 / 3 samples');setText('enrollStatus','Face the camera and blink once, then click Capture Sample. Repeat for all three samples.');$('enrollProgress').style.width='0%';$('retryEnrollment').hidden=true;
  try{await loadFaceModels();if(!state.enrollActive||state.enrollRun!==run)return;
   const stream=await getCameraStream('enroll');if(!state.enrollActive||state.enrollRun!==run||document.hidden){stream.getTracks().forEach(t=>t.stop());return;}state.enrollStream=stream;const v=$('enrollVideo');v.srcObject=stream;await v.play();await waitForCameraFrame(v);enrollTick();
  }catch(err){state.enrollStream?.getTracks().forEach(track=>track.stop());state.enrollStream=null;$('enrollVideo').pause();$('enrollVideo').srcObject=null;setText('enrollStatus',err.message);$('retryEnrollment').hidden=false;toastError(err,'Enrollment camera');}

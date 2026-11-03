@@ -70,7 +70,7 @@ window.TIPONSync=(()=>{
   function stop(){stopped=true;clearTimeout(timer);cachedOutbox=[];}
   function schedule(){clearTimeout(timer);if(stopped)return;
     const localEventsQueued=state.punches.some(p=>p.orgId===state.orgId&&!p.cloudAck&&!p.reviewStatus&&p.deviceId===state.deviceId);
-     const base=localEventsQueued?7000:state.user?.role==='admin'?15000:5000;
+     const base=localEventsQueued?3000:5000;
     const seconds=siteFastRetry>0&&siteFastRetry<=3&&attempt===0?4200:Math.min(300000,base*2**attempt)+Math.floor(Math.random()*3000);
     timer=setTimeout(run,seconds);
   }
@@ -83,7 +83,7 @@ window.TIPONSync=(()=>{
   async function markOps(reply){
     const all=await getAll('outbox');
     for(const id of reply.ackOps||[]){const item=all.find(x=>x.id===id);if(!item)continue;const receipt=(reply.receipts||[]).find(x=>x.type===item.type&&x.id===item.value.id);
-      await new Promise((resolve,reject)=>{const tx=db.transaction([item.type,'outbox'],'readwrite'),store=tx.objectStore(item.type),r=store.get(item.value.id);r.onsuccess=()=>{const current=r.result;if(current&&current._pendingOp===id){current.rev=receipt?.rev||item.baseRev+1;delete current._pendingOp;delete current.syncIssue;store.put(current);}tx.objectStore('outbox').delete(id);};tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error);});
+      await new Promise((resolve,reject)=>{const tx=db.transaction([item.type,'outbox'],'readwrite'),store=tx.objectStore(item.type),r=store.get(item.value.id);r.onsuccess=()=>{const current=r.result;if(current&&current._pendingOp===id){current.rev=receipt?.rev||item.baseRev+1;delete current._pendingOp;delete current.pendingEdit;delete current.pendingFaceUpdate;delete current.syncIssue;store.put(current);}tx.objectStore('outbox').delete(id);};tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error);});
     }
     for(const issue of reply.operationErrors||[]){
       const item=all.find(x=>x.id===issue.id);
@@ -188,6 +188,12 @@ window.TIPONSync=(()=>{
     const actor=state.user;
     const outbox=(await getAll('outbox')).filter(op=>op.orgId===state.orgId&&op.ownerId===actor.id)
       .sort((a,b)=>String(a.createdAt||'').localeCompare(String(b.createdAt||'')));
+    // Supply ownership omitted by the older manual new-enrollment path.
+    for(const op of outbox.filter(o=>o.type==='members'&&Number(o.baseRev)===0&&!o.value?.deleted&&o.value?.template&&!o.value.createdBy)){
+      op.value.createdBy=actor.id;
+      if(/createdBy|creator|created by/i.test(op.error||'')){delete op.error;delete op.errorCode;}
+      await OrgDB.rawSave('outbox',op);
+    }
     if(actor.role==='admin'){
       for(const op of outbox.filter(x=>x.type==='members'&&!x.value?.deleted&&x.errorCode!=='NEEDS_REVIEW')){
         op.error='Legacy member edit needs review. Use the current Member List editor.';
@@ -478,6 +484,18 @@ window.TIPONSync=(()=>{
           // A previous submit may have reached the server but its browser
           // acknowledgement was lost. Verify an exact remote site match,
           // including revision, before clearing that local pending flag.
+          if(type==='members'){
+            const op=await getOne('outbox',old._pendingOp);
+            const expected=op?.type==='members'?op.value:null;
+            const sameFields=expected&&['name','memberNumber','coop','platform','consentAt'].every(k=>String(entity[k]||'')===String(expected[k]||''));
+            const sites=m=>(m.siteIds||[m.siteId].filter(Boolean)).map(String).sort().join('|');
+            if(op?.everSent&&sameFields&&Number(entity.rev)>Number(op.baseRev||0)&&
+               sites(entity)===sites(expected)&&entity.template?.data===expected.template?.data&&
+               entity.template?.iv===expected.template?.iv&&entity.template?.data){
+              await OrgDB.rawSave('members',{...entity,orgId:state.orgId});
+              await OrgDB.rawDelete('outbox',op.id);
+            }
+          }
           if(type==='sites'){
             const op=await getOne('outbox',old._pendingOp);
             const same=(a,b)=>String(a??'').trim().normalize('NFKC')===String(b??'').trim().normalize('NFKC');

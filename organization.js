@@ -80,6 +80,10 @@ const decryptedFaces=new Map();let decryptedFaceKey=null;
 loadCollections=async function(){
   const [allMembers,allSites,allPunches,schedules]=await Promise.all(['members','sites','punches','schedules'].map(getAll));
   const u=state.user,belongs=x=>x.orgId===state.orgId||(!x.orgId&&u?.role==='admin');
+  // Older successful acknowledgments cleared the operation ID but left this UI flag.
+  for(const member of allMembers.filter(m=>belongs(m)&&m.pendingEdit&&!m._pendingOp&&Number(m.rev)>0)){
+    delete member.pendingEdit;await OrgDB.rawSave('members',member);
+  }
   state.sites=allSites.filter(x=>!x.deleted&&belongs(x)&&(u?.role==='admin'||u?.role==='kiosk'||u&&TIPONOrgCore.inScope(u,x)));
   // Physical kiosks identify members across the organization; assigned-office GPS is verified before recording.
   state.members=allMembers.filter(x=>!x.deleted&&belongs(x)&&(u?.role==='admin'||u?.role==='kiosk'||u&&TIPONOrgCore.inScope(u,x)));
@@ -250,13 +254,13 @@ renderMembers=function(){
   // The server authorizes every delete. The browser cannot delete a record
   // from another approved MPC/BP or hide the action from authorized Users.
   button.hidden=!permitted;
-  button.disabled=!permitted||!!member?._pendingOp;
+  button.disabled=!permitted;
   button.title=member?._pendingOp?'Sync the existing member change before deleting.':
    'Delete from the central Member List after confirmation; attendance history remains.';
  });
  document.querySelectorAll('[data-member-edit]').forEach(button=>{
   const member=state.members.find(m=>m.id===button.dataset.memberEdit);
-  button.disabled=!canEdit()||!TIPONOrgCore.inScope(state.user,member)||!!member?._pendingOp;
+  button.disabled=!(isAdmin()||canEdit()&&TIPONOrgCore.inScope(state.user,member));
  });
 };
 renderSites=function(){oldRenderSites();document.querySelectorAll('[data-site-delete],[data-site-edit]').forEach(x=>{const site=state.sites.find(v=>v.id===(x.dataset.siteDelete||x.dataset.siteEdit));x.hidden=false;x.disabled=!(site&&canEdit()&&TIPONOrgCore.inScope(state.user,site));});};

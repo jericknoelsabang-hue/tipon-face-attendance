@@ -369,7 +369,7 @@ test('Three manual re-enrollment captures trigger one immediate save with a fres
   let capture,saves=0;const button={dataset:{},addEventListener:(name,fn)=>capture=fn},nodes={captureEnrollmentSample:button,enrollProgress:{style:{}},retryEnrollment:{}};
   const ctx={console,Date,Math,Number,Array,crypto:{getRandomValues:a=>{a[0]=0;return a;}},state:{enrollActive:true,enrollCollected:[],editMember:{id:'STABLE-KEY',template:{}}},navigator:{onLine:true},$:id=>nodes[id],speakTerminal:()=>{},loadFaceModels:async()=>{},startScanner:async()=>{},stopScanner:async()=>{},beginEnrollment:async()=>{},scanTick:()=>{},enrollTick:()=>{},blinkRatio:f=>f.ratio,enrollmentMemberKey:()=>'STABLE-KEY',findEnrolledFaceConflict:()=>false,euclidean:(a,b)=>Math.sqrt(a.reduce((n,x,i)=>n+(x-b[i])**2,0)),setText:()=>{},playTerminalSound:()=>{},showToast:()=>{},finishEnrollment:async()=>{},saveMemberForm:async()=>{saves++;}};
   ctx.window=ctx;vm.createContext(ctx);vm.runInContext(source('liveness-guard.js'),ctx);
-  for(let i=0;i<3;i++){ctx.state.enrollReadyDescriptor=Array(128).fill(.1+i*.01);ctx.state.enrollReadyAt=Date.now();ctx.state.enrollLiveness={passed:true};await capture();}
+  for(let i=0;i<3;i++){ctx.state.enrollReadyDescriptor=Array(128).fill(.1);ctx.state.enrollReadyAt=Date.now();ctx.state.enrollLiveness={passed:true};await capture();}
   assert.equal(ctx.state.pendingDescriptors.length,3);assert.equal(ctx.state.enrollmentProof.memberId,'STABLE-KEY');assert.equal(saves,1);
 });
 
@@ -926,4 +926,34 @@ test('Attendance Review uses correctly worded status flags without changing unde
  assert.doesNotMatch(report,/flag,'ABSENT'/);
  assert.match(html,/Absent: no Time In recorded/);
  assert.match(html,/Open Time In: Time In recorded, but no valid Time Out/);
+});
+
+
+test('Each sample challenge completes with exactly one blink and no head turn',()=>{
+ const ctx={Date,Math,Number,Array,state:{},navigator:{onLine:true},$:()=>null,speakTerminal(){},loadFaceModels(){},startScanner(){},stopScanner(){},beginEnrollment(){},enrollTick(){},blinkRatio:f=>f.ratio};
+ ctx.window=ctx;vm.createContext(ctx);vm.runInContext(source('liveness-guard.js'),ctx);
+ for(let sample=0;sample<3;sample++){
+  const c=ctx.TIPONLiveness.challenge(),t=c.started;
+  assert.deepEqual(Array.from(c.order),['blink']);
+  for(let i=0;i<8;i++)assert.equal(ctx.TIPONLiveness.advance(c,{ratio:.25},t+i*100).ok,false);
+  assert.equal(ctx.TIPONLiveness.advance(c,{ratio:.02},t+900).ok,false);
+  assert.equal(ctx.TIPONLiveness.advance(c,{ratio:.25},t+1050).ok,true);
+ }
+});
+test('Location multi-select accepts more than twelve combinations without hidden required controls',()=>{
+ const nodes={siteCoop:{},sitePlatform:{},siteCoopChoices:{querySelectorAll:()=>Array.from({length:5},(_,i)=>({value:'Coop '+i}))},sitePlatformChoices:{querySelectorAll:()=>Array.from({length:3},(_,i)=>({value:'BP '+i}))}};
+ const ctx={window:{},document:{readyState:'loading',addEventListener(){},getElementById:id=>nodes[id]},isAdmin:()=>true};
+ vm.createContext(ctx);vm.runInContext(source('site-scope.js'),ctx);
+ const pairs=ctx.window.TIPONSiteScopes.pairs(null);
+ assert.equal(pairs.length,15);assert.equal(new Set(pairs.map(p=>p.coop+'|'+p.platform)).size,15);
+});
+test('Server acknowledgment clears all member pending flags',async()=>{
+ const sync=source('sync.js'),start=sync.indexOf('  async function markOps('),end=sync.indexOf('  const wire=',start);
+ let record={id:'member',rev:0,_pendingOp:'op',pendingEdit:true,pendingFaceUpdate:true,syncIssue:'old'},removed;
+ const op={id:'op',type:'members',value:{id:'member'},baseRev:0};
+ const ctx={getAll:async()=>[op],db:{transaction(){const tx={objectStore:type=>type==='outbox'?{delete:id=>removed=id}:{get(){const request={};queueMicrotask(()=>{request.result=record;request.onsuccess();tx.oncomplete();});return request;},put:value=>record=value}};return tx;}}};
+ vm.createContext(ctx);vm.runInContext(sync.slice(start,end),ctx);
+ await ctx.markOps({ackOps:['op'],receipts:[{type:'members',id:'member',rev:1}]});
+ assert.equal(removed,'op');assert.equal(record.rev,1);
+ for(const key of ['_pendingOp','pendingEdit','pendingFaceUpdate','syncIssue'])assert.equal(key in record,false);
 });
