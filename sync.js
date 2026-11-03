@@ -200,7 +200,7 @@ window.TIPONSync=(()=>{
         op.errorCode='NEEDS_REVIEW';await OrgDB.rawSave('outbox',op);
       }
     }
-    const specialTypes=['memberEdits','memberFaceUpdates','memberDeletes','attendanceCorrections','siteDeletes'];
+    const specialTypes=['memberEdits','memberFaceUpdates','memberDeletes','attendanceCorrections','siteDeletes','platformChanges'];
     const eligible=outbox.filter(op=>
       !['NEEDS_REVIEW','CONFLICT','FORBIDDEN','NOT_FOUND'].includes(op.errorCode)&&
       !specialTypes.includes(op.type)&&!(actor.role==='admin'&&op.type==='members')&&
@@ -270,6 +270,7 @@ window.TIPONSync=(()=>{
       latest.errorCode=retryable?code:'NEEDS_REVIEW';
       if(retryable)latest.retryCount=Math.min(30,(Number(latest.retryCount)||0)+1);
       await OrgDB.rawSave('outbox',latest);
+      if(op.type==='platformChanges')TIPONPlatforms.setPendingStatus(op.value.code,latest.errorCode,latest.error);
       // A timeout is not a server rejection; the request may already have
       // committed. Keep local edits and the durable outbox for safe recheck.
       if(retryable||op.type==='attendanceCorrections'&&code==='CONFLICT')return;
@@ -392,6 +393,35 @@ window.TIPONSync=(()=>{
           const current=await getOne('sites',op.value.siteId);
           if(current){const deleted={...current,deleted:true,rev:Number(receipt?.rev)||Number(current.rev||0)+1};delete deleted._pendingOp;delete deleted.pendingDelete;delete deleted.syncIssue;await OrgDB.rawSave('sites',deleted);}
           await OrgDB.rawDelete('outbox',op.id);
+        }else if(op.type==='platformChanges'){
+          if(actor.role!=='admin')throw Object.assign(Error('Only an Administrator can update the Business Platform directory.'),{code:'FORBIDDEN'});
+          const value=op.value||{},code=String(value.code||value.abbreviation||'').trim();
+          const key=TIPONOrgCore.platformKey;
+          const readDirectory=async()=>{
+            const response=await TIPONAPI.raw({action:'platforms'});
+            const details=['businessPlatformRecords','businessPlatformDetails','platformRecords'].map(name=>response?.[name]).find(Array.isArray);
+            if(!Array.isArray(response?.businessPlatforms)||!Array.isArray(details))
+              throw Object.assign(Error('The central backend did not return an authoritative Business Platform directory.'),{code:'ACTION'});
+            await TIPONPlatforms.accept(response.businessPlatforms,details);
+            const exists=response.businessPlatforms.some(item=>key(typeof item==='string'?item:item?.code||item?.name||'')===key(code));
+            const record=TIPONPlatforms.records().find(item=>key(item.code)===key(code));
+            return {exists,record};
+          };
+          let remote=await readDirectory();
+          const confirmed=()=>value.action==='delete'? !remote.exists:
+            remote.exists&&key(remote.record?.name)===key(value.name);
+          if(!confirmed()){
+            let payload;
+            if(value.action==='add')payload={action:'platformAdd',name:value.name,abbreviation:code};
+            else if(value.action==='update')payload={action:'platformUpdate',originalName:value.originalName,name:value.name,abbreviation:code};
+            else if(value.action==='delete')payload={action:'platformDelete',name:code};
+            else throw Object.assign(Error('Invalid pending Business Platform action.'),{code:'VALIDATION'});
+            await TIPONAPI.call(payload);
+            remote=await readDirectory();
+            if(!confirmed())throw Error('The central organization did not confirm the requested Business Platform change.');
+          }
+          await OrgDB.rawDelete('outbox',op.id);
+          TIPONPlatforms.markSynced(code);
         }else if(op.type==='attendanceCorrections'){
           const ids=op.value.eventIds||[],eventsForCorrection=await Promise.all(ids.map(id=>getOne('punches',id)));
           const syntheticId='attendance-correction-out:'+String(op.value.sessionId);

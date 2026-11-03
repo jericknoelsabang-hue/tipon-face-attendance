@@ -29,7 +29,7 @@ const state={ user:null, page:'dashboard', members:[], sites:[], users:[], punch
   scanStream:null, scanTimer:null, scanMode:'in', scanning:false, scanBusy:false, scanCandidate:null,
   scanCandidateCount:0, scanArmed:true, scanAbsentCount:0, scanRetryAt:0, scanRetryCount:0, lastRecognized:null, lastGPS:null,
   enrollStream:null, enrollTimer:null, enrollActive:false, gpsWatchId:null, pendingDescriptors:[], editMember:null, editSite:null,
-  installPrompt:null, offlineReady:false, confirmResolver:null, deviceId:null, offices:[], memberPage:1, attendancePage:1 };
+  installPrompt:null, offlineReady:false, offlineFoundationReady:false, confirmResolver:null, deviceId:null, offices:[], memberPage:1, attendancePage:1 };
 
 function uuid(){return crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`;}
 function esc(v){return String(v??'').replace(/[&<>"']/g,(c)=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
@@ -770,6 +770,7 @@ async function saveSiteForm(e){
  e.preventDefault();
  if(!canEdit()&&!isAdmin())return;
  const admin=isAdmin(),previous=state.editSite;
+ if(previous?._pendingOp){showToast('This Work Location already has an unconfirmed change. Sync it before editing again.','info',8000);return;}
  const name=$('siteName').value.trim(),address=$('siteAddress').value.trim();
  const latText=$('siteLat').value.trim(),lngText=$('siteLng').value.trim();
  const lat=Number(latText),lng=Number(lngText),radius=Number($('siteRadius').value);
@@ -783,7 +784,6 @@ async function saveSiteForm(e){
  const validPlatforms=new Set(TIPONOrgCore.platformNames(TIPONPlatforms.names()).map(TIPONOrgCore.platformKey));
  const valid=pairs.length&&pairs.every(p=>TIPONOrgCore.COOPS.includes(p.coop)&&validPlatforms.has(TIPONOrgCore.platformKey(p.platform))&&TIPONOrgCore.inScope(state.user,p));
  if(!valid){showToast('Select approved Cooperatives and Business Platforms.','error');return;}
- if(admin&&!navigator.onLine){showToast('Connect to the internet to centrally register Work Locations.','error');return;}
  const gpsChanged=!!previous&&(Number(previous.lat)!==lat||Number(previous.lng)!==lng||Number(previous.radius)!==radius);
  if(previous&&gpsChanged){
   const open=TIPONOrgCore.project(state.punches.filter(p=>!p.reviewStatus)).filter(p=>p.siteId===previous.id&&p.timeIn&&!p.timeOut);
@@ -818,13 +818,24 @@ async function saveSiteForm(e){
  const staged=[],allIds=[...existingInSync];let syncResult=null;
  try{
   for(const site of proposals){
-   await saveOne('sites',site);
+   const current=await getOne('sites',site.id);
+   if(current?._pendingOp)throw Error('This Work Location already has an unconfirmed change. Sync it before saving another edit.');
+   const opId=uuid(),baseRev=Number(current?.rev)||0;
+   const local={...site,rev:baseRev,orgId:state.orgId,_pendingOp:opId,pendingEdit:true};
+   const op={id:opId,type:'sites',value:site,baseRev,orgId:state.orgId,ownerId:state.user.id,
+     createdAt:new Date().toISOString(),everSent:false};
+   await new Promise((resolve,reject)=>{
+    const tx=db.transaction(['sites','outbox'],'readwrite');
+    tx.objectStore('sites').put(local);tx.objectStore('outbox').put(op);
+    tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error);tx.onabort=()=>reject(tx.error);
+   });
    staged.push(site.id);allIds.push(site.id);
   }
   await loadCollections();
-  if(!admin){
-   $('siteDialog').close();renderSites();TIPONSync.kick();
-   showToast('Work Location saved on this device. Automatic central synchronization is enabled.','success',6500);
+  if(!navigator.onLine){
+   $('siteDialog').close();renderSites();if(admin)window.TIPONAdminSites?.render();renderDashboard();
+   TIPONSync.kick();
+   showToast('Work Location saved locally. It will sync automatically when internet returns.','success',7500);
    return;
   }
   // Sending more than one scoped site may require several server batches.
@@ -1554,6 +1565,32 @@ async function openAppUpdater(){
  if(!await confirmAction('Check app update?','This stops the camera and reloads app files. Saved attendance, members and pending uploads are retained. You may need to sign in again.'))return;
  await stopScanner();location.assign('./update.html');
 }
+async function checkOfflineFoundation(){
+ let shellReady=false,workerActive=false,controlled=false,databaseReady=false,persisted=null;
+ try{
+  if('caches' in window){
+   const names=(await caches.keys()).filter(name=>name.startsWith('tipon-face-shell-')).sort();
+   const shellName=names[names.length-1];
+   if(shellName){
+    const shell=await caches.open(shellName);
+    const required=['./index.html','./app.js','./auth.js','./sync.js','./login-workers.webp','./logo.png','./manifest.webmanifest'];
+    const cached=await Promise.all(required.map(path=>shell.match(new URL(path,location.href),{ignoreSearch:true})));
+    shellReady=cached.every(Boolean);
+   }
+  }
+  if('serviceWorker' in navigator){
+   const registration=await navigator.serviceWorker.ready;
+   workerActive=!!registration?.active;
+   controlled=!!navigator.serviceWorker.controller;
+  }
+  databaseReady=!!db&&DB_STORE.every(name=>db.objectStoreNames.contains(name));
+  if(navigator.storage?.persisted)persisted=await navigator.storage.persisted();
+ }catch(err){console.warn('Offline foundation check failed:',err);}
+ const storageLabel=persisted===true?'persistent':persisted===false?'browser-managed':'not reported';
+ setText('offlineFoundationStatus',`App shell: ${shellReady?'cached':'missing'} · Local database: ${databaseReady?'ready':'missing'} · Service Worker: ${workerActive?(controlled?'controlling':'active; reload once'):'not active'} · Storage: ${storageLabel}.`);
+ state.offlineFoundationReady=shellReady&&databaseReady&&workerActive&&controlled;
+ return state.offlineFoundationReady;
+}
 async function checkOfflineReady(){
  let ok=false,count=0;
  try{if('caches' in window){const store=await caches.open(REMOTE_CACHE);for(const asset of OFFLINE_ASSETS){if(await store.match(asset))count++;}ok=count===OFFLINE_ASSETS.length;}}
@@ -1695,7 +1732,7 @@ function bindEvents(){
  ['dashboardFrom','dashboardTo','dashboardCoop'].forEach(id=>attach(id,'change',()=>applySharedAttendanceFilters('dashboard',true)));
  attach('dashboardResetFilters','click',resetSharedAttendanceFilters);
  attach('exportExcel','click',exportExcel);
- attach('downloadOffline','click',installOfflinePack);attach('verifyOffline','click',async()=>{const ready=await checkOfflineReady();showToast(ready?'All offline AI assets are ready.':'Some offline AI assets are missing. Complete the download while online.',ready?'success':'error');});
+ attach('downloadOffline','click',installOfflinePack);attach('verifyOffline','click',async()=>{const aiReady=await checkOfflineReady(),foundationReady=await checkOfflineFoundation();showToast(aiReady&&foundationReady?'Offline AI, app shell, local database, and Service Worker are ready.':aiReady?'AI files are ready, but the app shell or local storage needs attention.':'Offline AI files are incomplete. Complete the download while online.',aiReady&&foundationReady?'success':'error',8500);});
  attach('installApp','click',async()=>{if(state.installPrompt){state.installPrompt.prompt();await state.installPrompt.userChoice;state.installPrompt=null;}else showToast('To install: Android Chrome → menu → Install app; iPhone Safari → Share → Add to Home Screen.','info',7500);});
  attach('exportBackup','click',saveEncryptedBackup);attach('importBackup','click',()=>{$('importBackupFile').click();});attach('importBackupFile','change',restoreEncryptedBackup);
  window.addEventListener('online',refreshClock);window.addEventListener('offline',refreshClock);
@@ -1704,9 +1741,9 @@ function bindEvents(){
 }
 
 async function boot(){
- bindEvents();OrgUI.bind();TIPONCamera.bind();TIPONPlatforms.bind();window.TIPONAdminSites?.bind();attach('refreshAppFiles','click',openAppUpdater);registerWorker().catch(console.warn);setInterval(refreshClock,30000);refreshClock();
+ bindEvents();OrgUI.bind();TIPONCamera.bind();TIPONPlatforms.bind();window.TIPONAdminSites?.bind();attach('refreshAppFiles','click',openAppUpdater);await registerWorker().catch(console.warn);setInterval(refreshClock,30000);refreshClock();
  if(!window.isSecureContext||!('indexedDB' in window)||!window.crypto?.subtle){$('bootAlert').hidden=false;setText('bootAlert','Open the app using HTTPS (or localhost). Camera, GPS and offline account access need a secure browser.');return;}
- try{db=await openDB();await initializeLocal();await TIPONCamera.init();await TIPONSync.init();await TIPONAuth.init();}
+ try{db=await openDB();await initializeLocal();await TIPONCamera.init();await TIPONSync.init();await TIPONAuth.init();await checkOfflineFoundation();}
  catch(err){$('bootAlert').hidden=false;setText('bootAlert',`Startup failed: ${err.message}`);console.error(err);}
 }
 async function initializeLocal(){

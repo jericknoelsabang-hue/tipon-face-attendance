@@ -21,7 +21,7 @@ window.TIPONPlatforms=(()=>{
   const captions=new Map(STARTER_DIRECTORY.map(x=>[x.code.toLowerCase(),x.name]));
   const norm=s=>TIPONOrgCore.platformKey(String(s||''));
   const clean=s=>String(s||'').normalize('NFKC').trim().replace(/\s+/g,' ').replace('Independent Manufactoring Group','Independent Manufacturing Group').replace('Managed Services Group - Nation Wide','Managed Services Group - Nationwide');
-  let target='',busy=false,editingCode='',page=1;
+  let target='',busy=false,editingCode='',page=1,pendingByCode=new Map();
   function defaultNames(){return TIPONOrgCore.DEFAULT_PLATFORMS||[];}
   function names(){
     const referenced=rows=>(rows||[]).filter(x=>x&&!x.deleted).flatMap(x=>[x.platform,x.businessPlatform,x.bp]);
@@ -96,15 +96,17 @@ window.TIPONPlatforms=(()=>{
     const pages=Math.max(1,Math.ceil(matches.length/PAGE_SIZE));
     page=Math.min(Math.max(1,page),pages);
     const start=(page-1)*PAGE_SIZE,visible=matches.slice(start,start+PAGE_SIZE);
-    $('adminBPRows').innerHTML=visible.length?visible.map(x=>(
-      '<tr><td><b>'+esc(x.name)+'</b></td>'+
+    $('adminBPRows').innerHTML=visible.length?visible.map(x=>{
+      const pending=pendingByCode.get(norm(x.code));
+      const status=pending?'<small class="bp-sync-status">'+(pending.errorCode==='NEEDS_REVIEW'?'Needs review':'Pending sync')+'</small>':'';
+      return '<tr><td><b>'+esc(x.name)+'</b>'+status+'</td>'+
       '<td><span class="bp-abbreviation">'+esc(x.code)+'</span></td>'+
       '<td><div class="bp-row-actions">'+
       '<button type="button" class="tiny-button" data-bp-edit="'+esc(x.code)+'">Edit</button>'+
       '<button type="button" class="tiny-button delete" data-bp-delete="'+esc(x.code)+
         '" title="Deletion is checked against authorized member, account and Work Location records">Delete</button>'+
-      '</div></td></tr>'
-    )).join(''):'<tr><td colspan="3"><div class="empty-state">No matching Business Platforms.</div></td></tr>';
+      '</div></td></tr>';
+    }).join(''):'<tr><td colspan="3"><div class="empty-state">No matching Business Platforms.</div></td></tr>';
     setText('adminBPCount',matches.length+' business platform'+(matches.length===1?'':'s'));
     setText('adminBPPageCount',matches.length?
       'Showing '+(start+1)+'–'+(start+visible.length)+' of '+matches.length:'0 business platforms');
@@ -122,6 +124,9 @@ window.TIPONPlatforms=(()=>{
     const saved=await getOne('meta','tp51-platforms:'+state.orgId);
     state.platforms=TIPONOrgCore.platformNames(saved?.names||[]);
     state.platformRecords=normalizeRecords(saved?.records);
+    const queued=await getAll('outbox');
+    pendingByCode=new Map(queued.filter(op=>op.orgId===state.orgId&&op.type==='platformChanges')
+      .map(op=>[norm(op.value?.code),op]));
     render();
   }
   async function accept(values,rawDetails=null){
@@ -135,6 +140,25 @@ window.TIPONPlatforms=(()=>{
     }
     render();
   }
+  async function queueOfflineChange(value,nextNames,nextRecords){
+    const existing=await getAll('outbox');
+    if(existing.some(op=>op.orgId===state.orgId&&op.type==='platformChanges'&&norm(op.value?.code)===norm(value.code)))
+      throw Error('This Business Platform already has a pending change. Sync it before editing it again.');
+    const names=TIPONOrgCore.platformNames(nextNames);
+    const normalized=normalizeRecords(nextRecords,names.concat(defaultNames()));
+    const now=new Date().toISOString(),id=crypto.randomUUID?crypto.randomUUID():String(Date.now())+'-'+Math.random().toString(36).slice(2);
+    const op={id,type:'platformChanges',value:{...value},baseRev:0,orgId:state.orgId,ownerId:state.user.id,createdAt:now,everSent:false};
+    const meta={id:'tp51-platforms:'+state.orgId,names,records:normalized,updatedAt:now};
+    await new Promise((resolve,reject)=>{
+      const tx=db.transaction(['meta','outbox'],'readwrite');
+      tx.objectStore('meta').put(meta);tx.objectStore('outbox').put(op);
+      tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error);tx.onabort=()=>reject(tx.error);
+    });
+    state.platforms=names;state.platformRecords=normalized;
+    pendingByCode.set(norm(value.code),op);render();return id;
+  }
+  function markSynced(code){pendingByCode.delete(norm(code));renderDirectory();}
+  function setPendingStatus(code,errorCode,error){const op=pendingByCode.get(norm(code));if(op){op.errorCode=errorCode;op.error=error;}else pendingByCode.set(norm(code),{errorCode,error});renderDirectory();}
   async function refresh(){
     if(!navigator.onLine){render();return;}
     const response=await TIPONAPI.raw({action:'platforms'});
@@ -204,12 +228,32 @@ window.TIPONPlatforms=(()=>{
     if(existing&&(existing.isDefault||hasReferences(editingCode))&&norm(code)!==norm(editingCode)){
       setText('platformStatus','This Business Platform code cannot be changed while it is a default or assigned to existing records.');return;
     }
-    if(!navigator.onLine){setText('platformStatus','Internet is required to save changes to the central directory.');return;}
+    const editing=!!editingCode;
+    if(!navigator.onLine){
+      const nextNames=TIPONOrgCore.platformNames([...(state.platforms||[]).filter(item=>!editing||norm(item)!==norm(editingCode)),code]);
+      const currentRecords=records().map(item=>({name:item.name,code:item.code}));
+      let nextRecords;
+      if(editing){
+        let replaced=false;
+        nextRecords=currentRecords.map(item=>{
+          if(norm(item.code)!==norm(editingCode))return item;
+          replaced=true;return {name,code};
+        });
+        if(!replaced)nextRecords.push({name,code});
+      }else nextRecords=[...currentRecords,{name,code}];
+      try{
+        await queueOfflineChange({action:editing?'update':'add',originalName:editingCode||'',name,code,abbreviation:code},nextNames,nextRecords);
+        $('platformDialog').close();
+        showToast(editing?'Business Platform update saved locally. It will be verified when internet returns.':
+          'Business Platform saved locally. It will be registered centrally when internet returns.','info',8000);
+        TIPONSync.kick();
+      }catch(error){setText('platformStatus',error.message);showToast(error.message,'error',8500);}
+      return;
+    }
     busy=true;$('savePlatform').disabled=true;
     setText('platformStatus','Verifying and saving with the central organization...');
     try{
       await requireDirectoryBackend();
-      const editing=!!editingCode;
       const response=await TIPONAPI.call(editing?
         {action:'platformUpdate',originalName:editingCode,name,abbreviation:code}:
         {action:'platformAdd',name,abbreviation:code});
@@ -239,7 +283,16 @@ window.TIPONPlatforms=(()=>{
     const yes=await confirmAction('Delete Business Platform?',
       'Permanently remove "'+record.name+'" ('+record.code+') from the central directory? This is allowed only if the platform is unassigned.');
     if(!yes)return;
-    if(!navigator.onLine){showToast('Internet is required to delete a Business Platform.','error');return;}
+    if(!navigator.onLine){
+      const nextNames=(state.platforms||[]).filter(item=>norm(item)!==norm(code));
+      const nextRecords=records().filter(item=>norm(item.code)!==norm(code)).map(item=>({name:item.name,code:item.code}));
+      try{
+        await queueOfflineChange({action:'delete',originalName:code,name:record.name,code},nextNames,nextRecords);
+        showToast('Business Platform deletion saved locally. It will be verified centrally when internet returns.','info',8500);
+        TIPONSync.kick();renderDirectory();
+      }catch(error){showToast(error.message,'error',8500);}
+      return;
+    }
     try{
       await requireDirectoryBackend();
       const response=await TIPONAPI.call({action:'platformDelete',name:code});
@@ -266,5 +319,5 @@ window.TIPONPlatforms=(()=>{
     });
     render();
   }
-  return {bind,render,fill,load,accept,refresh,open,names,records,renderDirectory,hasReferences,verifyRecord};
+  return {bind,render,fill,load,accept,refresh,open,names,records,renderDirectory,hasReferences,verifyRecord,markSynced,setPendingStatus};
 })();

@@ -1,5 +1,5 @@
 {
   "app": "TIPON Face Attendance",
-  "version": "5.5.67",
-  "label": "Multiple Cooperative and Business Platform location saves; automatic member acknowledgment recovery; one blink per manual face sample."
+  "version": "5.5.68",
+  "label": "Original cooperative photo in a responsive login layout; durable offline Work Location and Business Platform queues; offline shell readiness checks."
 }

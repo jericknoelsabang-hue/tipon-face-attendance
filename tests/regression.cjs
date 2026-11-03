@@ -957,3 +957,72 @@ test('Server acknowledgment clears all member pending flags',async()=>{
  assert.equal(removed,'op');assert.equal(record.rev,1);
  for(const key of ['_pendingOp','pendingEdit','pendingFaceUpdate','syncIssue'])assert.equal(key in record,false);
 });
+
+test('Login hero uses the original full-resolution cooperative photo, not a flattened screenshot',()=>{
+ const html=source('index.html'),sw=source('sw.js');
+ assert.match(html,/src="\.\/login-workers\.webp" width="1047" height="741"/);
+ assert.match(html,/alt="TIPON cooperative members and workers in their professional uniforms"/);
+ assert.doesNotMatch(html,/login-reference-overlay|tipon-login-reference-hd\.webp/);
+ assert.match(sw,/\.\/login-workers\.webp/);
+ assert.doesNotMatch(sw,/tipon-login-reference-hd\.webp/);
+});
+test('Work Location creation writes an atomic site and outbox record for offline synchronization',()=>{
+ const app=source('app.js'),start=app.indexOf('async function saveSiteForm('),end=app.indexOf('async function queueWorkLocationDelete',start);
+ assert.ok(start>=0&&end>start);
+ const body=app.slice(start,end);
+ assert.doesNotMatch(body,/Connect to the internet to centrally register Work Locations/);
+ assert.match(body,/db\.transaction\(\['sites','outbox'\],'readwrite'\)/);
+ assert.match(body,/type:'sites'/);
+ assert.match(body,/ownerId:state\.user\.id/);
+ assert.match(body,/if\(!navigator\.onLine\)/);
+ assert.match(body,/TIPONSync\.submitPendingNow/);
+});
+test('Offline readiness verifies the cached app shell, IndexedDB stores and active Service Worker',()=>{
+ const app=source('app.js'),html=source('index.html');
+ assert.match(app,/async function checkOfflineFoundation\(\)/);
+ assert.match(app,/DB_STORE\.every\(name=>db\.objectStoreNames\.contains\(name\)\)/);
+ assert.match(html,/id="offlineFoundationStatus"/);
+});
+test('Server acknowledgment clears Work Location pending flags',async()=>{
+ const sync=source('sync.js'),start=sync.indexOf('  async function markOps('),end=sync.indexOf('  const wire=',start);
+ let record={id:'site',rev:0,orgId:'org-1',_pendingOp:'site-op',pendingEdit:true,syncIssue:'old'},removed;
+ const op={id:'site-op',type:'sites',value:{id:'site'},baseRev:0};
+ const ctx={getAll:async()=>[op],db:{transaction(){const tx={objectStore:type=>type==='outbox'?{delete:id=>removed=id}:{get(){const request={};queueMicrotask(()=>{request.result=record;request.onsuccess();tx.oncomplete();});return request;},put:value=>record=value}};return tx;}}};
+ vm.createContext(ctx);vm.runInContext(sync.slice(start,end),ctx);
+ await ctx.markOps({ackOps:['site-op'],receipts:[{type:'sites',id:'site',rev:1}]});
+ assert.equal(removed,'site-op');assert.equal(record.rev,1);
+ for(const key of ['_pendingOp','pendingEdit','syncIssue'])assert.equal(key in record,false);
+});
+test('Offline Business Platform additions sync idempotently against the central directory',async()=>{
+ const admin={...actor,role:'admin'};
+ const outbox=[{id:'bp-op',type:'platformChanges',orgId:'org-1',ownerId:admin.id,createdAt:'2026-11-03T00:00:00.000Z',
+  value:{action:'add',name:'Test Platform',code:'TP',abbreviation:'TP'},everSent:false}];
+ let codes=['AP Cons'],details=[{name:'Asiapro Construction',code:'AP Cons'}];
+ const calls=[],synced=[];
+ const ctx={console,setTimeout,clearTimeout,Date,Map,Set,navigator:{onLine:true},
+  state:{user:admin,orgId:'org-1',deviceId:'device-1',punches:[]},
+  $:()=>null,setText:()=>{},TIPONOrgCore:Org,
+  TIPONAuth:{current:()=>admin,ensureOnline:async()=>'token'},
+  TIPONGitHubBridge:{request:async payload=>{
+    if(payload.action==='platforms')return {ok:true,protocol:Org.PROTOCOL,businessPlatforms:[...codes],businessPlatformRecords:[...details]};
+    calls.push(payload);
+    if(payload.action==='platformAdd'){codes.push(payload.abbreviation);details.push({name:payload.name,code:payload.abbreviation});}
+    return {ok:true,protocol:Org.PROTOCOL};
+  }},
+  TIPONPlatforms:{
+   accept:async(nextCodes,nextDetails)=>{codes=nextCodes;details=nextDetails;},
+   records:()=>details.map(item=>({code:item.code,name:item.name})),
+   markSynced:code=>synced.push(code),setPendingStatus:()=>{}
+  },
+  getAll:async name=>name==='outbox'?outbox:[],
+  getOne:async(name,id)=>outbox.find(item=>item.id===id),
+  OrgDB:{rawDelete:async(name,id)=>{const i=outbox.findIndex(item=>item.id===id);if(i>=0)outbox.splice(i,1);},
+   rawSave:async(name,value)=>{const i=outbox.findIndex(item=>item.id===value.id);if(i>=0)outbox[i]=value;}}
+ };
+ ctx.window=ctx;vm.createContext(ctx);
+ const script=source('sync.js').replace('return {init,start,stop,kick','return {__flush:flush,init,start,stop,kick');
+ vm.runInContext(script,ctx);
+ await ctx.TIPONSync.__flush();
+ assert.equal(calls.length,1);assert.equal(calls[0].action,'platformAdd');
+ assert.equal(outbox.length,0);assert.deepEqual(synced,['TP']);
+});
