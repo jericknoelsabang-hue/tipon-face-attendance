@@ -998,9 +998,9 @@ test('Login hero is text-only and prominently placed below Federation branding',
  assert.ok(hero.includes('Kabilang Ka.<br/><em>Mahalaga Ka.</em>'));
  assert.ok(hero.includes('Bawat isa, mahalaga.'));
  assert.ok(html.includes('text-only landing visual, immediately under Federation logo'));
- assert.match(html,/width:100%;max-width:100%;margin:clamp\(36px,5vh,62px\) auto 24px;/);
- assert.match(html,/text-align:center;transform:none/);
- assert.match(html,/\.login-accent-rule\{width:120px;height:7px;margin-inline:auto\}/);
+ assert.match(html,/width:100%;max-width:100%;margin:clamp\(46px,6vh,65px\) 0 24px;/);
+ assert.match(html,/text-align:left;transform:none/);
+ assert.match(html,/\.login-accent-rule\{width:120px;height:7px\}/);
  assert.ok(!sw.includes("'./login-workers.webp'"));
 });
 test('Work Location creation writes an atomic site and outbox record for offline synchronization',()=>{
