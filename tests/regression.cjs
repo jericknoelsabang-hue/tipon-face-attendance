@@ -940,12 +940,14 @@ test('Each sample challenge completes with exactly one blink and no head turn',(
   assert.equal(ctx.TIPONLiveness.advance(c,{ratio:.25},t+1050).ok,true);
  }
 });
-test('Location multi-select accepts more than twelve combinations without hidden required controls',()=>{
- const nodes={siteCoop:{},sitePlatform:{},siteCoopChoices:{querySelectorAll:()=>Array.from({length:5},(_,i)=>({value:'Coop '+i}))},sitePlatformChoices:{querySelectorAll:()=>Array.from({length:3},(_,i)=>({value:'BP '+i}))}};
- const ctx={window:{},document:{readyState:'loading',addEventListener(){},getElementById:id=>nodes[id]},isAdmin:()=>true};
+test('Work Location Business Platforms are filtered by selected cooperative',()=>{
+ const nodes={siteCoop:{value:'Asiapro'},sitePlatform:{value:'IMG'},siteCoopChoices:{querySelectorAll:()=>[]},sitePlatformChoices:{querySelectorAll:()=>[]}};
+ const mapping={Asiapro:['IMG','AP Cons','Contracting','MSG-NW','ATS'],'Gawa at Kalinga':['GAK']};
+ const ctx={window:{TIPONCoopPlatforms:mapping},TIPONOrgCore:{COOPS:Object.keys(mapping)},document:{readyState:'loading',addEventListener(){},querySelectorAll(){return[]},getElementById:id=>nodes[id]},isAdmin:()=>true,esc:s=>String(s)};
  vm.createContext(ctx);vm.runInContext(source('site-scope.js'),ctx);
  const pairs=ctx.window.TIPONSiteScopes.pairs(null);
- assert.equal(pairs.length,15);assert.equal(new Set(pairs.map(p=>p.coop+'|'+p.platform)).size,15);
+ assert.deepEqual(JSON.parse(JSON.stringify(pairs)),[{coop:'Asiapro',platform:'IMG'}]);
+ nodes.sitePlatform.value='GAK';assert.throws(()=>ctx.window.TIPONSiteScopes.pairs(null),/not assigned/);
 });
 test('Server acknowledgment clears all member pending flags',async()=>{
  const sync=source('sync.js'),start=sync.indexOf('  async function markOps('),end=sync.indexOf('  const wire=',start);
