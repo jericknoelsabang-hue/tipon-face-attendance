@@ -9,8 +9,8 @@
 <meta content="default-src 'self' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; script-src 'self' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; img-src 'self' data: https://*.openstreetmap.org https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; connect-src 'self' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://nominatim.openstreetmap.org https://photon.komoot.io; object-src 'none'; base-uri 'self'; form-action 'self' https://script.google.com; upgrade-insecure-requests; frame-src https://www.openstreetmap.org https://script.google.com https://script.googleusercontent.com https://*.googleusercontent.com;" http-equiv="Content-Security-Policy"/>
 <link href="./manifest.webmanifest" rel="manifest"/>
 <link href="./icon-192.png" rel="icon" sizes="192x192" type="image/png"/>
-<link href="./apple-touch-icon.png" rel="apple-touch-icon"/><link rel="preload" as="image" href="./login-workers-cutout.png" fetchpriority="high"/>
-<link href="./style.css?v=5578" rel="stylesheet"/>
+<link href="./apple-touch-icon.png" rel="apple-touch-icon"/><link rel="preload" as="image" href="./login-workers.webp" fetchpriority="high"/>
+<link href="./style.css?v=5579" rel="stylesheet"/>
 <title>tipón KABILANG | Attendance</title>
 <link href="./organization.css?v=5578" rel="stylesheet"/><link href="./absenteeism.css?v=5578" rel="stylesheet"/><style>#page-members .table-toolbar{display:grid;grid-template-columns:repeat(4,minmax(0,1fr)) auto;gap:12px;align-items:end}#page-members .table-toolbar label{min-width:0}#page-members .table-toolbar input,#page-members .table-toolbar select{width:100%}.member-list-summary{grid-column:1/-1;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}.member-list-summary #memberCountLabel{margin:0}#terminalLogReset{white-space:nowrap}@media(max-width:900px){#page-members .table-toolbar{grid-template-columns:repeat(2,minmax(0,1fr))}}@media(max-width:480px){#page-members .table-toolbar{grid-template-columns:1fr}}#confirmDialog #confirmYes.confirm-success{background:#15803d!important;border-color:#15803d!important;color:#fff!important}#confirmDialog #confirmYes.confirm-success:hover{background:#166534!important;border-color:#166534!important}
 #page-members #memberFilterOffice{display:none!important}
@@ -467,13 +467,34 @@ select:disabled{color:#27374a!important;-webkit-text-fill-color:#27374a!importan
 @media(max-width:760px){
   .login-team-art{right:0!important;bottom:0!important;width:62%!important;max-height:72%!important}
 }
-</style><link rel="stylesheet" href="./polish.css?v=5578"/></head>
+
+/* Complete, original team photograph: never crop people with max-height or a fixed image box. */
+@media(min-width:761px){
+  .login-story .login-team-art.login-team-photo{
+    width:min(60%,680px)!important;height:auto!important;max-height:none!important;
+    top:clamp(170px,19vh,250px)!important;bottom:auto!important;
+    right:0!important;object-fit:contain!important;object-position:center center!important;
+    /* Softly blend the original background into the existing blue panel. */
+    -webkit-mask-image:radial-gradient(ellipse 74% 75% at 53% 53%,#000 65%,transparent 100%);
+    mask-image:radial-gradient(ellipse 74% 75% at 53% 53%,#000 65%,transparent 100%)
+  }
+}
+@media(max-width:760px){
+  .login-story .login-team-art.login-team-photo{
+    top:auto!important;bottom:0!important;right:-4%!important;
+    width:66%!important;height:auto!important;max-height:75%!important;
+    object-fit:contain!important;object-position:center bottom!important;
+    -webkit-mask-image:linear-gradient(to right,transparent,#000 12%,#000 96%,transparent);
+    mask-image:linear-gradient(to right,transparent,#000 12%,#000 96%,transparent)
+  }
+}
+</style><link rel="stylesheet" href="./polish.css?v=5579"/></head>
 <body data-terminal-access="denied"><div class="boot-alert" hidden="" id="bootAlert" role="alert"></div>
 <svg aria-hidden="true" class="svg-assets" xmlns="http://www.w3.org/2000/svg"><symbol id="i-grid" viewbox="0 0 24 24"><rect height="7" rx="1.5" width="7" x="3" y="3"></rect><rect height="7" rx="1.5" width="7" x="14" y="3"></rect><rect height="7" rx="1.5" width="7" x="3" y="14"></rect><rect height="7" rx="1.5" width="7" x="14" y="14"></rect></symbol><symbol id="i-scan" viewbox="0 0 24 24"><path d="M4 9V6a2 2 0 0 1 2-2h3m6 0h3a2 2 0 0 1 2 2v3M4 15v3a2 2 0 0 0 2 2h3m6 0h3a2 2 0 0 0 2-2v-3M9 9h.01M15 9h.01M9 15q3 3 6 0"></path></symbol><symbol id="i-users" viewbox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2m12-14a4 4 0 1 1 0 8M22 21v-2a4 4 0 0 0-3-3.87M13 7a4 4 0 1 1-8 0 4 4 0 0 1 8 0Z"></path></symbol><symbol id="i-pin" viewbox="0 0 24 24"><path d="M20 10c0 6-8 12-8 12S4 16 4 10a8 8 0 1 1 16 0Z"></path><circle cx="12" cy="10" r="2.5"></circle></symbol><symbol id="i-clock" viewbox="0 0 24 24"><circle cx="12" cy="12" r="9"></circle><path d="M12 7v5l4 2"></path></symbol><symbol id="i-team" viewbox="0 0 24 24"><rect height="16" rx="3" width="18" x="3" y="4"></rect><path d="M7 11h4M7 15h8M15 9h3"></path></symbol><symbol id="i-gear" viewbox="0 0 24 24"><path d="M9.7 3h4.6l.5 2.2 2 1 .2-.1 2-.9 3 3-.9 2.2v2l.9 2.2-3 3-2.2-.9-2 1-.5 2.3H9.7l-.5-2.3-2-1-2.2.9-3-3 .9-2.2v-2L2 8.2l3-3 2.2.9 2-1L9.7 3Z"></path><circle cx="12" cy="12" r="3"></circle></symbol><symbol id="i-download" viewbox="0 0 24 24"><path d="M12 3v12m-5-5 5 5 5-5M4 16v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"></path></symbol><symbol id="i-logout" viewbox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4m7 14 5-5-5-5m5 5H9"></path></symbol><symbol id="i-plus" viewbox="0 0 24 24"><path d="M12 5v14M5 12h14"></path></symbol><symbol id="i-search" viewbox="0 0 24 24"><circle cx="11" cy="11" r="7"></circle><path d="m16 16 5 5"></path></symbol><symbol id="i-check" viewbox="0 0 24 24"><path d="m4 12 5 5L20 6"></path></symbol><symbol id="i-alert" viewbox="0 0 24 24"><path d="M10.3 4.8 2 19a2 2 0 0 0 1.7 3h16.6a2 2 0 0 0 1.7-3L13.7 4.8a2 2 0 0 0-3.4 0ZM12 10v5m0 3h.01"></path></symbol><symbol id="i-lock-login" viewbox="0 0 24 24"><rect x="5" y="10" width="14" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3M12 14v3"/></symbol><symbol id="i-arrow" viewbox="0 0 24 24"><path d="M5 12h14m-6-6 6 6-6 6"></path></symbol><symbol id="i-camera" viewbox="0 0 24 24"><rect height="15" rx="3" width="20" x="2" y="6"></rect><path d="m8 6 1.6-3h4.8L16 6"></path><circle cx="12" cy="13.5" r="4"></circle></symbol></svg>
 <section class="login-page" hidden="" id="loginPage">
 <aside class="login-story" aria-label="tipón KABILANG cooperative attendance">
   <div class="login-brand"><div class="logo-box"><img alt="TIPON Federation" src="./logo.png"/></div><span><b>tipón Federation</b><small>WIN AS A TEAM</small></span></div>
-  <img class="login-team-art login-team-photo" src="./login-workers-cutout.png" width="1536" height="1024" alt="TIPON cooperative members and workers in their professional uniforms" loading="eager" fetchpriority="high" decoding="async"/>
+  <img class="login-team-art login-team-photo" src="./login-workers.webp" width="1436" height="874" alt="TIPON cooperative members and workers in their professional uniforms" loading="eager" fetchpriority="high" decoding="async"/>
   <div class="story-content"><div class="eyebrow light">TIPON KABILANG / COOPERATIVE ATTENDANCE</div><h1>Kabilang Ka.<br/><em>Mahalaga Ka.</em></h1><div class="login-accent-rule"></div><p>Bawat isa, mahalaga.</p></div>
   <div class="story-bottom"><div class="login-feature-grid">
     <div class="login-feature"><span class="login-feature-icon"><svg class="icon"><use href="#i-scan"></use></svg></span><span><strong>FACE RECOGNITION</strong><small>Kinikilala ang bawat kasapi.</small></span></div>

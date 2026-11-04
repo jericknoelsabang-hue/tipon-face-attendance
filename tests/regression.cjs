@@ -991,11 +991,11 @@ test('Server acknowledgment clears all member pending flags',async()=>{
 
 test('Login hero uses the transparent team photo without a full-background overlay',()=>{
  const html=source('index.html'),sw=source('sw.js');
- assert.ok(html.includes('src="./login-workers-cutout.png" width="1536" height="1024"'));
+ assert.ok(html.includes('src="./login-workers.webp" width="1436" height="874"'));
  assert.ok(html.includes('alt="TIPON cooperative members and workers in their professional uniforms"'));
  assert.ok(!html.includes('login-reference-overlay'));
  assert.ok(!html.includes('tipon-login-reference-hd.webp'));
- assert.ok(sw.includes("'./login-workers-cutout.png'"));
+ assert.ok(sw.includes("'./login-workers.webp'"));
  assert.ok(!sw.includes('tipon-login-reference-hd.webp'));
 });
 test('Work Location creation writes an atomic site and outbox record for offline synchronization',()=>{
@@ -1014,8 +1014,8 @@ test('Offline readiness verifies the cached app shell, IndexedDB stores and acti
  assert.match(app,/async function checkOfflineFoundation\(\)/);
  assert.match(app,/DB_STORE\.every\(name=>db\.objectStoreNames\.contains\(name\)\)/);
  assert.match(html,/id="offlineFoundationStatus"/);
- assert.ok(app.includes("'./login-workers-cutout.png'"));
- assert.ok(sw.includes("'./login-workers-cutout.png'"));
+ assert.ok(app.includes("'./login-workers.webp'"));
+ assert.ok(sw.includes("'./login-workers.webp'"));
 });
 test('Server acknowledgment clears Work Location pending flags',async()=>{
  const sync=source('sync.js'),start=sync.indexOf('  async function markOps('),end=sync.indexOf('  const wire=',start);
