@@ -1,5 +1,5 @@
 {
   "app": "TIPON Face Attendance",
-  "version": "5.5.76",
-  "label": "Restored weekly member schedules, central schedule persistence, and offline readiness status."
+  "version": "5.5.78",
+  "label": "Chronological attendance logs with refreshed app shell."
 }
