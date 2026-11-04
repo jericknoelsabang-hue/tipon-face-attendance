@@ -348,7 +348,7 @@ test('Published assets share one release version and pagination controls cannot 
   assert.equal(review.includes('<th>Date</th>'),true);
   assert.match(review,/id="absReviewPrev"/);
   assert.match(review,/id="absReviewNext"/);
-  assert.match(source('app.js'),/const SCAN_DELAY_MS=650;/);
+  assert.match(source('app.js'),/const SCAN_DELAY_MS=320;/);
   assert.match(sw,/clients\.matchAll\(\{type:'window',includeUncontrolled:true\}\)/);
   assert.match(sw,/client\.navigate\(client\.url\)/);
   assert.match(sw,/url\.pathname\.endsWith\('\/update\.html'\)/);
