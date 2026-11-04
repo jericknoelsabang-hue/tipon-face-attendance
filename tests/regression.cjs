@@ -1134,6 +1134,56 @@ test('Offline Business Platform additions sync idempotently against the central 
  assert.equal(outbox.length,0);assert.deepEqual(synced,['TP']);
 });
 
+test('Work Location fields align and Address is a required input',()=>{
+ const html=source('index.html'),app=source('app.js');
+ const start=html.indexOf('<dialog class="form-dialog" id="siteDialog"'),end=html.indexOf('<dialog class="form-dialog" id="memberDialog"');
+ const site=html.slice(start,end);
+ assert.match(site,/<input id="siteName"[^>]*required/);
+ assert.match(site,/<select id="siteCoop" required/);
+ assert.match(site,/<select id="sitePlatform" required/);
+ assert.match(site,/Address \/ Site Description <i class="required-star">\*<\/i>/);
+ assert.match(site,/<input id="siteAddress" required aria-required="true"/);
+ assert.match(html,/#siteDialog \.dialog-body>\.form-row\.three \.field-caption\{display:block!important;margin:0!important;height:18px/);
+ assert.match(html,/#siteDialog \.dialog-body>\.form-row\.three select\{display:block;width:100%;height:50px;min-height:50px;margin:0\}/);
+ const save=app.slice(app.indexOf('async function saveSiteForm('),app.indexOf('async function saveSiteForm(')+3200);
+ assert.match(save,/if\(!address\)\{showToast\('Address \/ Site Description is required/);
+});
+test('Business Platform modal requires cooperative and backend persists new custom BP MPC association',()=>{
+ const html=source('index.html'),front=source('platforms.js'),sync=source('sync.js'),backend=source('backend-patch/BPDirectory.gs');
+ const form=html.slice(html.indexOf('<dialog class="form-dialog platform-dialog"'),html.indexOf('</form></dialog>',html.indexOf('<dialog class="form-dialog platform-dialog"')));
+ assert.match(form,/<select id="newPlatformCooperative" required>/);
+ assert.match(form,/<option value="">Select cooperative<\/option>/);
+ assert.match(front,/coopSelect\.innerHTML='<option value="">Select cooperative<\/option>'\+TIPONOrgCore\.COOPS/);
+ assert.doesNotMatch(front,/This Business Platform is not assigned to the selected Cooperative in the approved mapping/);
+ assert.match(front,/info\.businessPlatformCooperativeSupported!==true/);
+ assert.match(sync,/abbreviation:code,coop:value\.coop/);
+ const mpc=Org.COOPS,coop=mpc[0],other=mpc.find(x=>x!==coop);
+ const props=new Map(),codes=Org.DEFAULT_PLATFORMS.slice();
+ const ctx={Date,Math,Number,Map,Set,Array,Object,String,JSON,
+  Utilities:{newBlob:value=>({getBytes:()=>new TextEncoder().encode(value)})},
+  TIPONOrgCore:Org,
+  tp5Must_:(ok,message,code)=>{if(!ok)throw Object.assign(Error(message),{code});},
+  tp5Props_:()=>({getProperty:key=>props.get(key)||'',setProperty:(key,value)=>props.set(key,value)}),
+  tp5PlatformNames_:()=>codes.slice(),
+  tp5AddPlatform_:(actor,details)=>codes.push(details.name),
+  tp5Read_:()=>[],tp5Admin_:actor=>{if(actor.role!=='admin')throw Error('Admin required');},
+  tp5Reply_:response=>response,tp5Bump_:()=>1,tp5Audit_:()=>{}
+ };
+ vm.createContext(ctx);vm.runInContext(backend,ctx);
+ const registered=ctx.tp5BPAdd_({role:'admin'},{name:'Synthetic Test Business Platform',abbreviation:'SYNTH-BP',coop});
+ assert.equal(registered.businessPlatformCooperativeSupported,true);
+ const row=registered.businessPlatformRecords.find(x=>x.abbreviation==='SYNTH-BP');
+ assert.equal(row.coop,coop);
+ assert.equal(row.coops.length,1);
+ assert.equal(row.coops[0],coop);
+ assert.equal(ctx.tp5BPAllowedCoop_(coop,'SYNTH-BP'),true);
+ assert.equal(ctx.tp5BPAllowedCoop_(other,'SYNTH-BP'),false);
+ assert.ok(props.has('TP5_PLATFORM_RECORDS'));
+ assert.throws(()=>ctx.tp5BPAdd_({role:'admin'},{name:'No Cooperative',abbreviation:'NO-COOP',coop:''}),/approved Cooperative/);
+ assert.throws(()=>ctx.tp5BPAdd_({role:'registrar'},{name:'Wrong Role',abbreviation:'USER-BP',coop}),/Admin required/);
+ assert.throws(()=>ctx.tp5BPAdd_({role:'admin'},{name:'Duplicate',abbreviation:'SYNTH-BP',coop}),/already exists/);
+});
+
 test('Business Platforms table has four matching column headers with compact, aligned Action buttons',()=>{
  const html=source('index.html'),platforms=source('platforms.js');
  const section=html.slice(html.indexOf('<section class="panel table-panel bp-directory-panel"'),html.indexOf('<tbody id="adminBPRows"'));

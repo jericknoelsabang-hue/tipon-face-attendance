@@ -435,15 +435,18 @@ window.TIPONSync=(()=>{
             await TIPONPlatforms.accept(response.businessPlatforms,details);
             const exists=response.businessPlatforms.some(item=>key(typeof item==='string'?item:item?.code||item?.name||'')===key(code));
             const record=TIPONPlatforms.records().find(item=>key(item.code)===key(code));
-            return {exists,record};
+            return {exists,record,coopSupported:response.businessPlatformCooperativeSupported===true};
           };
           let remote=await readDirectory();
           const confirmed=()=>value.action==='delete'? !remote.exists:
-            remote.exists&&key(remote.record?.name)===key(value.name);
+            remote.exists&&key(remote.record?.name)===key(value.name)&&
+            (!value.coop||(remote.record?.coops||[]).some(coop=>key(coop)===key(value.coop)));
           if(!confirmed()){
+            if(value.coop&&!remote.coopSupported)
+              throw Object.assign(Error('The private Apps Script must be upgraded to store Business Platform Cooperative assignments; change is not centrally confirmed.'),{code:'BACKEND_REQUIRED'});
             let payload;
-            if(value.action==='add')payload={action:'platformAdd',name:value.name,abbreviation:code};
-            else if(value.action==='update')payload={action:'platformUpdate',originalName:value.originalName,name:value.name,abbreviation:code};
+            if(value.action==='add')payload={action:'platformAdd',name:value.name,abbreviation:code,coop:value.coop};
+            else if(value.action==='update')payload={action:'platformUpdate',originalName:value.originalName,name:value.name,abbreviation:code,coop:value.coop};
             else if(value.action==='delete')payload={action:'platformDelete',name:code};
             else throw Object.assign(Error('Invalid pending Business Platform action.'),{code:'VALIDATION'});
             await TIPONAPI.call(payload);

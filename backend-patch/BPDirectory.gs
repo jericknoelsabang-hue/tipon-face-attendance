@@ -1,5 +1,5 @@
 /**
- * TIPON KABILANG — BP Directory backend extension v5.5.19
+ * TIPON KABILANG — BP Directory backend extension v5.5.87
  *
  * Private deployment only: add as BPDirectory.gs to the existing Google
  * Apps Script attendance project and integrate the action routes documented
@@ -28,6 +28,25 @@ function tp5BPClean_(value,max,label){
   tp5Must_(text.length>=2&&text.length<=max&&!/[\x00-\x1f\x7f<>]/.test(text),
     label+' must have 2–'+max+' safe characters.','VALIDATION');
   return text;
+}
+function tp5BPCooperative_(value){
+  var coop=String(value==null?'':value).normalize('NFKC').replace(/\s+/g,' ').trim();
+  tp5Must_(TIPONOrgCore.COOPS.indexOf(coop)>=0,'Select an approved Cooperative for this Business Platform.','VALIDATION');
+  return coop;
+}
+function tp5BPCooperatives_(code,record){
+  var mapping=TIPONOrgCore.COOP_PLATFORMS||{},key=tp5BPKey_(code);
+  var result=Object.keys(mapping).filter(function(coop){
+    return (mapping[coop]||[]).some(function(platform){return tp5BPKey_(platform)===key;});
+  });
+  var value=String(record&&record.coop||'').trim();
+  if(value&&TIPONOrgCore.COOPS.indexOf(value)>=0&&result.indexOf(value)<0)result.push(value);
+  return result;
+}
+function tp5BPAllowedCoop_(coop,code){
+  return tp5BPDetails_().some(function(row){
+    return tp5BPKey_(row.abbreviation)===tp5BPKey_(code)&&row.coops.indexOf(coop)>=0;
+  });
 }
 function tp5BPDefault_(code){
   return TIPONOrgCore.DEFAULT_PLATFORMS.some(function(x){return tp5BPKey_(x)===tp5BPKey_(code);});
@@ -61,16 +80,18 @@ function tp5BPRead_(){
     }
     if(!code||!name||seen[tp5BPKey_(code)])return;
     seen[tp5BPKey_(code)]=true;
-    result.push({name:name,abbreviation:code});
+    var coop=String(item.coop||item.cooperative||'').trim();
+    result.push({name:name,abbreviation:code,coop:TIPONOrgCore.COOPS.indexOf(coop)>=0?coop:''});
   });
   return result;
 }
 function tp5BPDetails_(){
   var records=tp5BPRead_(),lookup={};
-  records.forEach(function(x){lookup[tp5BPKey_(x.abbreviation)]=x.name;});
+  records.forEach(function(x){lookup[tp5BPKey_(x.abbreviation)]=x;});
   return tp5PlatformNames_().map(function(code){
-    return {name:lookup[tp5BPKey_(code)]||tp5BPSeedName_(code)||code,
-      abbreviation:code};
+    var record=lookup[tp5BPKey_(code)],coops=tp5BPCooperatives_(code,record);
+    return {name:record&&record.name||tp5BPSeedName_(code)||code,
+      abbreviation:code,coop:coops[0]||'',coops:coops};
   });
 }
 function tp5BPCheckWrite_(rows){
@@ -104,17 +125,18 @@ function tp5BPEnsureAvailable_(name,code,ignoreCode){
 function tp5BPResponse_(extra){
   return tp5Reply_(Object.assign({
     businessPlatforms:tp5PlatformNames_(),
-    businessPlatformRecords:tp5BPDetails_()
+    businessPlatformRecords:tp5BPDetails_(),
+    businessPlatformCooperativeSupported:true
   },extra||{}));
 }
 function tp5BPAdd_(actor,q){
   tp5Admin_(actor);
   var name=tp5BPClean_(q.name,80,'Business Platforms Name'),
-      code=tp5BPClean_(q.abbreviation,20,'Business Platform');
+      code=tp5BPClean_(q.abbreviation,20,'Business Platform'),coop=tp5BPCooperative_(q.coop);
   tp5Must_(!tp5BPCanonical_(code),'Business Platform code already exists. Use Edit.','CONFLICT');
   tp5BPEnsureAvailable_(name,code,'');
   var existing=tp5BPRead_();
-  var next=existing.concat([{name:name,abbreviation:code}]);
+  var next=existing.concat([{name:name,abbreviation:code,coop:coop}]);
   tp5BPCheckWrite_(next);
   // Legacy backend stores platform identifiers in TP5_PLATFORM_NAMES.
   // Adding only the CODE keeps account/site permissions compatible.
@@ -122,7 +144,7 @@ function tp5BPAdd_(actor,q){
   var canonical=tp5BPCanonical_(code);
   tp5Must_(!!canonical,'The Business Platform code was not registered.','SERVER');
   tp5BPWrite_(next);
-  tp5Bump_();tp5Audit_(actor,'BP_ADD',code,'Business Platform name and code created.');
+  tp5Bump_();tp5Audit_(actor,'BP_ADD',code,'Business Platform created for Cooperative '+coop+'.');
   return tp5BPResponse_({created:true,platformName:canonical});
 }
 function tp5BPUpdate_(actor,q){
@@ -131,6 +153,13 @@ function tp5BPUpdate_(actor,q){
   tp5Must_(!!oldCode,'Original Business Platform was not found.','NOT_FOUND');
   var name=tp5BPClean_(q.name,80,'Business Platforms Name'),
       newCode=tp5BPClean_(q.abbreviation,20,'Business Platform');
+  var existing=tp5BPRead_().find(function(row){return tp5BPKey_(row.abbreviation)===tp5BPKey_(oldCode);});
+  var priorCoops=tp5BPCooperatives_(oldCode,existing);
+  var previousCoop=existing&&existing.coop||priorCoops[0]||'';
+  var coop=q.coop===undefined||q.coop===null||q.coop===''?previousCoop:tp5BPCooperative_(q.coop);
+  tp5Must_(coop&&TIPONOrgCore.COOPS.indexOf(coop)>=0,'Select a valid Cooperative.','VALIDATION');
+  if((tp5BPDefault_(oldCode)||tp5BPReferences_(oldCode))&&priorCoops.indexOf(coop)<0)
+    tp5Must_(false,'A default or assigned Business Platform cannot be transferred to another Cooperative.','CONFLICT');
   var changeCode=tp5BPKey_(oldCode)!==tp5BPKey_(newCode);
   if(changeCode){
     tp5Must_(!tp5BPDefault_(oldCode),'This is a default Business Platform code. Its full name can be edited, but its code cannot be changed.','FORBIDDEN');
@@ -140,7 +169,7 @@ function tp5BPUpdate_(actor,q){
   var current=tp5BPRead_().filter(function(row){
     return tp5BPKey_(row.abbreviation)!==tp5BPKey_(oldCode);
   });
-  var updated=current.concat([{name:name,abbreviation:changeCode?newCode:oldCode}]);
+  var updated=current.concat([{name:name,abbreviation:changeCode?newCode:oldCode,coop:coop}]);
   tp5BPCheckWrite_(updated);
   if(changeCode){
     var props=tp5Props_(),saved;
@@ -158,7 +187,7 @@ function tp5BPUpdate_(actor,q){
   }
   tp5BPWrite_(updated);
   tp5Bump_();
-  tp5Audit_(actor,'BP_UPDATE',oldCode,'Updated full name for '+(changeCode?newCode:oldCode));
+  tp5Audit_(actor,'BP_UPDATE',oldCode,'Updated name/code for Cooperative '+coop+' on '+(changeCode?newCode:oldCode));
   return tp5BPResponse_({updated:true,platformName:changeCode?newCode:oldCode});
 }
 function tp5BPDelete_(actor,q){

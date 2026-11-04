@@ -1,4 +1,4 @@
-/* TIPON KABILANG - Business Platform directory v5.5.74.
+/* TIPON KABILANG - Business Platform directory v5.5.87.
  * Codes are the existing authorization/attendance identifiers. Full names are
  * presentation metadata: changing a full name must never silently change a BP
  * code used by member, device or Work Location records.
@@ -202,9 +202,13 @@ window.TIPONPlatforms=(()=>{
     $('platformForm').reset();
     $('newPlatformName').value=record?.name||'';
     $('newPlatformAbbreviation').value=record?.code||'';
-    const coopSelect=$('newPlatformCooperative');
-    if(coopSelect){coopSelect.innerHTML='<option value="">Select cooperative</option>'+TIPONOrgCore.COOPS.map(x=>'<option value="'+esc(x)+'">'+esc(x)+'</option>').join('');coopSelect.value=record?.coop||'';}
     const locked=!!record&&(record.isDefault||hasReferences(record.code));
+    const coopSelect=$('newPlatformCooperative');
+    if(coopSelect){
+      coopSelect.innerHTML='<option value="">Select cooperative</option>'+TIPONOrgCore.COOPS.map(x=>'<option value="'+esc(x)+'">'+esc(x)+'</option>').join('');
+      coopSelect.value=record?.coops?.[0]||record?.coop||'';
+      coopSelect.disabled=locked;
+    }
     $('newPlatformAbbreviation').readOnly=locked;
     setText('platformFormTitle',record?'Edit Business Platform':'Add Business Platform');
     setText('platformFormNote',locked?
@@ -226,12 +230,14 @@ window.TIPONPlatforms=(()=>{
     }
     return msg||'The central database did not confirm the change.';
   }
-  async function requireDirectoryBackend(){
+  async function requireDirectoryBackend(needsCooperative=false){
     const info=await TIPONAPI.raw({action:'platforms'});
     if(state.user&&info.orgId!==state.orgId)
       throw Error('Organization changed. Sign out and reconnect to the approved organization.');
     if(!Array.isArray(detailsFrom(info)))
       throw Error('Business Platform editing is not yet available on the connected Apps Script. Install and deploy the BP Directory backend patch first. Nothing has been changed.');
+    if(needsCooperative&&info.businessPlatformCooperativeSupported!==true)
+      throw Error('The central Apps Script must support Cooperative assignments before a Business Platform can be added or reassigned. Deploy the updated BPDirectory.gs and Code.gs routes first. Nothing has been changed.');
     return info;
   }
   function verifyRecord(reply,name,code,deleted=false,coop=''){
@@ -242,14 +248,15 @@ window.TIPONPlatforms=(()=>{
     const listed=list.some(x=>norm(x)===norm(code));
     if(deleted)return !listed;
     const saved=normalizeRecords(meta,list).find(x=>norm(x.code)===norm(code));
-    // Legacy Apps Script may not yet store cooperative metadata; accept only when the requested value matches the approved local mapping.
-    return listed&&saved&&norm(saved.name)===norm(name)&&norm(coop)===norm((COOP_PLATFORMS[coop]||[]).find(x=>norm(x)===norm(code))||'');
+    const assigned=[...(saved?.coops||[]),...(saved?.coop?[saved.coop]:[]),...mappedCoops(code)];
+    return !!(listed&&saved&&norm(saved.name)===norm(name)&&
+      (!coop||assigned.some(value=>norm(value)===norm(coop))));
   }
   async function save(event){
     event.preventDefault();if(busy||!isAdmin())return;
     const name=clean($('newPlatformName').value),code=clean($('newPlatformAbbreviation').value),coop=clean($('newPlatformCooperative')?.value||'');
     if(!TIPONOrgCore.COOPS.includes(coop)){setText('platformStatus','Select a Cooperative.');return;}
-    if(!(COOP_PLATFORMS[coop]||[]).some(x=>norm(x)===norm(code))){setText('platformStatus','This Business Platform is not assigned to the selected Cooperative in the approved mapping.');return;}
+    // New custom BP codes cannot appear in the static default mappings yet.
     if(name.length<2||name.length>80||code.length<2||code.length>20||
        /[<>\x00-\x1f\x7f]/.test(name+code)){
       setText('platformStatus','Enter a valid Business Platforms Name (2–80 characters) and Business Platform code (2–20 characters).');
@@ -263,19 +270,22 @@ window.TIPONPlatforms=(()=>{
     if(existing&&(existing.isDefault||hasReferences(editingCode))&&norm(code)!==norm(editingCode)){
       setText('platformStatus','This Business Platform code cannot be changed while it is a default or assigned to existing records.');return;
     }
-    const editing=!!editingCode;
+    if(existing&&(existing.isDefault||hasReferences(editingCode))&&!existing.coops.some(value=>norm(value)===norm(coop))){
+      setText('platformStatus','Existing Cooperative assignments cannot be changed while this platform is in use.');return;
+    }
+    const editing=!!editingCode,cooperativeChanged=!!existing&&!existing.coops.some(value=>norm(value)===norm(coop));
     if(!navigator.onLine){
       const nextNames=TIPONOrgCore.platformNames([...(state.platforms||[]).filter(item=>!editing||norm(item)!==norm(editingCode)),code]);
-      const currentRecords=records().map(item=>({name:item.name,code:item.code,coop:item.coop}));
+      const currentRecords=records().map(item=>({name:item.name,code:item.code,coop:item.coop,coops:item.coops}));
       let nextRecords;
       if(editing){
         let replaced=false;
         nextRecords=currentRecords.map(item=>{
           if(norm(item.code)!==norm(editingCode))return item;
-          replaced=true;return {name,code,coop};
+          replaced=true;return {name,code,coop,coops:(existing?.isDefault||hasReferences(editingCode))?item.coops:[coop]};
         });
-        if(!replaced)nextRecords.push({name,code,coop});
-      }else nextRecords=[...currentRecords,{name,code,coop}];
+        if(!replaced)nextRecords.push({name,code,coop,coops:[coop]});
+      }else nextRecords=[...currentRecords,{name,code,coop,coops:[coop]}];
       try{
         await queueOfflineChange({action:editing?'update':'add',originalName:editingCode||'',name,code,abbreviation:code,coop},nextNames,nextRecords);
         $('platformDialog').close();
@@ -288,7 +298,7 @@ window.TIPONPlatforms=(()=>{
     busy=true;$('savePlatform').disabled=true;
     setText('platformStatus','Verifying and saving with the central organization...');
     try{
-      await requireDirectoryBackend();
+      await requireDirectoryBackend(!editing||cooperativeChanged);
       const response=await TIPONAPI.call(editing?
         {action:'platformUpdate',originalName:editingCode,name,abbreviation:code,coop}:
         {action:'platformAdd',name,abbreviation:code,coop});
@@ -320,7 +330,7 @@ window.TIPONPlatforms=(()=>{
     if(!yes)return;
     if(!navigator.onLine){
       const nextNames=(state.platforms||[]).filter(item=>norm(item)!==norm(code));
-      const nextRecords=records().filter(item=>norm(item.code)!==norm(code)).map(item=>({name:item.name,code:item.code}));
+      const nextRecords=records().filter(item=>norm(item.code)!==norm(code)).map(item=>({name:item.name,code:item.code,coop:item.coop,coops:item.coops}));
       try{
         await queueOfflineChange({action:'delete',originalName:code,name:record.name,code},nextNames,nextRecords);
         showToast('Business Platform deletion saved locally. It will be verified centrally when internet returns.','info',8500);

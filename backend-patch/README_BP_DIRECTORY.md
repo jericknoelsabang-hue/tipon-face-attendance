@@ -1,4 +1,4 @@
-# TIPON KABILANG — Business Platform Directory v5.5.19
+# TIPON KABILANG — Business Platform Directory v5.5.87
 
 This patch provides the central backend handlers for the Admin **Work Locations List → Business Platforms** table. The frontend (GitHub Pages) shows the approved BP names and codes immediately, but **Add / Edit / Delete cannot persist across devices until this private Google Apps Script patch is installed and redeployed.**
 
@@ -39,7 +39,8 @@ The previous TIPON v5.5.9 \`Code.gs\` contained \`platformAdd\` but **did not** 
        'Organization setup is incomplete.','NOT_CONFIGURED');
      return tp5Reply_({
        businessPlatforms:tp5PlatformNames_(),
-       businessPlatformRecords:tp5BPDetails_()
+       businessPlatformRecords:tp5BPDetails_(),
+       businessPlatformCooperativeSupported:true
      });
    }
    \`\`\`
@@ -65,6 +66,7 @@ The previous TIPON v5.5.9 \`Code.gs\` contained \`platformAdd\` but **did not** 
 
    \`\`\`js
    businessPlatformRecords: cursor===0 ? tp5BPDetails_() : [],
+   businessPlatformCooperativeSupported:true,
    \`\`\`
 
 7. Save. Verify no duplicate helper names, missing hooks, or syntax errors. Choose **Deploy → Manage deployments → Edit** for the **existing** deployment, choose **New version**, then **Deploy**. Keep its approved access configuration and the original \`/exec\` deployment URL.
@@ -89,3 +91,13 @@ The previous TIPON v5.5.9 \`Code.gs\` contained \`platformAdd\` but **did not** 
 - This patch stores only BP descriptive metadata in \`TP5_PLATFORM_RECORDS\`; it does not touch biometric templates, personal information, passwords, attendance ledger data, or active login tokens.
 - Old App Script deployments cannot yet perform these mutations. Do not claim a save succeeded from a frontend-only edit or hide backend errors.
 - The version-specific integration example uses the previous user-provided TIPON v5.5.9 \`Code.gs\`. Check against the actual deployed source before installation and verify functionality with approved test records.
+
+## Cooperative selection and custom Business Platforms (v5.5.87)
+
+The **Add Business Platform** dialog now has a required Cooperative dropdown. It sends `coop`, `name` and `abbreviation`. Updated `BPDirectory.gs` stores this Coop association and returns `coop`/`coops` for every BP, alongside `businessPlatformCooperativeSupported:true` on the public directory response. Default codes and their mapped Cooperatives are preserved.
+
+The browser will not claim that a newly created BP has synchronized if the existing private Apps Script does not advertise support for Cooperative assignments. Install the updated `BPDirectory.gs` and update the **existing** `Code.gs` response fields as instructed above; deploy **Manage deployments → Edit → New version** and preserve the original authenticated `/exec` URL. Do not publish Script Properties, credentials or biometric data.
+
+The helper `tp5BPAllowedCoop_(coop,code)` makes newly approved custom BPs available for Coop checks. If the current private `Code.gs` still rejects site or member writes solely against the static `TIPONOrgCore.COOP_PLATFORMS` table, extend **only that existing central validation** to consult this helper after normal account authentication/scope checks; never bypass authorization. The public frontend cannot deploy this server-side change.
+
+Test using synthetic new BP and Work Location records: verify the new BP appears only under its chosen Cooperative, the central platform response echoes it, cross-device refresh retains it, and other-Cooperative Users cannot write out of scope. Confirm historical BP codes, face templates, member assignments and attendance are unchanged.

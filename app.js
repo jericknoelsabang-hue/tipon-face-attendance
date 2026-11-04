@@ -816,6 +816,7 @@ async function saveSiteForm(e){
  const admin=isAdmin(),previous=state.editSite;
  if(previous?._pendingOp){showToast('This Work Location already has an unconfirmed change. Sync it before editing again.','info',8000);return;}
  const name=$('siteName').value.trim(),address=$('siteAddress').value.trim();
+ if(!address){showToast('Address / Site Description is required. Enter an address or worksite description.','error');$('siteAddress').focus();return;}
  const latText=$('siteLat').value.trim(),lngText=$('siteLng').value.trim();
  const lat=Number(latText),lng=Number(lngText),radius=Number($('siteRadius').value);
  if(!name||!latText||!lngText||!Number.isFinite(lat)||!Number.isFinite(lng)||
