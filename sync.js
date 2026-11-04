@@ -208,7 +208,10 @@ window.TIPONSync=(()=>{
     // queued and retry it with bounded backoff so a backend deployment can
     // acknowledge it without requiring the user to re-enter the schedule.
     if(navigator.onLine)for(const op of outbox.filter(x=>x.type==='memberEdits'&&
-      x.value?.changes?.workSchedule&&/Only identity and assignment fields may be edited/i.test(x.error||'')&&
+      x.value?.changes?.workSchedule&&(
+        /Only identity and assignment fields may be edited/i.test(x.error||'')||
+        /Only (?:Member ID, )?(?:Full Name|identity).*Cooperative.*Business Platform.*Assigned (?:Work )?Location can be edited/i.test(x.error||'')
+      )&&
       (Number(x.retryCount)||0)<5&&Date.now()>=Number(x.nextRetryAt||0))){
       delete op.error;delete op.errorCode;op.retryCount=(Number(op.retryCount)||0)+1;
       op.nextRetryAt=Date.now()+Math.min(300000,15000*Math.pow(2,op.retryCount-1));
@@ -282,8 +285,10 @@ window.TIPONSync=(()=>{
       const latest=await getOne('outbox',op.id);if(!latest)return;
       latest.error=String(error.message||error).slice(0,400);
       const code=String(error.code||'SERVER').toUpperCase();
+      const legacyScheduleMessage=String(latest.error||'');
       const legacyScheduleRejection=op.type==='memberEdits'&&op.value?.changes?.workSchedule&&
-        /Only identity and assignment fields may be edited/i.test(latest.error)&&
+        (/Only identity and assignment fields may be edited/i.test(legacyScheduleMessage)||
+         /Only (?:Member ID, )?(?:Full Name|identity).*Cooperative.*Business Platform.*Assigned (?:Work )?Location can be edited/i.test(legacyScheduleMessage))&&
         (Number(latest.retryCount)||0)<5;
       const retryable=['NETWORK','TIMEOUT','GATEWAY_OFFLINE','BUSY','RATE_LIMIT','SERVER','DEPENDENCY'].includes(code)||legacyScheduleRejection;
       latest.errorCode=retryable&&!legacyScheduleRejection?code:'NEEDS_REVIEW';
