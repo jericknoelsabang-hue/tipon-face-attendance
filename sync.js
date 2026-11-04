@@ -70,8 +70,8 @@ window.TIPONSync=(()=>{
   function stop(){stopped=true;clearTimeout(timer);cachedOutbox=[];}
   function schedule(){clearTimeout(timer);if(stopped)return;
     const localEventsQueued=state.punches.some(p=>p.orgId===state.orgId&&!p.cloudAck&&!p.reviewStatus&&p.deviceId===state.deviceId);
-     const base=localEventsQueued?3000:5000;
-    const seconds=siteFastRetry>0&&siteFastRetry<=3&&attempt===0?4200:Math.min(300000,base*2**attempt)+Math.floor(Math.random()*3000);
+    const base=localEventsQueued?1500:2500;
+    const seconds=siteFastRetry>0&&siteFastRetry<=3&&attempt===0?1800:Math.min(120000,base*2**attempt);
     timer=setTimeout(run,seconds);
   }
   function requestBackgroundSync(){

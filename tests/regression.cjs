@@ -978,7 +978,7 @@ test('Server acknowledgment clears all member pending flags',async()=>{
  for(const key of ['_pendingOp','pendingEdit','pendingFaceUpdate','syncIssue'])assert.equal(key in record,false);
 });
 
-test('Login hero uses the original full-resolution cooperative photo, not a flattened screenshot',()=>{
+test('Login hero uses the original cooperative photo and keeps the legacy cache entry',()=>{
  const html=source('index.html'),sw=source('sw.js');
  assert.match(html,/src="\.\/login-workers\.webp" width="1436" height="874"/);
  assert.match(html,/alt="TIPON cooperative members and workers in their professional uniforms"/);

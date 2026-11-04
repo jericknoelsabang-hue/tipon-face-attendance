@@ -32,6 +32,7 @@ function tp5TransferUpdate_(actor,q){
   if(memberNumber===(old.memberNumber||old.id)&&name===old.name&&coop===old.coop&&TIPONOrgCore.platformKey(platform)===TIPONOrgCore.platformKey(old.platform)&&tp5SameLocations_(tp5OldLocations_(old),ids)&&tp5SameMemberScheduleV2_(old.workSchedule,workSchedule))return tp5Reply_({member:tp5Safe_(old),unchanged:true});
   tp5Must_(!tp5MemberOpenSession_(old.id),'Complete Time Out before editing member assignments.','OPEN_SESSION');
   var next=Object.assign({},old,{name:name,memberNumber:memberNumber,coop:coop,platform:platform,siteIds:ids,siteId:ids[0],workSchedule:workSchedule,workLocationReassignmentRequired:false,updatedAt:tp5Now_(),rev:Number(old.rev||0)+1});
+  tp5ApplyMemberScheduleColumnsV2_(next,workSchedule);
   return tp5MemberLocationResult_(actor,old,next,'USER_MEMBER_TRANSFER');
 }
 function tp5MemberFaceUpdate_(actor,q){

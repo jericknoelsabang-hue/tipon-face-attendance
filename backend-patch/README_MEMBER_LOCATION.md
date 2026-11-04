@@ -11,6 +11,10 @@ This patch is for the **existing private Google Apps Script project** behind the
 - Attendance Logs Edit/Delete: audited correction overlays, server-side scope checks, revision checks and cross-device refresh. Admins and authorized Users can edit Date, Time In, Date Time Out and Time Out, including adding a missing Time Out to an open session, or delete an open or completed session.
 - Weekly member Work Schedules (days, start/end times and grace minutes) are revision-checked and stored with the member; existing soft delete and Work Location operations remain separate.
 
+### Member sheet columns
+
+Add these columns to the member sheet used by the live Apps Script before deploying the patch: `workDays`, `workStart`, `workEnd`, `workGrace`, and `workScheduleText`. The patch writes the normalized nested `workSchedule` plus these flattened values so the schedule is visible in Google Sheets and survives catalog refreshes.
+
 ## 1. Back up the live project
 
 1. Open the approved TIPON attendance spreadsheet → **Extensions → Apps Script**.

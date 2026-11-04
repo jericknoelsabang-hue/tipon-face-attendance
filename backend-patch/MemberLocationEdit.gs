@@ -65,6 +65,18 @@ function tp5MemberWorkScheduleV2_(value,oldValue){
   tp5Must_(Number.isInteger(grace)&&grace>=0&&grace<=240,'Schedule grace must be between 0 and 240 minutes.','VALIDATION');
   return {enabled:true,days:days,start:start,end:end,grace:grace};
 }
+/** Flatten the schedule for sheet-backed member rows while preserving the
+ * nested workSchedule object used by the API. */
+function tp5ApplyMemberScheduleColumnsV2_(member,schedule){
+  var s=schedule||member.workSchedule||null;
+  if(!s)return member;
+  member.workDays=Array.isArray(s.days)?s.days.join(','):'';
+  member.workStart=String(s.start||'');
+  member.workEnd=String(s.end||'');
+  member.workGrace=Number(s.grace)||0;
+  member.workScheduleText=member.workDays&&member.workStart&&member.workEnd?member.workDays+' '+member.workStart+'-'+member.workEnd:'';
+  return member;
+}
 function tp5SameMemberScheduleV2_(a,b){return JSON.stringify(a||null)===JSON.stringify(b||null);}
 /** Return only the active Work Location fields needed to transfer a member.
  * This is available only while the requesting User still has access to the source member.
@@ -109,6 +121,7 @@ function tp5UserMemberTransferUpdateV2_(actor,q){
     'Complete Time Out before transferring this member.','OPEN_SESSION');
   var next=Object.assign({},old,{memberNumber:memberNumber,name:name,coop:coop,platform:platform,siteId:siteIds[0],siteIds:siteIds,
     workSchedule:workSchedule,workLocationReassignmentRequired:false,updatedAt:tp5Now_(),rev:Number(old.rev||0)+1});
+  tp5ApplyMemberScheduleColumnsV2_(next,workSchedule);
   return tp5MemberLocationResult_(actor,old,next,'USER_TRANSFER_MEMBER_SCOPE');
 }
 /** Update an encrypted facial template for a member currently in the User's scope.
@@ -143,6 +156,7 @@ function tp5UserMemberFaceUpdateV2_(actor,q){
     template:template,consentAt:consentAt,enrolledBy:actor.id,enrolledByUsername:actor.username||'',
     workSchedule:workSchedule,active:true,faceEnrollmentStatus:'enrolled',importPending:false,importedWithoutFace:false,
     workLocationReassignmentRequired:false,updatedAt:tp5Now_(),rev:Number(old.rev||0)+1});
+  tp5ApplyMemberScheduleColumnsV2_(next,workSchedule);
   return tp5MemberLocationResult_(actor,old,next,'USER_REENROLL_MEMBER_FACE');
 }
 function tp5MemberOpenSession_(id){
@@ -194,6 +208,7 @@ function tp5AdminMemberUpdateV2_(actor,q){
     siteId:siteIds[0]||'',siteIds:siteIds,
     workSchedule:workSchedule,workLocationReassignmentRequired:siteIds.length===0,
     updatedAt:tp5Now_(),rev:Number(old.rev||0)+1});
+  tp5ApplyMemberScheduleColumnsV2_(next,workSchedule);
   // The existing face enrollment state (including not enrolled) is untouched.
   return tp5MemberLocationResult_(actor,old,next,'ADMIN_EDIT_MEMBER_LOCATION');
 }

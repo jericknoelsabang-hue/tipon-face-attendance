@@ -1,5 +1,5 @@
 {
   "app": "TIPON Face Attendance",
-  "version": "5.5.73",
-  "label": "Member work schedule edit compatibility and bounded automatic sync retry; scoped Cooperative and Business Platform placeholders."
+  "version": "5.5.74",
+  "label": "Faster automatic sync, member schedule sheet columns, and transparent people-only login artwork."
 }
