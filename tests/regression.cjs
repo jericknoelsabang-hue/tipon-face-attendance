@@ -352,6 +352,17 @@ test('Editable Member ID preserves the internal record/template key and rejects 
   assert.throws(()=>ctx.tp5TransferUpdate_(actor,{memberId:'TEST-1',baseRev:2,changes:{name:'Synthetic Member',memberNumber:'business-2',coop:'Asiapro',platform:'IMG',siteIds:['site-1']}}),/already registered/);
 });
 
+test('Member Work Schedule validator normalizes days and persists Google Sheets columns',()=>{
+ const {ctx,members}=backend();
+ const schedule=ctx.tp5MemberWorkScheduleV2_({enabled:true,days:[5,1,3],start:'07:00',end:'16:00',grace:5},null);
+ assert.deepEqual(JSON.parse(JSON.stringify(schedule)),{enabled:true,days:[1,3,5],start:'07:00',end:'16:00',grace:5});
+ const row={...members[0],workSchedule:schedule};
+ ctx.tp5ApplyMemberScheduleColumnsV2_(row,schedule);
+ assert.equal(row.workDays,'1,3,5');assert.equal(row.workStart,'07:00');assert.equal(row.workEnd,'16:00');
+ assert.equal(row.workGrace,5);assert.equal(row.workScheduleText,'1,3,5 07:00-16:00');
+ assert.throws(()=>ctx.tp5MemberWorkScheduleV2_({days:[8],start:'07:00',end:'16:00'},null),/valid work days/);
+ assert.throws(()=>ctx.tp5MemberWorkScheduleV2_({days:[1],start:'29:99',end:'16:00'},null),/valid Work Schedule/);
+});
 test('Member ID can be changed by Admin and User without changing the internal member key',()=>{
   const {ctx,members}=backend(),old=members[0];
   const userResult=ctx.tp5UserMemberTransferUpdateV2_(actor,{memberId:old.id,baseRev:2,changes:{memberNumber:'BUSINESS-1',name:old.name,coop:'Worklife',platform:'OCG',siteIds:['site-2']}});
@@ -999,10 +1010,12 @@ test('Work Location creation writes an atomic site and outbox record for offline
  assert.match(body,/TIPONSync\.submitPendingNow/);
 });
 test('Offline readiness verifies the cached app shell, IndexedDB stores and active Service Worker',()=>{
- const app=source('app.js'),html=source('index.html');
+ const app=source('app.js'),html=source('index.html'),sw=source('sw.js');
  assert.match(app,/async function checkOfflineFoundation\(\)/);
  assert.match(app,/DB_STORE\.every\(name=>db\.objectStoreNames\.contains\(name\)\)/);
  assert.match(html,/id="offlineFoundationStatus"/);
+ assert.ok(app.includes("'./login-workers-cutout.png'"));
+ assert.ok(sw.includes("'./login-workers-cutout.png'"));
 });
 test('Server acknowledgment clears Work Location pending flags',async()=>{
  const sync=source('sync.js'),start=sync.indexOf('  async function markOps('),end=sync.indexOf('  const wire=',start);
@@ -1076,7 +1089,9 @@ test('Member transfer and Admin edit save the validated weekly schedule centrall
   const workSchedule={enabled:true,days:[1,3,5],start:'07:00',end:'16:00',grace:5};
   const {ctx,members}=backend(),user=ctx.tp5UserMemberTransferUpdateV2_(actor,{memberId:'TEST-1',baseRev:2,changes:{name:members[0].name,memberNumber:'TEST-1',coop:'Worklife',platform:'OCG',siteIds:['site-2'],workSchedule}});
   assert.deepEqual(JSON.parse(JSON.stringify(user.member.workSchedule)),workSchedule);
+  assert.equal(user.member.workDays,'1,3,5');assert.equal(user.member.workStart,'07:00');assert.equal(user.member.workEnd,'16:00');assert.equal(user.member.workGrace,5);
   const {ctx:adminCtx,members:adminMembers}=backend(),admin=adminCtx.tp5AdminMemberUpdateV2_({id:'admin-1',role:'admin',username:'admin'},{memberId:'TEST-1',baseRev:2,changes:{name:adminMembers[0].name,memberNumber:'TEST-1',coop:'Asiapro',platform:'IMG',siteIds:['site-1'],workSchedule}});
   assert.deepEqual(JSON.parse(JSON.stringify(admin.member.workSchedule)),workSchedule);
+  assert.equal(admin.member.workDays,'1,3,5');assert.equal(admin.member.workStart,'07:00');assert.equal(admin.member.workEnd,'16:00');assert.equal(admin.member.workGrace,5);
   assert.throws(()=>adminCtx.tp5AdminMemberUpdateV2_({id:'admin-1',role:'admin'},{memberId:'TEST-1',baseRev:2,changes:{name:adminMembers[0].name,coop:'Asiapro',platform:'IMG',siteIds:['site-1'],workSchedule:{enabled:true,days:[8],start:'07:00',end:'16:00'}}}),/valid work days/);
 });
