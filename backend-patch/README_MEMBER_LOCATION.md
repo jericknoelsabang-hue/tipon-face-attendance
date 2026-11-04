@@ -1,4 +1,4 @@
-# TIPON KABILANG v5.5.70 — Private Apps Script compatibility patch
+# TIPON KABILANG v5.5.76 — Private Apps Script compatibility patch
 
 This patch is for the **existing private Google Apps Script project** behind the TIPON Face Attendance `/exec` URL. GitHub Pages cannot deploy Apps Script. Do not paste credentials, Script Properties, tokens, deployment IDs, member data, or face data into this public repository.
 
@@ -9,7 +9,7 @@ This patch is for the **existing private Google Apps Script project** behind the
 - Existing member Work Schedule edits through the legacy `memberTransferUpdateV2` endpoint: the endpoint must accept `workSchedule` and persist it without requiring face capture or replacing the encrypted face template. This is required to clear old “Only identity and assignment fields may be edited” rejections.
 - User face re-enrollment: save the newly encrypted AES-GCM face template, consent timestamp and Member ID without replacing the internal record key or attendance history. The server records the enrolling account itself.
 - Attendance Logs Edit/Delete: audited correction overlays, server-side scope checks, revision checks and cross-device refresh. Admins and authorized Users can edit Date, Time In, Date Time Out and Time Out, including adding a missing Time Out to an open session, or delete an open or completed session.
-- Weekly member Work Schedules (days, start/end times and grace minutes) are revision-checked and stored with the member; existing soft delete and Work Location operations remain separate.
+- Weekly member Work Schedules (days, start/end times and grace minutes) are revision-checked, validated by `tp5MemberWorkScheduleV2_`, and stored in both the nested API object and the `workDays`, `workStart`, `workEnd`, `workGrace` and `workScheduleText` sheet columns. The Admin and User V2 routes, plus the legacy transfer/face-update routes, use the same validator.
 
 ### Member sheet columns
 
