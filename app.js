@@ -1041,7 +1041,7 @@ function filteredTerminalLogRows(){
  const from=filters.from,to=filters.to,siteId=filters.site,admin=isAdmin();
  const coop=admin?filters.coop:'',platform=admin?filters.platform:'',search=String($('terminalLogSearch')?.value||'').trim().toLowerCase();
  if(!validateAttendanceDateRange('terminalLogFrom','terminalLogTo','terminalLogDateError','terminalLogExport'))throw Error('To Date cannot be earlier than From Date.');
- return projectTerminalLogEvents(state.punches.filter(p=>!p.deleted&&p.reviewStatus!=='rejected')).filter(r=>{
+ const rows=projectTerminalLogEvents(state.punches.filter(p=>!p.deleted&&p.reviewStatus!=='rejected')).filter(r=>{
   const stamp=r.timeIn||r.timeOut,day=TIPONCore.phStamp(stamp).slice(0,10);
   // A hidden filter must never expand data beyond the authenticated User MPC/BP
   // or a Physical Kiosk's GPS-approved site list.
@@ -1050,6 +1050,17 @@ function filteredTerminalLogRows(){
    (!search||[r.memberName,r.memberId,memberNumberFor(r.memberId)].join(' ').toLowerCase().includes(search))&&
    (!coop||r.coop===coop)&&(!platform||TIPONOrgCore.platformKey(r.platform)===TIPONOrgCore.platformKey(platform))&&
    (!siteId||r.siteId===siteId);
+ });
+ // Admin and User share this renderer. Sort by Philippine attendance date,
+ // then exact event time, before pagination so every page remains chronological.
+ const stampKey=row=>String(row.timeIn||row.timeOut||'');
+ const dayKey=stamp=>stamp?TIPONCore.phStamp(stamp).slice(0,10):'9999-99-99';
+ return rows.sort((a,b)=>{
+  const dayA=dayKey(stampKey(a)),dayB=dayKey(stampKey(b));
+  if(dayA!==dayB)return dayA<dayB?-1:1;
+  const timeA=Date.parse(stampKey(a)),timeB=Date.parse(stampKey(b));
+  if(Number.isFinite(timeA)&&Number.isFinite(timeB)&&timeA!==timeB)return timeA-timeB;
+  return String(a.key||'').localeCompare(String(b.key||''));
  });
 }
 function canCorrectAttendance(){const u=state.user,a=window.TIPONAuth?.current();return !!u&&!!a&&a.account?.id===u.id&&a.orgId===state.orgId&&a.offlineUntil>Date.now()&&(isAdmin()||u.role==='registrar');}
