@@ -433,7 +433,11 @@ async function saveMemberMetadata(member,changes){
  }catch(error){
   const unsupported=['ACTION','UNKNOWN_ACTION','NOT_IMPLEMENTED'].includes(String(error?.code||'').toUpperCase())||
     /unknown action|unsupported action|not implemented|is not defined/i.test(String(error?.message||''));
-  const legacyScheduleRejection=!!clean.workSchedule&&/Only identity and assignment fields may be edited/i.test(String(error?.message||''));
+  const legacyScheduleMessage=String(error?.message||'');
+  const legacyScheduleRejection=!!clean.workSchedule&&(
+    /Only identity and assignment fields may be edited/i.test(legacyScheduleMessage)||
+    /Only (?:Member ID, )?(?:Full Name|identity).*Cooperative.*Business Platform.*Assigned (?:Work )?Location can be edited/i.test(legacyScheduleMessage)
+  );
   if(unsupported||legacyScheduleRejection){
     // Queue through the shared sync worker. It tries the specialized transfer
     // endpoint first, then the compatible audited submit API if that action is
@@ -1599,7 +1603,7 @@ async function checkOfflineFoundation(){
    const shellName=names[names.length-1];
    if(shellName){
     const shell=await caches.open(shellName);
-    const required=['./index.html','./app.js','./auth.js','./sync.js','./login-workers.webp','./logo.png','./manifest.webmanifest'];
+    const required=['./index.html','./app.js','./auth.js','./sync.js','./login-workers-cutout.png','./logo.png','./manifest.webmanifest'];
     const cached=await Promise.all(required.map(path=>shell.match(new URL(path,location.href),{ignoreSearch:true})));
     shellReady=cached.every(Boolean);
    }
