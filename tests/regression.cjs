@@ -240,7 +240,7 @@ test('Fully closed eyes advance the blink challenge; a stationary face cannot pa
 });
 test('Attendance capture restores Oct 28 9 AM flow; enrollment liveness stays separate',()=>{
   const app=source('app.js'),liveness=source('liveness-guard.js'),html=source('index.html');
-  assert.match(app,/const SCAN_DELAY_MS=650;/);
+  assert.match(app,/const SCAN_DELAY_MS=320;/);
   const start=app.indexOf('async function scanTick(){'),end=app.indexOf('function canQueueUnresolvedTimeOut(');
   assert.ok(start>=0&&end>start);
   const scanner=app.slice(start,end);
@@ -253,6 +253,34 @@ test('Attendance capture restores Oct 28 9 AM flow; enrollment liveness stays se
   assert.doesNotMatch(record,/Live Verification Required|const proof/);
   assert.match(html,/liveness-guard\.js\?v=\d+/);
 });
+test('Fast Face Terminal combines GPS with one bounded central sync without weakening checks',async()=>{
+ const app=source('app.js'),sync=source('sync.js');
+ const helper=app.slice(app.indexOf('async function fastAttendanceLedgerRead('),app.indexOf('async function recordRecognizedFace('));
+ assert.ok(helper.startsWith('async function fastAttendanceLedgerRead('));
+ let n=0;const ctx={Promise,setTimeout,clearTimeout,navigator:{onLine:true},TIPONSync:{run(){n++;return new Promise(()=>{});}}};
+ vm.createContext(ctx);vm.runInContext(helper,ctx);
+ const t=Date.now(),slow=await ctx.fastAttendanceLedgerRead(30);
+ assert.equal(slow.readOk,false);assert.equal(slow.timedOut,true);
+ assert.equal(n,1);assert.ok(Date.now()-t<500);
+ ctx.TIPONSync.run=()=>{n++;return Promise.resolve({ok:true,readOk:true});};
+ assert.equal((await ctx.fastAttendanceLedgerRead(300)).readOk,true);
+ ctx.navigator.onLine=false;
+ assert.equal((await ctx.fastAttendanceLedgerRead(300)).readOk,false);
+ assert.equal(n,2);
+ const body=app.slice(app.indexOf('async function recordRecognizedFace('),app.indexOf('function commitPunch('));
+ assert.match(body,/const gpsOutcome=readGPS\(\)\.then\(gps=>\(\{gps\}\),error=>\(\{error\}\)\)/);
+ assert.match(body,/const refreshed=await fastAttendanceLedgerRead\(\)/);
+ assert.match(body,/const gpsResult=await gpsOutcome/);
+ assert.doesNotMatch(body,/await TIPONSync\.submitPendingNow\(/);
+ assert.match(body,/TIPONCore\.transition\(/);
+ assert.match(body,/gps\.accuracy>GPS_MAX_ACCURACY/);
+ assert.match(body,/distance<=150/);
+ assert.match(body,/await commitPunch\(punch,mode\)/);
+ assert.match(body,/const syncPending=!centralReadOk/);
+ assert.match(body,/TIPONSync\.kick\(\)/);
+ assert.match(sync,/if\(ready&&!state\.scanBusy\)updateScanResult\('Member directory ready'/);
+});
+
 test('Attendance reuses a recent accurate GPS watch fix without waiting for another position',async()=>{
   const app=source('app.js'),start=app.indexOf('function usableAttendanceGPS('),end=app.indexOf('function startGPSWatch(){',start);
   assert.ok(start>=0&&end>start);

@@ -19,7 +19,7 @@ const DB_STORE=['users','members','sites','punches','meta','outbox','offices','s
 // acceptance rule so a locally "recognized" face is never silently rejected.
 const MATCH_LIMIT=.47;
 const AMBIGUITY_GAP=.035;
-const SCAN_DELAY_MS=650;
+const SCAN_DELAY_MS=320;
 const COOLDOWN_MS=90000;
 const GPS_MIN_RADIUS=20;
 const GPS_MAX_ACCURACY=80;
@@ -1374,6 +1374,22 @@ function canQueueUnresolvedTimeOut(mode,online,centralReadOk,sameDay,error){
  return mode==='out'&&(!online||!centralReadOk)&&
   /No Time In on this device/.test(String(error?.message||''));
 }
+
+/* A slow full-catalog poll must not block local biometric capture. Reuse the
+ * currently running sync (if any), limit the preflight wait, and allow the
+ * usual authenticated backend to validate queued records asynchronously. */
+async function fastAttendanceLedgerRead(maxWaitMs=1800){
+ if(!navigator.onLine)return {ok:false,readOk:false,offline:true};
+ let timer;
+ const pending=Promise.resolve().then(()=>TIPONSync.run()).catch(error=>({
+  ok:false,readOk:false,code:error?.code||'SYNC',error:String(error?.message||error)
+ }));
+ const cutoff=new Promise(resolve=>{
+  timer=setTimeout(()=>resolve({ok:false,readOk:false,timedOut:true}),maxWaitMs);
+ });
+ try{return await Promise.race([pending,cutoff]);}
+ finally{clearTimeout(timer);}
+}
 async function recordRecognizedFace(member,faceDistance){
  // Restored the Oct 28, 9 AM attendance capture flow: scanTick calls this
  // after two consecutive enrolled-face matches. Enrollment liveness remains separate.
@@ -1382,21 +1398,14 @@ async function recordRecognizedFace(member,faceDistance){
  if(state.scanBusy)return;state.scanBusy=true;let mode=state.scanMode;const run=state.scanRun,actorId=state.user.id;
  let centralReadOk=false;
  document.querySelectorAll('.mode-option').forEach(b=>b.disabled=true);
+ // Start GPS and the central attendance check in parallel; the cached GPS
+ // watch value is used instantly when accurate and recent.
+ const gpsOutcome=readGPS().then(gps=>({gps}),error=>({error}));
  try{
-  // Refresh the central ledger before either direction. Two devices may be
-  // looking at stale copies of the same open session; a fresh poll lets the
-  // transition guard reject a second IN or a duplicate OUT before saving.
-  if(navigator.onLine){
-   try{
-    const refreshed=await TIPONSync.submitPendingNow();
-    centralReadOk=!!refreshed?.readOk;
-    if(!centralReadOk&&['AUTH','ACCOUNT','DEVICE_DISABLED','FORBIDDEN','PROTOCOL'].includes(String(refreshed?.code||'').toUpperCase()))
-     throw Object.assign(Error(refreshed.error||'The attendance account must reconnect before Time Out.'),{code:refreshed.code});
-   }catch(error){
-    if(['AUTH','ACCOUNT','DEVICE_DISABLED','FORBIDDEN','PROTOCOL'].includes(String(error?.code||'').toUpperCase()))throw error;
-    centralReadOk=false;
-   }
-  }
+  const refreshed=await fastAttendanceLedgerRead();
+  centralReadOk=!!refreshed?.readOk;
+  if(!centralReadOk&&['AUTH','ACCOUNT','DEVICE_DISABLED','FORBIDDEN','PROTOCOL'].includes(String(refreshed?.code||'').toUpperCase()))
+   throw Object.assign(Error(refreshed.error||'Attendance account must reconnect.'),{code:refreshed.code});
   await loadCollections();member=state.members.find(m=>m.id===member.id)||member;
   let tx,needsSessionResolution=false;
   const relevantPunches=state.punches.filter(p=>(p.orgId===state.orgId||!p.orgId));
@@ -1428,7 +1437,9 @@ async function recordRecognizedFace(member,faceDistance){
   assignedSites=assignedSites.filter(site=>TIPONOrgCore.inScope(state.user,site));
   if(!assignedSites.length)throw Error('No assigned work location is available to this attendance account.');
   updateScanResult('Face recognized',`${member.name} · ${member.id}. Checking current GPS against assigned work location(s)…`);
-  const gps=await readGPS();
+  const gpsResult=await gpsOutcome;
+  if(gpsResult.error)throw gpsResult.error;
+  const gps=gpsResult.gps;
   if(!state.scanning||state.scanRun!==run||state.user?.id!==actorId||!hasTerminalSession()||document.hidden)throw Error('Scanner or session changed before GPS verification completed. Retry with the current camera.');
   if(!Number.isFinite(gps.accuracy)||gps.accuracy<0||Math.abs(Date.now()-gps.timestamp)>30000)throw Error('GPS fix is missing, stale, or invalid. Retry outdoors.');
   if(gps.accuracy>GPS_MAX_ACCURACY)throw Error(`GPS accuracy ${Math.round(gps.accuracy)} m is too poor. Required: ${GPS_MAX_ACCURACY} m or better.`);
@@ -1436,28 +1447,15 @@ async function recordRecognizedFace(member,faceDistance){
   const match=candidates.find(x=>x.distance<=150);
   if(!match){const closest=candidates[0];throw Error(`Face recognized: ${member.name}. Nearest assigned work location is ${Math.round(closest.distance)} m away; maximum allowed is 150 m.`);}
   const {site,distance}=match,stamp=new Date();
-  // GPS verification can take several seconds. Refresh once more immediately
-  // before committing so another device's completed punch is seen locally.
-  if(navigator.onLine){
-   try{
-    const latest=await TIPONSync.submitPendingNow();
-    if(latest?.readOk){centralReadOk=true;await loadCollections();
-     tx=TIPONCore.transition(state.punches.filter(p=>(p.orgId===state.orgId||!p.orgId)),member.id,mode,Date.now(),COOLDOWN_MS);
-     if(tx.type!==mode.toUpperCase())throw Error('Attendance direction changed on another device. Refresh and retry.');
-    }
-   }catch(error){
-    if(['AUTH','ACCOUNT','DEVICE_DISABLED','FORBIDDEN','PROTOCOL'].includes(String(error?.code||'').toUpperCase()))throw error;
-    if(/Already timed in|Already timed out|8-hour duty limit|Duplicate protection|No Time In/.test(String(error?.message||'')))throw error;
-    centralReadOk=false;
-   }
-  }
+  // One bounded preflight was already attempted; a second full sync would
+  // delay every punch. The server still checks queued records for duplicates.
   const punch={id:uuid(),orgId:state.orgId,siteRev:site.rev||0,deviceId:state.deviceId,timestamp:stamp.toISOString(),day:todayPH(stamp),type:tx.type,
     memberId:member.id,memberName:member.name,coop:member.coop,platform:site.platform,recordedById:state.user.id,siteId:site.id,siteName:site.name,requiresSessionResolution:needsSessionResolution,
     siteLat:site.lat,siteLng:site.lng,radius:150,lat:gps.latitude,lng:gps.longitude,
     accuracy:gps.accuracy,distance,faceDistance,performedBy:state.user.username||state.user.name};
   await commitPunch(punch,mode);state.scanRetryAt=0;state.scanRetryCount=0;TIPONAuth?.touchActivity?.();await loadCollections();renderTerminal();renderTerminalLogs();renderDashboard();
-  const syncPending=mode==='out'&&!centralReadOk;
-  updateScanResult(`TIME ${punch.type} saved`,`${member.name} | ${member.memberNumber||member.id} | ${site.name} | ${displayTime(stamp)}. Saved on this phone.${syncPending?' Central sync will retry automatically.':''}`,'success');
+  const syncPending=!centralReadOk;
+  updateScanResult(`TIME ${punch.type} saved locally`,`${member.name} | ${member.memberNumber||member.id} | ${site.name} | ${displayTime(stamp)}. Stored on this device; automatic central sync follows.${syncPending?' Central confirmation pending.':''}`,'success');
   playTerminalSound('success');speakTerminal('Time '+(punch.type==='IN'?'in':'out')+' recorded for '+member.name+'.','success','punch:'+punch.id);showToast(`${member.name}: TIME ${punch.type} recorded.${syncPending?' Sync pending.':''}`,'success');
   if(navigator.vibrate){try{navigator.vibrate(80);}catch{}}
   if(window.TIPONSync)TIPONSync.kick();

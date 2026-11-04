@@ -1,5 +1,5 @@
 {
   "app": "TIPON Face Attendance",
-  "version": "5.5.87",
-  "label": "Aligned Work Location inputs, required address and cooperative-scoped Business Platform creation."
+  "version": "5.5.88",
+  "label": "Face Terminal performance: parallel GPS and single bounded central preflight."
 }
