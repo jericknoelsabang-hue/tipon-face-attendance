@@ -203,8 +203,8 @@ openMemberForm=async function(member){
  originalOpenMember(member);
  if(!user){$('memberCoop').disabled=false;$('memberPlatform').disabled=false;return;}
  fillCoopSelect('memberCoop');
- $('memberCoop').value=member?.coop||state.user.coop||'';
- TIPONPlatforms.fillScoped('memberCoop','memberPlatform',member?.platform||state.user.platform||'');
+ $('memberCoop').value=member?.coop||'';
+ TIPONPlatforms.fillScoped('memberCoop','memberPlatform',member?.platform||'');
  $('memberCoop').disabled=false;$('memberPlatform').disabled=false;
  if(!member){fillMemberSites();return;}
  const save=$('memberForm').querySelector('[type="submit"]');

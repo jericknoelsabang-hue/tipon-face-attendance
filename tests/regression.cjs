@@ -202,6 +202,13 @@ test('User transfers an in-scope member to valid selected Cooperative/BP without
   assert.throws(()=>ctx.tp5TransferUpdate_(actor,{memberId:old.id,baseRev:1,changes:{}}),/Member changed/);
   assert.throws(()=>ctx.tp5TransferUpdate_(actor,{memberId:old.id,baseRev:2,changes:{name:old.name,coop:'Worklife',platform:'OCG',siteIds:[]}}),/Assigned Work Locations/);
 });
+test('Legacy member transfer route saves an existing member work schedule without changing face data',()=>{
+  const {ctx,members}=backend(),old=members[0];
+  const workSchedule={enabled:true,days:[1,2,3,4,5],start:'07:00',end:'16:00',grace:5};
+  const r=ctx.tp5TransferUpdate_(actor,{memberId:old.id,baseRev:2,changes:{name:old.name,memberNumber:old.id,coop:'Asiapro',platform:'IMG',siteIds:['site-1'],workSchedule}});
+  assert.deepEqual(JSON.parse(JSON.stringify(r.member.workSchedule)),workSchedule);
+  assert.equal(r.member.template,old.template);
+});
 test('Existing-member face update validates role, revision, consent, encrypted template and audit',()=>{
   const {ctx,members,writes,audits}=backend();const old=members[0];
   const q={memberId:old.id,baseRev:2,changes:{name:old.name,coop:old.coop,platform:old.platform,siteIds:['site-1'],template:{alg:'AES-GCM',iv:'iv',data:'new-encrypted'},consentAt:new Date().toISOString()}};
@@ -327,6 +334,16 @@ test('Member dropdown includes all known Business Platforms and remains editable
   for(const code of ['ATS','IMG','AP Cons','MSG-NW'])assert.ok(controls.memberPlatform.innerHTML.includes('value="'+code+'"'));
   for(const code of ['GAK','MSG-SM','MSG-NM','OCG','CUSTOM'])assert.ok(!controls.memberPlatform.innerHTML.includes('value="'+code+'"'));
   ctx.TIPONPlatforms.fill('sitePlatform','AP Cons');assert.equal(controls.sitePlatform.disabled,true);
+});
+test('New enrollment opens with Cooperative/BP placeholders and schedule fields appear for Add and Edit',()=>{
+  const app=source('app.js'),org=source('organization.js'),html=source('index.html');
+  assert.ok(app.includes("$('memberCoop').value=member?.coop||'';"));
+  assert.ok(app.includes("TIPONPlatforms.fillScoped('memberCoop','memberPlatform',member?.platform||'');"));
+  assert.ok(org.includes("$('memberCoop').value=member?.coop||'';"));
+  assert.ok(org.includes("TIPONPlatforms.fillScoped('memberCoop','memberPlatform',member?.platform||'');"));
+  for(const id of ['memberWorkDays','memberWorkStart','memberWorkEnd','adminMemberWorkDays','adminMemberWorkStart','adminMemberWorkEnd'])assert.ok(html.includes('id="'+id+'"'));
+  assert.match(app,/workSchedule=readMemberWorkSchedule\(\)/);
+  assert.match(source('admin-member-editor.js'),/workSchedule=readAdminWorkSchedule\(\)/);
 });
 test('Editable Member ID preserves the internal record/template key and rejects duplicates',()=>{
   const {ctx,members}=backend();members.push({id:'other',memberNumber:'BUSINESS-2'});

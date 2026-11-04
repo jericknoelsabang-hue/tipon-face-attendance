@@ -17,7 +17,7 @@ function tp5TransferUpdate_(actor,q){
   tp5Must_(old&&!old.deleted&&TIPONOrgCore.inScope(actor,old),'Member is outside your approved scope.','FORBIDDEN');
   tp5Must_(Number.isInteger(Number(q.baseRev))&&Number(q.baseRev)===Number(old.rev||0),'Member changed. Refresh and reopen Edit.','CONFLICT');
   var c=q.changes;
-  tp5Must_(c&&typeof c==='object'&&!Array.isArray(c)&&Object.keys(c).every(function(k){return ['name','memberNumber','coop','platform','siteIds'].includes(k);}), 'Only identity and assignment fields may be edited.','VALIDATION');
+  tp5Must_(c&&typeof c==='object'&&!Array.isArray(c)&&Object.keys(c).every(function(k){return ['name','memberNumber','coop','platform','siteIds','workSchedule'].includes(k);}), 'Only identity, assignment and Work Schedule fields may be edited.','VALIDATION');
   var memberNumber=tp5EditableMemberNumber_(old,c.memberNumber),name=TIPONOrgCore.clean(c.name,120),coop=TIPONOrgCore.clean(c.coop,80),platform=tp5ResolvePlatform_(c.platform);
   tp5Must_(name&&TIPONOrgCore.COOPS.includes(coop),'Name and Cooperative are required.','VALIDATION');
   // Permission comes from the ORIGINAL member scope. The target must be an
@@ -28,9 +28,10 @@ function tp5TransferUpdate_(actor,q){
     var site=typeof id==='string'&&tp5Find_('sites',id);
     tp5Must_(site&&!site.deleted&&site.coop===coop&&TIPONOrgCore.platformKey(site.platform)===TIPONOrgCore.platformKey(platform),'Assigned locations must match the selected Cooperative and Business Platform.','DEPENDENCY');
   });
-  if(memberNumber===(old.memberNumber||old.id)&&name===old.name&&coop===old.coop&&TIPONOrgCore.platformKey(platform)===TIPONOrgCore.platformKey(old.platform)&&tp5SameLocations_(tp5OldLocations_(old),ids))return tp5Reply_({member:tp5Safe_(old),unchanged:true});
+  var workSchedule=tp5MemberWorkScheduleV2_(c.workSchedule,old.workSchedule);
+  if(memberNumber===(old.memberNumber||old.id)&&name===old.name&&coop===old.coop&&TIPONOrgCore.platformKey(platform)===TIPONOrgCore.platformKey(old.platform)&&tp5SameLocations_(tp5OldLocations_(old),ids)&&tp5SameMemberScheduleV2_(old.workSchedule,workSchedule))return tp5Reply_({member:tp5Safe_(old),unchanged:true});
   tp5Must_(!tp5MemberOpenSession_(old.id),'Complete Time Out before editing member assignments.','OPEN_SESSION');
-  var next=Object.assign({},old,{name:name,memberNumber:memberNumber,coop:coop,platform:platform,siteIds:ids,siteId:ids[0],workLocationReassignmentRequired:false,updatedAt:tp5Now_(),rev:Number(old.rev||0)+1});
+  var next=Object.assign({},old,{name:name,memberNumber:memberNumber,coop:coop,platform:platform,siteIds:ids,siteId:ids[0],workSchedule:workSchedule,workLocationReassignmentRequired:false,updatedAt:tp5Now_(),rev:Number(old.rev||0)+1});
   return tp5MemberLocationResult_(actor,old,next,'USER_MEMBER_TRANSFER');
 }
 function tp5MemberFaceUpdate_(actor,q){

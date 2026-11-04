@@ -324,8 +324,10 @@ function openMemberForm(member){
  $('memberForm').reset();
  fillMemberWorkSchedule(member?.workSchedule||{days:[],start:'',end:''});
  fillCoopSelect('memberCoop');
- $('memberCoop').value=member?.coop||state.user?.coop||'';
- TIPONPlatforms.fillScoped('memberCoop','memberPlatform',member?.platform||state.user?.platform||'');
+ // New enrollments start with the explicit Cooperative/BP placeholders.
+ // Existing members retain their current scope while they are edited.
+ $('memberCoop').value=member?.coop||'';
+ TIPONPlatforms.fillScoped('memberCoop','memberPlatform',member?.platform||'');
  $('memberPlatform').disabled=state.user?.role==='registrar';
  const identityLocked=!!member&&(member.workLocationReassignmentRequired===true||
   ((member.importPending===true||member.importedWithoutFace===true)&&!member.template));
@@ -431,7 +433,8 @@ async function saveMemberMetadata(member,changes){
  }catch(error){
   const unsupported=['ACTION','UNKNOWN_ACTION','NOT_IMPLEMENTED'].includes(String(error?.code||'').toUpperCase())||
     /unknown action|unsupported action|not implemented|is not defined/i.test(String(error?.message||''));
-  if(unsupported){
+  const legacyScheduleRejection=!!clean.workSchedule&&/Only identity and assignment fields may be edited/i.test(String(error?.message||''));
+  if(unsupported||legacyScheduleRejection){
     // Queue through the shared sync worker. It tries the specialized transfer
     // endpoint first, then the compatible audited submit API if that action is
     // absent from the currently deployed Apps Script.

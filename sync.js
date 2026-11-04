@@ -203,6 +203,17 @@ window.TIPONSync=(()=>{
     // Earlier releases incorrectly marked every Admin-created new member as a legacy edit.
     // Clear only that known local error so the first enrollment can be submitted now.
     if(actor.role==='admin')for(const op of outbox.filter(x=>x.type==='members'&&Number(x.baseRev)===0&&!x.value?.deleted&&x.value?.template?.alg==='AES-GCM'&&/Legacy member edit needs review/i.test(x.error||''))){delete op.error;delete op.errorCode;await OrgDB.rawSave('outbox',op);}
+    // Older deployed Apps Script builds rejected a member schedule edit with
+    // the identity/assignment-only validation message. Keep that durable edit
+    // queued and retry it with bounded backoff so a backend deployment can
+    // acknowledge it without requiring the user to re-enter the schedule.
+    if(navigator.onLine)for(const op of outbox.filter(x=>x.type==='memberEdits'&&
+      x.value?.changes?.workSchedule&&/Only identity and assignment fields may be edited/i.test(x.error||'')&&
+      (Number(x.retryCount)||0)<5&&Date.now()>=Number(x.nextRetryAt||0))){
+      delete op.error;delete op.errorCode;op.retryCount=(Number(op.retryCount)||0)+1;
+      op.nextRetryAt=Date.now()+Math.min(300000,15000*Math.pow(2,op.retryCount-1));
+      await OrgDB.rawSave('outbox',op);
+    }
     const specialTypes=['memberEdits','memberFaceUpdates','memberDeletes','attendanceCorrections','siteDeletes','platformChanges'];
     const eligible=outbox.filter(op=>
       !['NEEDS_REVIEW','CONFLICT','FORBIDDEN','NOT_FOUND'].includes(op.errorCode)&&
@@ -271,9 +282,12 @@ window.TIPONSync=(()=>{
       const latest=await getOne('outbox',op.id);if(!latest)return;
       latest.error=String(error.message||error).slice(0,400);
       const code=String(error.code||'SERVER').toUpperCase();
-      const retryable=['NETWORK','TIMEOUT','GATEWAY_OFFLINE','BUSY','RATE_LIMIT','SERVER','DEPENDENCY'].includes(code);
-      latest.errorCode=retryable?code:'NEEDS_REVIEW';
-      if(retryable)latest.retryCount=Math.min(30,(Number(latest.retryCount)||0)+1);
+      const legacyScheduleRejection=op.type==='memberEdits'&&op.value?.changes?.workSchedule&&
+        /Only identity and assignment fields may be edited/i.test(latest.error)&&
+        (Number(latest.retryCount)||0)<5;
+      const retryable=['NETWORK','TIMEOUT','GATEWAY_OFFLINE','BUSY','RATE_LIMIT','SERVER','DEPENDENCY'].includes(code)||legacyScheduleRejection;
+      latest.errorCode=retryable&&!legacyScheduleRejection?code:'NEEDS_REVIEW';
+      if(retryable){latest.retryCount=Math.min(30,(Number(latest.retryCount)||0)+1);latest.nextRetryAt=Date.now()+Math.min(300000,15000*Math.pow(2,latest.retryCount-1));}
       await OrgDB.rawSave('outbox',latest);
       if(op.type==='platformChanges')TIPONPlatforms.setPendingStatus(op.value.code,latest.errorCode,latest.error);
       // A timeout is not a server rejection; the request may already have

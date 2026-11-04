@@ -1,4 +1,4 @@
-/* TIPON KABILANG - Business Platform directory v5.5.70.
+/* TIPON KABILANG - Business Platform directory v5.5.73.
  * Codes are the existing authorization/attendance identifiers. Full names are
  * presentation metadata: changing a full name must never silently change a BP
  * code used by member, device or Work Location records.

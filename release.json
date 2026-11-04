@@ -1,5 +1,5 @@
 {
   "app": "TIPON Face Attendance",
-  "version": "5.5.71",
-  "label": "Cooperative-scoped Business Platform dropdowns; refined HD TIPON login photo; dashboard cooperative logo cleanup."
+  "version": "5.5.73",
+  "label": "Member work schedule edit compatibility and bounded automatic sync retry; scoped Cooperative and Business Platform placeholders."
 }
