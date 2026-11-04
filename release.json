@@ -1,5 +1,5 @@
 {
   "app": "TIPON Face Attendance",
-  "version": "5.5.75",
-  "label": "Transparent team photo on the login page, unobstructed text layout, and refreshed offline cache."
+  "version": "5.5.76",
+  "label": "Restored weekly member schedules, central schedule persistence, and offline readiness status."
 }
