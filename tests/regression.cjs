@@ -442,6 +442,71 @@ test('Unified Attendance Logs nav and read-only timesheet estimates retain safe 
  assert.doesNotMatch(source('timesheet-preview.js'),/rawSave|saveOne|replaceDB|deleteOne/);
 });
 
+test('Admin and User Attendance Logs sort newest-to-oldest before pagination, respecting Manila dates and scope',()=>{
+ const app=source('app.js'),start=app.indexOf('function projectTerminalLogEvents('),
+  end=app.indexOf('function canCorrectAttendance(',start);
+ assert.ok(start>=0&&end>start,'shared Attendance Logs projection and sorting are available');
+ const stamps=[
+  '2026-10-28T00:00:00Z','2026-10-28T12:00:00Z','2026-10-28T15:59:00Z',
+  '2026-10-28T16:00:00Z','2026-10-29T00:00:00Z','2026-10-29T04:00:00Z',
+  '2026-10-29T12:00:00Z','2026-10-29T15:59:00Z','2026-10-29T16:00:00Z',
+  '2026-10-29T16:05:00Z','2026-10-29T19:00:00Z','2026-10-30T01:00:00Z',
+  '2026-10-30T03:00:00Z'
+ ];
+ const mk=(key,timestamp,coop='Asiapro',platform='IMG',type='IN')=>({
+  id:key+'-'+type.toLowerCase(),sessionId:key,memberId:key,memberName:'Member '+key,
+  coop,platform,siteId:'site-1',siteName:'Site 1',type,timestamp,orgId:'org-1'
+ });
+ const punches=[
+  ...stamps.map((timestamp,i)=>mk('p'+i,timestamp)),
+  mk('orphan','2026-10-31T12:00:00Z','Asiapro','IMG','OUT'),
+  mk('other','2026-11-01T00:00:00Z','Worklife','OCG')
+ ];
+ const ctx={Date,Map,Set,Math,Number,String,TIPONCore:Core,TIPONOrgCore:Org,
+  state:{punches,user:{role:'admin'}},admin:true,
+  filters:{from:'',to:'',coop:'',platform:'',site:''},
+  readSharedAttendanceFilters:()=>ctx.filters,isAdmin:()=>ctx.admin,
+  validateAttendanceDateRange:()=>true,$:()=>({value:''}),
+  memberNumberFor:id=>String(id)};
+ vm.createContext(ctx);
+ vm.runInContext(app.slice(start,end)+'\nthis.getLogRows=filteredTerminalLogRows;',ctx);
+ const rows=()=>Array.from(ctx.getLogRows());
+ const stamp=r=>Date.parse(r.timeIn||r.timeOut);
+ const datesDescending=data=>data.every((row,i)=>!i||stamp(data[i-1])>=stamp(row));
+ const adminRows=rows();
+ assert.equal(adminRows.length,stamps.length+2);
+ assert.equal(adminRows[0].key,'other','admin gets newest cross-cooperative record');
+ assert.equal(adminRows[1].key,'orphan','OUT-only record uses its Time Out timestamp');
+ assert.equal(adminRows.at(-1).key,'p0','oldest record belongs on the last page');
+ assert.ok(datesDescending(adminRows),'all Admin rows are chronological newest-first');
+ assert.ok(stamp(adminRows[9])>=stamp(adminRows[10]),'sorting occurs before ten-row pagination');
+ ctx.state.user=actor;ctx.admin=false;
+ const userRows=rows();
+ assert.equal(userRows.length,stamps.length+1,'User sees only assigned MPC/BP');
+ assert.equal(userRows[0].key,'orphan');
+ assert.equal(userRows.at(-1).key,'p0');
+ assert.ok(!userRows.some(r=>r.key==='other'));
+ assert.ok(datesDescending(userRows),'User rows use the same newest-first order');
+ assert.ok(userRows.findIndex(r=>r.key==='p8')<userRows.findIndex(r=>r.key==='p7'),
+  'Manila 00:00 record comes before previous-day 23:59');
+ assert.ok(userRows.findIndex(r=>r.key==='p9')<userRows.findIndex(r=>r.key==='p8'),
+  'newer time comes first within the same local date');
+ assert.ok(stamp(userRows[9])>=stamp(userRows[10]),'first User page holds newer records');
+ ctx.filters={from:'2026-10-30',to:'2026-10-30',coop:'',platform:'',site:''};
+ const limited=rows();
+ assert.ok(limited.length>1);
+ assert.ok(limited.every(r=>Core.phStamp(r.timeIn||r.timeOut).slice(0,10)==='2026-10-30'));
+ assert.ok(datesDescending(limited),'date filtering retains newest-first ordering');
+ ctx.state.user={role:'admin'};ctx.admin=true;
+ ctx.filters={from:'',to:'',coop:'Worklife',platform:'OCG',site:''};
+ assert.deepEqual(Array.from(rows(),r=>r.key),['other'],'Admin filters preserve scoped sorting');
+ const render=app.slice(app.indexOf('function renderTerminalLogs('),app.indexOf('function attendanceRowByKey('));
+ assert.match(render,/const filteredRows=filteredTerminalLogRows\(\),pageSize=10;/);
+ assert.match(render,/rows=filteredRows\.slice\(offset,offset\+pageSize\)/);
+ const exportCode=app.slice(app.indexOf('async function exportTerminalLogs('),app.indexOf('async function loadScript(',app.indexOf('async function exportTerminalLogs(')));
+ assert.match(exportCode,/filteredTerminalLogRows\(\)/,'Excel export retains the same order');
+});
+
 test('Timesheet page counter and moved overtime dashboard KPI honor role and date filters',()=>{
  const html=source('index.html'),ts=source('timesheet-preview.js'),abs=source('absenteeism.js');
  assert.match(html,/id="timesheetPageCount"/);

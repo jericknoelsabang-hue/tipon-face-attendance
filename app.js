@@ -1051,15 +1051,16 @@ function filteredTerminalLogRows(){
    (!coop||r.coop===coop)&&(!platform||TIPONOrgCore.platformKey(r.platform)===TIPONOrgCore.platformKey(platform))&&
    (!siteId||r.siteId===siteId);
  });
- // Admin and User share this renderer. Sort by Philippine attendance date,
- // then exact event time, before pagination so every page remains chronological.
+ // Shared Admin/User Attendance Logs: newest Philippine attendance date first,
+ // then latest Time In (or Time Out when no IN exists), before pagination/export.
  const stampKey=row=>String(row.timeIn||row.timeOut||'');
- const dayKey=stamp=>stamp?TIPONCore.phStamp(stamp).slice(0,10):'9999-99-99';
+ const dayKey=stamp=>stamp?TIPONCore.phStamp(stamp).slice(0,10):'';
  return rows.sort((a,b)=>{
   const dayA=dayKey(stampKey(a)),dayB=dayKey(stampKey(b));
-  if(dayA!==dayB)return dayA<dayB?-1:1;
+  if(dayA!==dayB)return dayA>dayB?-1:1;
   const timeA=Date.parse(stampKey(a)),timeB=Date.parse(stampKey(b));
-  if(Number.isFinite(timeA)&&Number.isFinite(timeB)&&timeA!==timeB)return timeA-timeB;
+  if(Number.isFinite(timeA)&&Number.isFinite(timeB)&&timeA!==timeB)return timeB-timeA;
+  if(Number.isFinite(timeA)!==Number.isFinite(timeB))return Number.isFinite(timeA)?-1:1;
   return String(a.key||'').localeCompare(String(b.key||''));
  });
 }

@@ -1,5 +1,5 @@
 {
   "app": "TIPON Face Attendance",
-  "version": "5.5.83",
-  "label": "Vertically center left-aligned login message between Federation logo and feature cards."
+  "version": "5.5.84",
+  "label": "Attendance Logs newest-to-oldest for Admin and User, including offline/central records."
 }
