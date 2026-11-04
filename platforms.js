@@ -7,6 +7,7 @@
 window.TIPONPlatforms=(()=>{
   const selectors=['sitePlatform','registerPlatform','migrationPlatform'];
   const PAGE_SIZE=10;
+  const COOP_PLATFORMS=TIPONOrgCore.COOP_PLATFORMS||{};
   const STARTER_DIRECTORY=Object.freeze([
     {name:'Asiapro Construction',code:'AP Cons'},
     {name:'Asiapro Trucking System',code:'ATS'},
@@ -46,6 +47,7 @@ window.TIPONPlatforms=(()=>{
       if(!item||typeof item!=='object')continue;
       const providedCode=clean(item.code||item.abbreviation||item.shortName||item.bpAbbreviation);
       const providedName=clean(item.name||item.bpName||item.platformName);
+      const coop=clean(item.coop||item.cooperative||'');
       let code=clean(item.code||'');
       if(!code){
         // New backend: {name: full label, abbreviation: existing BP code}.
@@ -59,7 +61,7 @@ window.TIPONPlatforms=(()=>{
       let displayName=clean(item.displayName||item.fullName||item.label||'');
       if(!displayName&&norm(providedName)!==norm(code))displayName=providedName;
       if(!displayName)displayName=captions.get(norm(code))||code;
-      result.push({code,name:displayName});
+      result.push({code,name:displayName,coop});
     }
     return result;
   }
@@ -68,6 +70,7 @@ window.TIPONPlatforms=(()=>{
     return names().map(code=>({
       code,
       name:clean(custom.get(norm(code))?.name)||captions.get(norm(code))||code,
+      coop:clean(custom.get(norm(code))?.coop)||Object.keys(COOP_PLATFORMS).find(coop=>(COOP_PLATFORMS[coop]||[]).some(bp=>norm(bp)===norm(code)))||'',
       isDefault:defaultNames().some(name=>norm(name)===norm(code))
     }));
   }
@@ -101,12 +104,13 @@ window.TIPONPlatforms=(()=>{
       const status=pending?'<small class="bp-sync-status">'+(pending.errorCode==='NEEDS_REVIEW'?'Needs review':'Pending sync')+'</small>':'';
       return '<tr><td><b>'+esc(x.name)+'</b>'+status+'</td>'+
       '<td><span class="bp-abbreviation">'+esc(x.code)+'</span></td>'+
+      '<td>'+esc(x.coop||'—')+'</td>'+
       '<td><div class="bp-row-actions">'+
       '<button type="button" class="tiny-button" data-bp-edit="'+esc(x.code)+'">Edit</button>'+
       '<button type="button" class="tiny-button delete" data-bp-delete="'+esc(x.code)+
         '" title="Deletion is checked against authorized member, account and Work Location records">Delete</button>'+
       '</div></td></tr>';
-    }).join(''):'<tr><td colspan="3"><div class="empty-state">No matching Business Platforms.</div></td></tr>';
+    }).join(''):'<tr><td colspan="4"><div class="empty-state">No matching Business Platforms.</div></td></tr>';
     setText('adminBPCount',matches.length+' business platform'+(matches.length===1?'':'s'));
     setText('adminBPPageCount',matches.length?
       'Showing '+(start+1)+'–'+(start+visible.length)+' of '+matches.length:'0 business platforms');
@@ -172,6 +176,8 @@ window.TIPONPlatforms=(()=>{
     $('platformForm').reset();
     $('newPlatformName').value=record?.name||'';
     $('newPlatformAbbreviation').value=record?.code||'';
+    const coopSelect=$('newPlatformCooperative');
+    if(coopSelect){coopSelect.innerHTML='<option value="">Select cooperative</option>'+TIPONOrgCore.COOPS.map(x=>'<option value="'+esc(x)+'">'+esc(x)+'</option>').join('');coopSelect.value=record?.coop||'';}
     const locked=!!record&&(record.isDefault||hasReferences(record.code));
     $('newPlatformAbbreviation').readOnly=locked;
     setText('platformFormTitle',record?'Edit Business Platform':'Add Business Platform');
@@ -202,7 +208,7 @@ window.TIPONPlatforms=(()=>{
       throw Error('Business Platform editing is not yet available on the connected Apps Script. Install and deploy the BP Directory backend patch first. Nothing has been changed.');
     return info;
   }
-  function verifyRecord(reply,name,code,deleted=false){
+  function verifyRecord(reply,name,code,deleted=false,coop=''){
     const list=reply?.businessPlatforms;
     const meta=detailsFrom(reply);
     if(!Array.isArray(list)||!Array.isArray(meta))
@@ -210,11 +216,14 @@ window.TIPONPlatforms=(()=>{
     const listed=list.some(x=>norm(x)===norm(code));
     if(deleted)return !listed;
     const saved=normalizeRecords(meta,list).find(x=>norm(x.code)===norm(code));
-    return listed&&saved&&norm(saved.name)===norm(name);
+    // Legacy Apps Script may not yet store cooperative metadata; accept only when the requested value matches the approved local mapping.
+    return listed&&saved&&norm(saved.name)===norm(name)&&norm(coop)===norm((COOP_PLATFORMS[coop]||[]).find(x=>norm(x)===norm(code))||'');
   }
   async function save(event){
     event.preventDefault();if(busy||!isAdmin())return;
-    const name=clean($('newPlatformName').value),code=clean($('newPlatformAbbreviation').value);
+    const name=clean($('newPlatformName').value),code=clean($('newPlatformAbbreviation').value),coop=clean($('newPlatformCooperative')?.value||'');
+    if(!TIPONOrgCore.COOPS.includes(coop)){setText('platformStatus','Select a Cooperative.');return;}
+    if(!(COOP_PLATFORMS[coop]||[]).some(x=>norm(x)===norm(code))){setText('platformStatus','This Business Platform is not assigned to the selected Cooperative in the approved mapping.');return;}
     if(name.length<2||name.length>80||code.length<2||code.length>20||
        /[<>\x00-\x1f\x7f]/.test(name+code)){
       setText('platformStatus','Enter a valid Business Platforms Name (2–80 characters) and Business Platform code (2–20 characters).');
@@ -231,18 +240,18 @@ window.TIPONPlatforms=(()=>{
     const editing=!!editingCode;
     if(!navigator.onLine){
       const nextNames=TIPONOrgCore.platformNames([...(state.platforms||[]).filter(item=>!editing||norm(item)!==norm(editingCode)),code]);
-      const currentRecords=records().map(item=>({name:item.name,code:item.code}));
+      const currentRecords=records().map(item=>({name:item.name,code:item.code,coop:item.coop}));
       let nextRecords;
       if(editing){
         let replaced=false;
         nextRecords=currentRecords.map(item=>{
           if(norm(item.code)!==norm(editingCode))return item;
-          replaced=true;return {name,code};
+          replaced=true;return {name,code,coop};
         });
-        if(!replaced)nextRecords.push({name,code});
-      }else nextRecords=[...currentRecords,{name,code}];
+        if(!replaced)nextRecords.push({name,code,coop});
+      }else nextRecords=[...currentRecords,{name,code,coop}];
       try{
-        await queueOfflineChange({action:editing?'update':'add',originalName:editingCode||'',name,code,abbreviation:code},nextNames,nextRecords);
+        await queueOfflineChange({action:editing?'update':'add',originalName:editingCode||'',name,code,abbreviation:code,coop},nextNames,nextRecords);
         $('platformDialog').close();
         showToast(editing?'Business Platform update saved locally. It will be verified when internet returns.':
           'Business Platform saved locally. It will be registered centrally when internet returns.','info',8000);
@@ -255,9 +264,9 @@ window.TIPONPlatforms=(()=>{
     try{
       await requireDirectoryBackend();
       const response=await TIPONAPI.call(editing?
-        {action:'platformUpdate',originalName:editingCode,name,abbreviation:code}:
-        {action:'platformAdd',name,abbreviation:code});
-      if(!verifyRecord(response,name,code))
+        {action:'platformUpdate',originalName:editingCode,name,abbreviation:code,coop}:
+        {action:'platformAdd',name,abbreviation:code,coop});
+      if(!verifyRecord(response,name,code,false,coop))
         throw Error('The backend did not confirm the exact Business Platform name and code. Please refresh before retrying.');
       await accept(response.businessPlatforms,detailsFrom(response));
       if(target){fill(target,code);$(target)?.dispatchEvent(new Event('change',{bubbles:true}));}

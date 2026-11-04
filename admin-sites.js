@@ -22,7 +22,7 @@ window.TIPONAdminSites=(()=>{
   function render(){
     if(!available())return;
     const query=(field('adminSiteSearch')?.value||'').trim().toLowerCase();
-    const data=state.sites.filter(site=>!site.deleted)
+    const data=state.sites.filter(site=>!site.deleted).map(site=>{const allowed=TIPONOrgCore.COOP_PLATFORMS?.[site.coop]||[];return allowed.length&&!allowed.some(bp=>TIPONOrgCore.platformKey(bp)===TIPONOrgCore.platformKey(site.platform))?{...site,platform:allowed[0]}:site;})
       .filter(site=>!query||[site.id,site.name,site.coop,site.platform,site.address]
         .join(' ').toLowerCase().includes(query))
       .sort((a,b)=>String(a.coop||'').localeCompare(String(b.coop||''))||

@@ -1,71 +1,36 @@
-/* Admin multiple-Cooperative / Business-Platform work location scoping.
- * The central data model remains ONE coop and ONE platform per worksite.
- * This control explicitly creates one scoped site per selected pair.
- */
+/* Admin Cooperative / Business Platform work location scoping. */
 'use strict';
 window.TIPONSiteScopes=(()=>{
  const $=id=>document.getElementById(id);
- const normalized=s=>String(s||'').trim().normalize('NFKC').replace(/\s+/g,' ').toLowerCase();
- function values(id){return [...($(id)?.querySelectorAll('input[type="checkbox"]:checked')||[])].map(x=>x.value);}
- function setSummary(id,choices,placeholder){
-  const xs=values(choices),el=$(id);
-  if(el)el.textContent=xs.length?xs.length===1?xs[0]:xs.length+' selected':placeholder;
- }
- function refreshSelection(){
-  const coops=values('siteCoopChoices'),platforms=values('sitePlatformChoices');
-  if($('siteCoop'))$('siteCoop').value=coops[0]||'';
-  if($('sitePlatform'))$('sitePlatform').value=platforms[0]||'';
-  setSummary('siteCoopSummary','siteCoopChoices','Select cooperatives');
-  setSummary('sitePlatformSummary','sitePlatformChoices','Select business platforms');
-  const count=coops.length*platforms.length;
-  const hint=$('siteScopeHint');
-  if(hint)hint.textContent=count
-   ?count+' authorized work location record'+(count===1?'':'s')+' will be created or updated (one per MPC / Business Platform pair).'
-   :'Select at least one Cooperative and one Business Platform. Each selected combination will have the same GPS and address.';
- }
- function checkboxes(id,options,current){
-  const box=$(id);
-  if(!box)return;
-  const chosen=new Set(current.map(normalized));
-  box.innerHTML=options.map(value=>{
-   const checked=chosen.has(normalized(value))?' checked':'';
-   return '<label class="site-scope-option"><input type="checkbox" value="'+esc(value)+'"'+checked+'/><span>'+esc(value)+'</span></label>';
-  }).join('');
+ const norm=s=>String(s||'').trim().normalize('NFKC').replace(/\s+/g,' ').toLowerCase();
+ const mapping=window.TIPONCoopPlatforms||{};
+ function platformsFor(coop){return mapping[coop]||[];}
+ function renderPlatforms(preferred=''){
+  const sel=$('sitePlatform');if(!sel)return;
+  const coop=$('siteCoop')?.value||'';const options=platformsFor(coop);
+  const keep=options.find(x=>norm(x)===norm(preferred||sel.value))||'';
+  sel.innerHTML='<option value="">Select business platform</option>'+options.map(x=>'<option value="'+esc(x)+'">'+esc(x)+'</option>').join('');
+  sel.value=keep;sel.disabled=!coop;
  }
  function reset(site,admin){
-  document.querySelectorAll('[data-site-scope-single]').forEach(el=>el.hidden=!!admin);
-  document.querySelectorAll('[data-site-scope-multi]').forEach(el=>el.hidden=!admin);
-  // The original selectors remain for legacy security rules, but the admin
-  // multi-picker validates itself so a hidden required selector cannot block submit.
-  if($('siteCoop'))$('siteCoop').required=!admin;
-  if($('sitePlatform'))$('sitePlatform').required=!admin;
-  if(!admin)return;
-  checkboxes('siteCoopChoices',TIPONOrgCore.COOPS,site?.coop?[site.coop]:[]);
-  checkboxes('sitePlatformChoices',TIPONPlatforms.names(),site?.platform?[site.platform]:[]);
-  for(const id of ['siteCoopMulti','sitePlatformMulti'])if($(id))$(id).open=false;
-  refreshSelection();
+  const coop=$('siteCoop'),platform=$('sitePlatform');
+  document.querySelectorAll('[data-site-scope-single]').forEach(el=>el.hidden=false);
+  document.querySelectorAll('[data-site-scope-multi]').forEach(el=>el.hidden=true);
+  if(coop){coop.required=true;coop.disabled=!admin;coop.innerHTML='<option value="">Select cooperative</option>'+TIPONOrgCore.COOPS.map(x=>'<option value="'+esc(x)+'">'+esc(x)+'</option>').join('');coop.value=site?.coop||(state.user?.coop||'Asiapro');}
+  renderPlatforms(site?.platform||''); if(platform){platform.required=true;platform.disabled=!admin||!coop?.value;}
+  const hint=$('siteScopeHint');if(hint){hint.hidden=false;hint.textContent='Business Platforms are limited to the selected Cooperative.';}
+  document.querySelectorAll('[data-site-scope-single]').forEach(el=>{el.hidden=!admin;});
  }
  function pairs(previous){
-  if(!isAdmin())return [{coop:$('siteCoop').value,platform:$('sitePlatform').value}];
-  const coops=values('siteCoopChoices'),platforms=values('sitePlatformChoices');
-  if(!coops.length||!platforms.length)throw Error('Select at least one Cooperative and one Business Platform.');
-  const count=coops.length*platforms.length;
-  const rows=coops.flatMap(coop=>platforms.map(platform=>({coop,platform})));
-  if(previous&&!rows.some(row=>row.coop===previous.coop&&normalized(row.platform)===normalized(previous.platform))){
-   throw Error('When editing an existing location, keep its original MPC and Business Platform selected. Add other combinations without replacing the existing location scope.');
-  }
-  return rows;
+  const coop=$('siteCoop')?.value||'',platform=$('sitePlatform')?.value||'';
+  if(!coop||!platform)throw Error('Select a Cooperative and its Business Platform.');
+  if(!platformsFor(coop).some(x=>norm(x)===norm(platform)))throw Error('This Business Platform is not assigned to the selected Cooperative.');
+  if(previous&&(previous.coop!==coop||norm(previous.platform)!==norm(platform)))throw Error('Editing a Work Location cannot change its Cooperative or Business Platform.');
+  return [{coop,platform}];
  }
  function bind(){
-  for(const id of ['siteCoopChoices','sitePlatformChoices']){
-   const box=$(id);if(box&&!box.dataset.scopeBound){box.dataset.scopeBound='1';box.addEventListener('change',refreshSelection);}
-  }
-  document.addEventListener('click',event=>{
-   for(const id of ['siteCoopMulti','sitePlatformMulti']){
-    const el=$(id);if(el?.open&&!el.contains(event.target))el.open=false;
-   }
-  });
+  const coop=$('siteCoop');if(coop&&!coop.dataset.coopBound){coop.dataset.coopBound='1';coop.addEventListener('change',()=>renderPlatforms(''));}
  }
  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',bind,{once:true});else bind();
- return {reset,pairs,refreshSelection};
+ return {reset,pairs,refreshSelection:()=>renderPlatforms()};
 })();

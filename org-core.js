@@ -8,6 +8,7 @@
   const VERSION='5.5.46', PROTOCOL='tipon-org-v5', PBKDF2_ITERATIONS=600000;
   const COOPS=['Asiapro','Gawa at Kalinga','Kaakbay sa Kinabukasan','Kadayawan','Kaamulan','Tnalak','Victory','Worklife'];
   const DEFAULT_PLATFORMS=['IMG','MSG-SM','MSG-NM','MSG-NW','OCG','Contracting','AP Cons','GAK','ATS'];
+  const COOP_PLATFORMS=Object.freeze({"Asiapro":["IMG","AP Cons","Contracting","MSG-NW","ATS"],"Gawa at Kalinga":["GAK"],"Kaakbay sa Kinabukasan":["IMG"],"Kadayawan":["MSG-SM"],"Kaamulan":["MSG-NM"],"Tnalak":["MSG-SM"],"Victory":["MSG-NM"],"Worklife":["OCG"]});
   const EXPORT_HEADERS=['MemberId','Date','Time In','Time Out','Date Time Out'];
   // The payroll extract stays at five columns. Only the central report adds context.
   const REPORT_HEADERS=[...EXPORT_HEADERS,'Work location','MPC','BP'];
@@ -146,5 +147,5 @@
   function periodSummary(rows){const m=new Map();for(const r of rows){const k=r.memberId,s=m.get(k)||{memberId:k,name:r.memberName||'',coop:r.coop||'',sessions:0,complete:0,hours:0,open:0};s.sessions++;if(r.timeIn&&r.timeOut){s.complete++;s.hours+=(Date.parse(r.timeOut)-Date.parse(r.timeIn))/3600000;}else s.open++;m.set(k,s);}return [...m.values()];}
   function sheetRow(r){const f=t=>{if(!t)return null;const ms=Date.parse(t)+28800000,d=new Date(ms);return {date:Math.floor(ms/86400000)+25569,time:(d.getUTCHours()*3600+d.getUTCMinutes()*60+d.getUTCSeconds())/86400};};const a=f(r.timeIn),b=f(r.timeOut);return [String(r.memberId),a?a.date:'',a?a.time:'',b?b.time:'',b?b.date:''];}
   function reportRow(row){return [...sheetRow(row),String(row.location||''),String(row.coop||''),String(row.platform||'')];}
-  return {VERSION,PROTOCOL,PBKDF2_ITERATIONS,COOPS,DEFAULT_PLATFORMS,EXPORT_HEADERS,REPORT_HEADERS,clean,userKey,must,profile,allowed,canUseTerminal,inScope,platformKey,platformNames,overview,distance,gps,phDay,project,scheduled,dashboard,periodSummary,sheetRow,reportRow};
+  return {VERSION,PROTOCOL,PBKDF2_ITERATIONS,COOPS,DEFAULT_PLATFORMS,COOP_PLATFORMS,EXPORT_HEADERS,REPORT_HEADERS,clean,userKey,must,profile,allowed,canUseTerminal,inScope,platformKey,platformNames,overview,distance,gps,phDay,project,scheduled,dashboard,periodSummary,sheetRow,reportRow};
 });

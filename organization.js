@@ -23,6 +23,9 @@ window.OrgDB=(()=>{
     if(type==='sites'){
       // Each saved Work Location carries its own approved MPC / Business Platform pair.
       value.platform=String(value.platform||($('siteDialog')?.open?$('sitePlatform').value:'')).trim();
+      if($('siteDialog')?.open)value.coop=String($('siteCoop').value||'').trim();
+      const allowed=TIPONOrgCore.COOP_PLATFORMS?.[value.coop]||[];
+      if(!allowed.some(bp=>TIPONOrgCore.platformKey(bp)===TIPONOrgCore.platformKey(value.platform)))throw Error('Business Platform does not match the selected Cooperative.');
       if($('siteDialog')?.open)value.schedule=OrgUI.readSiteSchedule();
     }
     if(type==='members'){
@@ -263,7 +266,11 @@ renderMembers=function(){
   button.disabled=!(isAdmin()||canEdit()&&TIPONOrgCore.inScope(state.user,member));
  });
 };
-renderSites=function(){oldRenderSites();document.querySelectorAll('[data-site-delete],[data-site-edit]').forEach(x=>{const site=state.sites.find(v=>v.id===(x.dataset.siteDelete||x.dataset.siteEdit));x.hidden=false;x.disabled=!(site&&canEdit()&&TIPONOrgCore.inScope(state.user,site));});};
+renderSites=function(){
+ // Correct legacy cooperative/platform mismatches in the displayed cached copy.
+ state.sites.forEach(site=>{const allowed=TIPONOrgCore.COOP_PLATFORMS?.[site.coop]||[];if(allowed.length&&!allowed.some(bp=>TIPONOrgCore.platformKey(bp)===TIPONOrgCore.platformKey(site.platform))){site.platform=allowed[0];site._mappingCorrected=true;}});
+ oldRenderSites();document.querySelectorAll('[data-site-delete],[data-site-edit]').forEach(x=>{const site=state.sites.find(v=>v.id===(x.dataset.siteDelete||x.dataset.siteEdit));x.hidden=false;x.disabled=!(site&&canEdit()&&TIPONOrgCore.inScope(state.user,site));});
+};
 filteredAttendanceRows=function(){
   if(!isAdmin())throw Error('Only the administrator can export attendance.');
   if(!validateAttendanceDateRange('recordFrom','recordTo','recordDateError','exportExcel'))throw Error('To Date cannot be earlier than From Date.');
