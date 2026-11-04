@@ -963,7 +963,7 @@ test('Server acknowledgment clears all member pending flags',async()=>{
 
 test('Login hero uses the original full-resolution cooperative photo, not a flattened screenshot',()=>{
  const html=source('index.html'),sw=source('sw.js');
- assert.match(html,/src="\.\/login-workers\.webp" width="1200" height="874"/);
+ assert.match(html,/src="\.\/login-workers\.webp" width="1436" height="874"/);
  assert.match(html,/alt="TIPON cooperative members and workers in their professional uniforms"/);
  assert.doesNotMatch(html,/login-reference-overlay|tipon-login-reference-hd\.webp/);
  assert.match(sw,/\.\/login-workers\.webp/);

@@ -4,7 +4,7 @@ window.TIPONSiteScopes=(()=>{
  const $=id=>document.getElementById(id);
  const norm=s=>String(s||'').trim().normalize('NFKC').replace(/\s+/g,' ').toLowerCase();
  const mapping=window.TIPONCoopPlatforms||{};
- function platformsFor(coop){return mapping[coop]||[];}
+ function platformsFor(coop){return window.TIPONPlatforms?.optionsForCoop(coop)||mapping[coop]||[];}
  function renderPlatforms(preferred=''){
   const sel=$('sitePlatform');if(!sel)return;
   const coop=$('siteCoop')?.value||'';const options=platformsFor(coop);

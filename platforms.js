@@ -88,10 +88,14 @@ window.TIPONPlatforms=(()=>{
   }
   function fillScoped(coopId,platformId,preferred){
     const coop=$(coopId),el=$(platformId);if(!el)return;
-    const selected=coop?.value||'',value=preferred===undefined?el.value:clean(preferred),options=selected?optionsForCoop(selected):[];
+    const selected=coop?.value||'',value=preferred===undefined?el.value:clean(preferred);
+    // Attendance Logs allows an all-cooperatives view, so its BP filter must
+    // still offer the complete directory until an MPC is selected.
+    const showAll=platformId==='terminalLogPlatform'&&!selected;
+    const options=selected?optionsForCoop(selected):showAll?names():[];
     const html='<option value="">Select business platform</option>'+options.map(name=>'<option value="'+esc(name)+'">'+esc(name)+'</option>').join('');
     if(el.innerHTML!==html)el.innerHTML=html;
-    el.disabled=!selected||(state.user?.role==='registrar'&&platformId==='sitePlatform');
+    el.disabled=(!selected&&!showAll)||(state.user?.role==='registrar'&&platformId==='sitePlatform');
     el.value=options.find(name=>norm(name)===norm(value))||'';
   }
   function fill(id,preferred){
