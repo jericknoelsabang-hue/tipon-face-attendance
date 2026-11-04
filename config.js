@@ -4,5 +4,5 @@
  */
 'use strict';
 window.TIPON_CONFIG=Object.freeze({
-  appsScriptUrl:'https://script.google.com/macros/s/AKfycbzsFnmTOlAJzr-NikbgvEejZEFfki3KDPzjaPpwXjANr7DSIEP8IVMLiVLdQvTHM21MKg/exec'
+  appsScriptUrl:'https://script.google.com/macros/s/AKfycbyZAh8Ak7NYvS-JwTSxF4s1fduSfOeG1TMPGqPfbY_53r6Sj1oae_DmiKIkx5MyDYK8oQ/exec'
 });
