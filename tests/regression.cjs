@@ -1134,6 +1134,27 @@ test('Offline Business Platform additions sync idempotently against the central 
  assert.equal(outbox.length,0);assert.deepEqual(synced,['TP']);
 });
 
+test('Business Platforms table has four matching column headers with compact, aligned Action buttons',()=>{
+ const html=source('index.html'),platforms=source('platforms.js');
+ const section=html.slice(html.indexOf('<section class="panel table-panel bp-directory-panel"'),html.indexOf('<tbody id="adminBPRows"'));
+ assert.ok(section.length>0,'Business Platforms directory markup is present');
+ assert.match(section,/<table class="bp-directory-table"/);
+ const headers=[...section.matchAll(/<th scope="col">([^<]+)<\/th>/g)].map(match=>match[1]);
+ assert.deepEqual(headers,['Business Platforms Name','Business Platform','Cooperatives','Action']);
+ const widths=[...section.matchAll(/<col style="width:(\d+)%"/g)].map(match=>Number(match[1]));
+ assert.deepEqual(widths,[34,17,27,22]);
+ assert.equal(widths.reduce((a,b)=>a+b,0),100);
+ assert.match(html,/<tbody id="adminBPRows"><tr><td colspan="4">/);
+ assert.match(html,/\.bp-directory-table\{width:100%;min-width:780px;table-layout:fixed;/);
+ assert.doesNotMatch(html,/#page-adminSites \.bp-directory-panel table td:nth-child\(3\)\{width:180px\}/);
+ const renderer=platforms.slice(platforms.indexOf('function renderDirectory()'),platforms.indexOf('function render(){'));
+ assert.match(renderer,/<td><b>'\+esc\(x\.coops\?\.join\(', '\)\|\|x\.coop\|\|'—'\)/);
+ assert.match(renderer,/<td><div class="bp-row-actions">/);
+ assert.match(renderer,/data-bp-edit/);
+ assert.match(renderer,/data-bp-delete/);
+ assert.match(renderer,/'<tr><td colspan="4">/);
+});
+
 test('Admin and User schedule-only backend edits are scoped, validated and preserve biometric attendance data',()=>{
  const backend=source('backend-patch/MemberLocationEdit.gs'),app=source('app.js'),
    sync=source('sync.js'),docs=source('backend-patch/README_MEMBER_LOCATION.md');
