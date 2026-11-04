@@ -980,11 +980,12 @@ test('Server acknowledgment clears all member pending flags',async()=>{
 
 test('Login hero uses the transparent team photo without a full-background overlay',()=>{
  const html=source('index.html'),sw=source('sw.js');
- assert.match(html,/src="\\.\\/login-workers-cutout\\.png" width="1536" height="1024"/);
- assert.match(html,/alt="TIPON cooperative members and workers in their professional uniforms"/);
- assert.doesNotMatch(html,/login-reference-overlay|tipon-login-reference-hd\\.webp/);
- assert.match(sw,/\\.\\/login-workers-cutout\\.png/);
- assert.doesNotMatch(sw,/tipon-login-reference-hd\\.webp/);
+ assert.ok(html.includes('src="./login-workers-cutout.png" width="1536" height="1024"'));
+ assert.ok(html.includes('alt="TIPON cooperative members and workers in their professional uniforms"'));
+ assert.ok(!html.includes('login-reference-overlay'));
+ assert.ok(!html.includes('tipon-login-reference-hd.webp'));
+ assert.ok(sw.includes("'./login-workers-cutout.png'"));
+ assert.ok(!sw.includes('tipon-login-reference-hd.webp'));
 });
 test('Work Location creation writes an atomic site and outbox record for offline synchronization',()=>{
  const app=source('app.js'),start=app.indexOf('async function saveSiteForm('),end=app.indexOf('async function queueWorkLocationDelete',start);
