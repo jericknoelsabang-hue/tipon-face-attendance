@@ -380,7 +380,7 @@ test('Face re-enrollment validates and persists a unique Member ID with the new 
 });
 test('Admin/User edit routing and transient Time Out fallback are guarded',()=>{
   const app=source('app.js'),sync=source('sync.js');
-  assert.ok(app.includes("const action=isAdmin()?'adminMemberUpdateV2':'memberTransferUpdateV2'"));
+  assert.ok(app.includes("const action=scheduleOnly?'memberWorkScheduleUpdateV2':isAdmin()?'adminMemberUpdateV2':'memberTransferUpdateV2'"));
   assert.ok(sync.includes("actor.role==='admin'?'adminMemberUpdateV2':'memberTransferUpdateV2'"));
   assert.ok(sync.includes('delete routeChanges.enrolledBy'));
   assert.ok(!app.includes('if(!refreshed?.readOk)throw Error('));
