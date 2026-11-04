@@ -1,5 +1,5 @@
 {
   "app": "TIPON Face Attendance",
-  "version": "5.5.84",
-  "label": "Attendance Logs newest-to-oldest for Admin and User, including offline/central records."
+  "version": "5.5.85",
+  "label": "Admin and User Weekly Work Schedule saves use audited schedule-only backend route."
 }

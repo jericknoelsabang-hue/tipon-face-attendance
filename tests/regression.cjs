@@ -1134,6 +1134,68 @@ test('Offline Business Platform additions sync idempotently against the central 
  assert.equal(outbox.length,0);assert.deepEqual(synced,['TP']);
 });
 
+test('Admin and User schedule-only backend edits are scoped, validated and preserve biometric attendance data',()=>{
+ const backend=source('backend-patch/MemberLocationEdit.gs'),app=source('app.js'),
+   sync=source('sync.js'),docs=source('backend-patch/README_MEMBER_LOCATION.md');
+ assert.match(backend,/function tp5MemberWorkScheduleUpdateV2_\(actor,q\)/);
+ assert.match(backend,/actor\.role==='admin'\|\|actor\.role==='registrar'/);
+ assert.match(backend,/TIPONOrgCore\.inScope\(actor,old\)/);
+ assert.match(backend,/tp5MemberWorkScheduleV2_\(q\.workSchedule,old\.workSchedule\)/);
+ assert.match(backend,/tp5ApplyMemberScheduleColumnsV2_\(next,schedule\)/);
+ assert.match(backend,/MEMBER_UPDATE_WEEKLY_SCHEDULE/);
+ assert.match(app,/scheduleOnly\?'memberWorkScheduleUpdateV2'/);
+ assert.match(app,/mode:scheduleOnly\?'weeklySchedule':'memberEdit'/);
+ assert.match(sync,/op\.value\?\.mode==='weeklySchedule'/);
+ assert.match(sync,/if\(scheduleOnly\)throw Object\.assign/);
+ assert.match(sync,/workSchedule:original\.workSchedule\|\|null/);
+ assert.match(docs,/if\(action==='memberWorkScheduleUpdateV2'\)return tp5Lock_/);
+ const template={alg:'AES-GCM',iv:'dummy-iv-only-for-synthetic-test',data:'encrypted-placeholder'},
+   attendance=[{id:'historical-event',type:'IN',timestamp:'2026-10-28T00:00:00Z'}];
+ let member={id:'m-1',memberNumber:'M1',name:'Synthetic Worker',coop:'Asiapro',
+   platform:'IMG',siteId:'site-1',siteIds:['site-1'],template,rev:3,active:true};
+ const audits=[],ctx={Date,Math,Number,Map,Set,Array,Object,String,
+  TIPONOrgCore:Org,
+  tp5Must_:(ok,message,code)=>{if(!ok)throw Object.assign(Error(message),{code});},
+  tp5Find_:(type,id)=>type==='members'&&member.id===id?member:null,
+  tp5Safe_:value=>({...value}),
+  tp5Now_:()=> '2026-11-04T08:00:00Z',
+  tp5Put_:(table,value)=>{assert.equal(table,'members');member=value;},
+  tp5RefreshMemberDirectory_:()=>{},
+  tp5Bump_:()=>42,
+  tp5Audit_:(actor,action,id,message)=>audits.push({actor,action,id,message}),
+  tp5Reply_:value=>value
+ };
+ vm.createContext(ctx);vm.runInContext(backend,ctx);
+ const admin={id:'admin-1',role:'admin'},user={...actor,id:'user-1'},
+  week={enabled:true,days:[1,2,3,4,5],start:'08:00',end:'18:30',grace:0};
+ const saved=ctx.tp5MemberWorkScheduleUpdateV2_(admin,{memberId:'m-1',baseRev:3,workSchedule:week});
+ assert.equal(saved.member.rev,4);
+ assert.equal(member.workDays,'1,2,3,4,5');assert.equal(member.workStart,'08:00');
+ assert.equal(member.workEnd,'18:30');assert.equal(member.workGrace,0);
+ assert.equal(member.template,template);assert.deepEqual(member.siteIds,['site-1']);
+ assert.equal(attendance.length,1);
+ assert.equal(audits[0].action,'MEMBER_UPDATE_WEEKLY_SCHEDULE');
+ const weekUser={enabled:true,days:[1,3,5,6],start:'07:00',end:'15:30',grace:15};
+ const updated=ctx.tp5MemberWorkScheduleUpdateV2_(user,{memberId:'m-1',baseRev:4,workSchedule:weekUser});
+ assert.equal(updated.member.rev,5);
+ assert.equal(member.workDays,'1,3,5,6');assert.equal(member.workGrace,15);
+ assert.equal(member.template,template);
+ assert.throws(()=>ctx.tp5MemberWorkScheduleUpdateV2_({id:'user-2',role:'registrar',coop:'Worklife',platform:'OCG'},{
+  memberId:'m-1',baseRev:5,workSchedule:week
+ }),/your MPC\/BP/);
+ assert.throws(()=>ctx.tp5MemberWorkScheduleUpdateV2_({role:'kiosk'},{
+  memberId:'m-1',baseRev:5,workSchedule:week
+ }),/approved Administrator or User/);
+ assert.throws(()=>ctx.tp5MemberWorkScheduleUpdateV2_(user,{memberId:'m-1',baseRev:4,workSchedule:week}),/changed on another device/);
+ assert.throws(()=>ctx.tp5MemberWorkScheduleUpdateV2_(admin,{memberId:'m-1',baseRev:5,workSchedule:{
+  enabled:true,days:[],start:'08:00',end:'18:00'
+ }}),/one or more valid work days/);
+ const unchanged=ctx.tp5MemberWorkScheduleUpdateV2_(user,{memberId:'m-1',baseRev:5,workSchedule:weekUser});
+ assert.equal(unchanged.unchanged,true);
+ assert.equal(member.rev,5);
+ assert.equal(audits.length,2);
+});
+
 test('Member weekly schedule overrides work-location schedule and determines scheduled days',()=>{
   const site={id:'site-1',schedule:{enabled:true,days:[1,2,3,4,5],start:'08:00',end:'17:00'}};
   const member={id:'M1',workSchedule:{enabled:true,days:[2,4],start:'07:30',end:'16:30'}};

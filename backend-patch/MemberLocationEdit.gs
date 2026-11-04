@@ -1,5 +1,5 @@
 /**
- * TIPON KABILANG — Member Assignment Routes, v5.5.76
+ * TIPON KABILANG — Member Assignment and Weekly Schedule Routes, v5.5.85
  * PRIVATE Google Apps Script file: MemberLocationEdit.gs
  *
  * Install alongside existing Code.gs/OrgCore.gs. Route actions after existing
@@ -91,6 +91,33 @@ function tp5ApplyMemberScheduleColumnsV2_(member,schedule){
   member.workScheduleText=member.workDays&&member.workStart&&member.workEnd
     ?member.workDays+' '+member.workStart+'-'+member.workEnd:'';
   return member;
+}
+
+
+/**
+ * Dedicated Weekly Work Schedule update for approved Admin and User accounts.
+ * This route never changes member identity, MPC/BP, location, attendance or face.
+ * Use the existing authenticated, locked Code.gs action router.
+ */
+function tp5MemberWorkScheduleUpdateV2_(actor,q){
+  tp5Must_(actor&&(actor.role==='admin'||actor.role==='registrar'),
+    'An approved Administrator or User account is required.','FORBIDDEN');
+  var id=TIPONOrgCore.clean(q.memberId,120),old=tp5Find_('members',id);
+  tp5Must_(old&&!old.deleted,'Member not found. Refresh Member List.','NOT_FOUND');
+  if(actor.role==='registrar')tp5Must_(TIPONOrgCore.inScope(actor,old),
+    'Weekly Work Schedule can only be edited for members in your MPC/BP.','FORBIDDEN');
+  tp5Must_(Number.isInteger(Number(q.baseRev))&&Number(q.baseRev)===Number(old.rev||0),
+    'Member changed on another device. Sync and reopen Edit.','CONFLICT');
+  tp5Must_(Object.prototype.hasOwnProperty.call(q,'workSchedule'),
+    'Weekly Work Schedule details are required.','VALIDATION');
+  var schedule=tp5MemberWorkScheduleV2_(q.workSchedule,old.workSchedule);
+  if(tp5SameMemberScheduleV2_(old.workSchedule,schedule))
+    return tp5Reply_({member:tp5Safe_(old),unchanged:true});
+  var next=Object.assign({},old,{
+    workSchedule:schedule,updatedAt:tp5Now_(),rev:Number(old.rev||0)+1
+  });
+  tp5ApplyMemberScheduleColumnsV2_(next,schedule);
+  return tp5MemberLocationResult_(actor,old,next,'MEMBER_UPDATE_WEEKLY_SCHEDULE');
 }
 
 /** Return only the active Work Location fields needed to transfer a member.

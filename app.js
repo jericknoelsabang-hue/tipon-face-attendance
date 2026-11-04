@@ -399,11 +399,19 @@ async function saveMemberMetadata(member,changes){
  if(!member||(!isAdmin()&&!canEdit()))throw Error('An approved Administrator or User session is required.');
  const clean={memberNumber:String(changes.memberNumber||member.memberNumber||member.id).trim(),name:String(changes.name||'').trim(),coop:String(changes.coop||''),platform:String(changes.platform||'').trim(),
   siteIds:[...new Set((changes.siteIds||[]).map(String).filter(Boolean))],workSchedule:normalizeMemberWorkSchedule(changes.workSchedule||member.workSchedule)};
+ const originalIds=Array.isArray(member.siteIds)&&member.siteIds.length?member.siteIds:[member.siteId].filter(Boolean);
+ const workScheduleChanged=JSON.stringify(clean.workSchedule)!==JSON.stringify(normalizeMemberWorkSchedule(member.workSchedule));
+ const scheduleOnly=workScheduleChanged&&clean.memberNumber===String(member.memberNumber||member.id)&&
+  clean.name===member.name&&clean.coop===member.coop&&
+  TIPONOrgCore.platformKey(clean.platform)===TIPONOrgCore.platformKey(member.platform)&&
+  clean.siteIds.length===originalIds.length&&originalIds.every(id=>clean.siteIds.includes(String(id)));
+ if(!clean.workSchedule.days.length||!clean.workSchedule.start||!clean.workSchedule.end||
+    clean.workSchedule.start===clean.workSchedule.end)throw Error('Select at least one weekly work day and valid start and end times.');
  if(!clean.name||!clean.coop||!TIPONPlatforms.optionsForCoop(clean.coop).some(v=>TIPONOrgCore.platformKey(v)===TIPONOrgCore.platformKey(clean.platform))||!clean.siteIds.length)throw Error('Member name, Cooperative, Business Platform and at least one Assigned Work Location are required.');
  if(clean.siteIds.length>40)throw Error('Maximum 40 Assigned Work Locations.');
  if(clean.siteIds.some(id=>{const site=memberSiteCatalog().find(x=>x.id===id&&!x.deleted);return !site||site.coop!==clean.coop||TIPONOrgCore.platformKey(site.platform)!==TIPONOrgCore.platformKey(clean.platform);}))
   throw Error('Choose only synced Work Locations matching the selected Cooperative and Business Platform.');
- const opId=uuid(),payload={memberId:member.id,changes:clean,original:{memberNumber:member.memberNumber||member.id,name:member.name,coop:member.coop,platform:member.platform,siteIds:Array.isArray(member.siteIds)&&member.siteIds.length?member.siteIds:[member.siteId].filter(Boolean),workSchedule:normalizeMemberWorkSchedule(member.workSchedule)}};
+ const opId=uuid(),payload={memberId:member.id,mode:scheduleOnly?'weeklySchedule':'memberEdit',changes:clean,original:{memberNumber:member.memberNumber||member.id,name:member.name,coop:member.coop,platform:member.platform,siteIds:originalIds,workSchedule:normalizeMemberWorkSchedule(member.workSchedule)}};
  const queue=async()=>{
   const stored=await getOne('members',member.id);
   if(stored?._pendingOp)throw Error('This member already has a pending change.');
@@ -414,15 +422,17 @@ async function saveMemberMetadata(member,changes){
  };
  if(!navigator.onLine)return queue();
  try{
-  const action=isAdmin()?'adminMemberUpdateV2':'memberTransferUpdateV2';
-  const reply=await TIPONAPI.call({action,memberId:member.id,baseRev:Number(member.rev)||0,changes:clean});
+  const action=scheduleOnly?'memberWorkScheduleUpdateV2':isAdmin()?'adminMemberUpdateV2':'memberTransferUpdateV2';
+  const request=scheduleOnly?{action,memberId:member.id,baseRev:Number(member.rev)||0,workSchedule:clean.workSchedule}:
+    {action,memberId:member.id,baseRev:Number(member.rev)||0,changes:clean};
+  const reply=await TIPONAPI.call(request);
   const saved=reply.member;
   const savedSites=Array.isArray(saved?.siteIds)&&saved.siteIds.length?saved.siteIds:[saved?.siteId].filter(Boolean);
   const savedNumber=String(saved?.memberNumber||saved?.id||'').trim();
   if(!saved||String(saved.id)!==String(member.id)||savedNumber!==clean.memberNumber||
      String(saved.name||'').trim()!==clean.name||String(saved.coop||'')!==clean.coop||
      TIPONOrgCore.platformKey(saved.platform)!==TIPONOrgCore.platformKey(clean.platform)||
-     saved.workSchedule&&JSON.stringify(normalizeMemberWorkSchedule(saved.workSchedule))!==JSON.stringify(clean.workSchedule)||
+     !saved.workSchedule||JSON.stringify(normalizeMemberWorkSchedule(saved.workSchedule))!==JSON.stringify(clean.workSchedule)||
      savedSites.length!==clean.siteIds.length||!savedSites.every(id=>clean.siteIds.includes(id)))
    throw Error('The central organization did not confirm the Member ID, identity, Cooperative, Business Platform, work schedule and Assigned Work Locations. Refresh Member List before retrying.');
   const current=await getOne('members',member.id);
@@ -438,6 +448,9 @@ async function saveMemberMetadata(member,changes){
     /Only identity and assignment fields may be edited/i.test(legacyScheduleMessage)||
     /Only (?:Member ID, )?(?:Full Name|identity).*Cooperative.*Business Platform.*Assigned (?:Work )?Location can be edited/i.test(legacyScheduleMessage)
   );
+  if(scheduleOnly&&(unsupported||legacyScheduleRejection)){
+    throw Object.assign(Error('Weekly Work Schedule requires the current private Apps Script backend. Install MemberLocationEdit.gs, register memberWorkScheduleUpdateV2, and redeploy the existing Web App. No schedule change was confirmed.'),{code:'BACKEND_REQUIRED'});
+  }
   if(unsupported||legacyScheduleRejection){
     // Queue through the shared sync worker. It tries the specialized transfer
     // endpoint first, then the compatible audited submit API if that action is
@@ -494,7 +507,9 @@ async function persistMemberForm(){
   if(!changed){$('memberDialog').close();return;}
   if(old._pendingOp){showToast('This member already has a pending change. Sync before editing again.','error');return;}
   const openSession=TIPONOrgCore.project(state.punches.filter(p=>!p.deleted&&!p.reviewStatus)).some(r=>String(r.memberId)===String(id)&&r.timeIn&&!r.timeOut);
-  if(openSession){showToast('Complete Time Out before editing member details or Assigned Location.','error');return;}
+  const assignmentChanged=memberNumber!==(old.memberNumber||old.id)||name!==old.name||coop!==old.coop||
+   TIPONOrgCore.platformKey(platform)!==TIPONOrgCore.platformKey(old.platform)||!sameSites;
+  if(openSession&&assignmentChanged){showToast('Complete Time Out before editing member details or Assigned Location. Weekly Work Schedule alone can be updated.','error');return;}
   const submit=$('memberForm').querySelector('[type="submit"]');if(submit)submit.disabled=true;
   try{
    const result=await saveMemberMetadata(old,{name,coop,platform,siteIds,memberNumber,workSchedule});

@@ -1,4 +1,4 @@
-# TIPON KABILANG v5.5.76 — Private Apps Script compatibility patch
+# TIPON KABILANG v5.5.85 — Private Apps Script compatibility patch
 
 This patch is for the **existing private Google Apps Script project** behind the TIPON Face Attendance `/exec` URL. GitHub Pages cannot deploy Apps Script. Do not paste credentials, Script Properties, tokens, deployment IDs, member data, or face data into this public repository.
 
@@ -9,7 +9,7 @@ This patch is for the **existing private Google Apps Script project** behind the
 - Existing member Work Schedule edits through the legacy `memberTransferUpdateV2` endpoint: the endpoint must accept `workSchedule` and persist it without requiring face capture or replacing the encrypted face template. This is required to clear old “Only identity and assignment fields may be edited” rejections.
 - User face re-enrollment: save the newly encrypted AES-GCM face template, consent timestamp and Member ID without replacing the internal record key or attendance history. The server records the enrolling account itself.
 - Attendance Logs Edit/Delete: audited correction overlays, server-side scope checks, revision checks and cross-device refresh. Admins and authorized Users can edit Date, Time In, Date Time Out and Time Out, including adding a missing Time Out to an open session, or delete an open or completed session.
-- Weekly member Work Schedules (days, start/end times and grace minutes) are revision-checked, validated by `tp5MemberWorkScheduleV2_`, and stored in both the nested API object and the `workDays`, `workStart`, `workEnd`, `workGrace` and `workScheduleText` sheet columns. The Admin and User V2 routes, plus the legacy transfer/face-update routes, use the same validator.
+- Weekly member Work Schedules (days, start/end times and grace minutes) are revision-checked, validated by `tp5MemberWorkScheduleV2_`, and stored in both the nested API object and the `workDays`, `workStart`, `workEnd`, `workGrace` and `workScheduleText` sheet columns. Both Admin and User use the dedicated, audited `memberWorkScheduleUpdateV2` route for schedule-only changes, without modifying biometric templates, MPC/BP, Assigned Location or historical attendance. Scope changes still use the existing authorized member-update routes.
 
 ### Member sheet columns
 
@@ -31,6 +31,7 @@ Create two new files in the existing Apps Script project and copy the matching r
 
 Before saving, search the live project for these function names. If any are already defined, reconcile the code instead of creating duplicate definitions:
 
+- `tp5MemberWorkScheduleUpdateV2_`
 - `tp5AdminMemberUpdateV2_`
 - `tp5UserMemberLocationUpdate_`
 - `tp5UserMemberDelete_`
@@ -48,13 +49,16 @@ Inside `tp5Handle_(q, transport)`, after the setup/health checks and before the 
 if(action==='memberLocationCapabilities'){
   tp5Must_(props.getProperty('TP5_SETUP_STATUS')==='READY',
     'Organization setup is incomplete.','NOT_CONFIGURED');
-  return tp5Reply_({memberLocationUpdate:true,allowUnassignedFace:false,memberTransferUpdate:true,memberFaceUpdate:true,adminMemberUpdate:true,memberIdEditable:true});
+  return tp5Reply_({memberLocationUpdate:true,allowUnassignedFace:false,memberTransferUpdate:true,memberFaceUpdate:true,adminMemberUpdate:true,memberIdEditable:true,memberWorkScheduleUpdate:true});
 }
 ~~~
 
 After the existing `var actor=tp5Auth_(q);` line, add each route that is not already present:
 
 ~~~js
+if(action==='memberWorkScheduleUpdateV2')return tp5Lock_(function(){
+  actor=tp5Auth_(q);return tp5MemberWorkScheduleUpdateV2_(actor,q);
+});
 if(action==='adminMemberUpdateV2')return tp5Lock_(function(){
   actor=tp5Auth_(q);return tp5AdminMemberUpdateV2_(actor,q);
 });
@@ -140,3 +144,16 @@ Use synthetic member IDs and test accounts first:
 - Verify a filter with no matching date/member shows an empty-state explanation; use Reset Filters to view all records.
 
 Do not clear production IndexedDB, member records, face templates, pending uploads or historical attendance to make the UI appear empty or error-free.
+
+## Weekly Work Schedule — Admin and User activation (v5.5.85)
+
+**Important:** GitHub Pages automatically publishes the frontend, but **does not deploy private Apps Script**. The rejection "Only approved member fields and Assigned Location can be edited" indicates the currently published Apps Script is older than this route. Updating GitHub alone cannot clear that rejection.
+
+1. Back up the existing Apps Script project and confirm it is the one serving the current `/exec` URL.
+2. Update the **existing** `MemberLocationEdit.gs` with the matching source above, preserving your live `Code.gs`, `OrgCore.gs`, Script Properties, encryption keys and member data. Do not create duplicate functions.
+3. Add the authenticated and locked `memberWorkScheduleUpdateV2` route to the existing `tp5Handle_(q,transport)` as shown in Section 3; do **not** create an anonymous public endpoint. Confirm the existing V2 identity/transfer routes have the updated `workSchedule` validators.
+4. Confirm member-sheet columns: `workDays`, `workStart`, `workEnd`, `workGrace`, `workScheduleText`.
+5. Select **Deploy → Manage deployments → Edit → New version → Deploy** in Apps Script, keeping the same deployment and access rules. Do not substitute a newly created URL without migrating the approved clients.
+6. With test members and approved accounts: Admin edits days/hours and saves; User edits a member in their assigned MPC/BP; both receive an acknowledged updated schedule and `rev`. Refresh a second device and confirm the schedule persists and matches the sheet columns. Check that a User cannot edit an out-of-scope member, a stale revision is rejected, and face/attendance data are unchanged. Test the offline queue once the server is live.
+
+For **schedule-only** saves, the frontend requests `memberWorkScheduleUpdateV2` with `memberId`, `baseRev` and `workSchedule`. If the route is unavailable, the UI reports a backend deployment requirement rather than claiming central sync success. Offline edits can remain queued until connectivity returns; rejected edits are restored and marked for review.

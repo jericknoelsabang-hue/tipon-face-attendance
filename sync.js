@@ -310,7 +310,7 @@ window.TIPONSync=(()=>{
       }else if(op.type==='memberEdits'){
         const id=op.value.memberId,current=await getOne('members',id),original=op.value.original;
         if(current&&original){
-          Object.assign(current,{memberNumber:original.memberNumber||current.memberNumber||current.id,name:original.name,coop:original.coop,platform:original.platform,siteId:original.siteIds?.[0]||'',siteIds:original.siteIds||[]});
+          Object.assign(current,{memberNumber:original.memberNumber||current.memberNumber||current.id,name:original.name,coop:original.coop,platform:original.platform,siteId:original.siteIds?.[0]||'',siteIds:original.siteIds||[],workSchedule:original.workSchedule||null});
           delete current._pendingOp;delete current.pendingEdit;current.syncIssue=latest.error;await OrgDB.rawSave('members',current);
         }
       }else if(op.type==='memberFaceUpdates'){
@@ -346,7 +346,8 @@ window.TIPONSync=(()=>{
         if(op.type==='memberEdits'||op.type==='memberFaceUpdates'){
           const memberId=String(op.value.memberId),baseRev=Number(op.baseRev)||0;
           let reply,usedGenericSubmit=false;
-          const action=op.type==='memberFaceUpdates'?'memberFaceUpdateV2':
+          const scheduleOnly=op.type==='memberEdits'&&op.value?.mode==='weeklySchedule';
+          const action=op.type==='memberFaceUpdates'?'memberFaceUpdateV2':scheduleOnly?'memberWorkScheduleUpdateV2':
             actor.role==='admin'?'adminMemberUpdateV2':'memberTransferUpdateV2';
           const routeChanges={...(op.value.changes||{})};
           if(op.type==='memberFaceUpdates'){
@@ -354,11 +355,13 @@ window.TIPONSync=(()=>{
             delete routeChanges.enrolledByUsername;
           }
           try{
-            reply=await TIPONAPI.call({action,memberId,baseRev,changes:routeChanges});
+            reply=await TIPONAPI.call(scheduleOnly?{action,memberId,baseRev,workSchedule:routeChanges.workSchedule}:
+              {action,memberId,baseRev,changes:routeChanges});
           }catch(error){
             const unsupported=['ACTION','UNKNOWN_ACTION','NOT_IMPLEMENTED'].includes(String(error?.code||'').toUpperCase())||
               /unknown action|unsupported action|not implemented|is not defined/i.test(String(error?.message||''));
             if(!unsupported)throw error;
+            if(scheduleOnly)throw Object.assign(Error('Weekly Work Schedule needs the updated private Apps Script deployment (memberWorkScheduleUpdateV2). No central save was confirmed.'),{code:'BACKEND_REQUIRED'});
             // Compatibility path for deployments that still expose the original
             // authenticated submit API but not the newer specialized action.
             const current=await getOne('members',memberId);
@@ -391,6 +394,9 @@ window.TIPONSync=(()=>{
              TIPONOrgCore.platformKey(reply.member.platform)!==TIPONOrgCore.platformKey(expectedPlatform)||
              returnedSites.length!==expectedSites.length||!returnedSites.every(id=>expectedSites.includes(id)))
             throw Error('The central organization did not confirm all member fields. Refresh the Member List before retrying.');
+          if(changes.workSchedule&&(!reply.member.workSchedule||
+            JSON.stringify(reply.member.workSchedule)!==JSON.stringify(changes.workSchedule)))
+            throw Error('The organization did not confirm the Weekly Work Schedule. Refresh and retry after the backend update.');
           if(op.type==='memberFaceUpdates'&&(!reply.member.template||reply.member.template.alg!=='AES-GCM'||
              reply.member.template.data!==changes.template?.data||reply.member.template.iv!==changes.template?.iv||
              reply.member.faceEnrollmentStatus!=='enrolled'))

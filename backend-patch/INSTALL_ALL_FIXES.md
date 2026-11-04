@@ -29,3 +29,6 @@ Follow [README_MEMBER_LOCATION.md](./README_MEMBER_LOCATION.md). It describes th
 5. Verify a server ACK, a second authorized device, offline queue recovery and rejection cases before production use.
 
 A successful GitHub Pages build does not confirm the Apps Script backend or production attendance behavior.
+
+### Weekly Work Schedule: v5.5.85
+Both Admin and User can edit a member's weekly days/start/end via Member List. A **private** `memberWorkScheduleUpdateV2` route must be added to the existing authenticated `Code.gs` and a new version of that SAME Apps Script deployment published; the frontend alone cannot make the old endpoint accept new schedule fields. Follow the dedicated steps in [README_MEMBER_LOCATION.md](./README_MEMBER_LOCATION.md). Verify central acknowledgment, refreshed member roster and member-sheet schedule columns with synthetic test accounts before operational rollout.
