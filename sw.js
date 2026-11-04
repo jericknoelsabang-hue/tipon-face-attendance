@@ -1,7 +1,7 @@
-/* TIPON 5.5.68 GitHub Pages shell. Application/AI caches only; server bridge posts are never intercepted. */
+/* TIPON 5.5.70 GitHub Pages shell. Application/AI caches only; server bridge posts are never intercepted. */
 'use strict';
-const VERSION='5.5.69';
-const SHELL='tipon-face-shell-v5.5.69-github-only',AI='tipon-face-remote-v1';
+const VERSION='5.5.70';
+const SHELL='tipon-face-shell-v5.5.70-github-only',AI='tipon-face-remote-v1';
 const FILES=['./polish.css','./coop-logos.svg','./','./index.html','./config.js','./liveness-guard.js','./timesheet-preview.js','./style.css','./organization.css','./gas-bridge.js','./core.js','./org-core.js','./exporter.js','./app.js','./auth.js','./sync.js','./organization.js','./absenteeism.js','./absenteeism.css','./admin-member-editor.js','./member-location-capability.js','./admin-sites.js','./coop-platform-map.js','./site-scope.js','./camera.js','./platforms.js','./login-workers.webp','./logo.png','./icon-192.png','./icon-512.png','./apple-touch-icon.png','./manifest.webmanifest','https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js','https://cdn.jsdelivr.net/gh/justadudewhohacks/face-api.js@0.22.2/weights/tiny_face_detector_model-weights_manifest.json','https://cdn.jsdelivr.net/gh/justadudewhohacks/face-api.js@0.22.2/weights/tiny_face_detector_model-shard1','https://cdn.jsdelivr.net/gh/justadudewhohacks/face-api.js@0.22.2/weights/face_landmark_68_tiny_model-weights_manifest.json','https://cdn.jsdelivr.net/gh/justadudewhohacks/face-api.js@0.22.2/weights/face_landmark_68_tiny_model-shard1','https://cdn.jsdelivr.net/gh/justadudewhohacks/face-api.js@0.22.2/weights/face_recognition_model-weights_manifest.json','https://cdn.jsdelivr.net/gh/justadudewhohacks/face-api.js@0.22.2/weights/face_recognition_model-shard1','https://cdn.jsdelivr.net/gh/justadudewhohacks/face-api.js@0.22.2/weights/face_recognition_model-shard2'];
 self.addEventListener('install',event=>event.waitUntil((async()=>{
   const cache=await caches.open(SHELL);

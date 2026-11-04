@@ -321,10 +321,11 @@ test('Published assets share one release version and pagination controls cannot 
   assert.match(source('app.js'),/changes\.timeOut=attendanceInputStamp\(outDate,outTime\)/);
 });
 test('Member dropdown includes all known Business Platforms and remains editable for Users',()=>{
-  const controls={memberPlatform:{value:'AP Cons',innerHTML:'',disabled:false},sitePlatform:{value:'AP Cons',innerHTML:'',disabled:false}};
+  const controls={memberCoop:{value:'Asiapro'},siteCoop:{value:'Asiapro'},memberPlatform:{value:'AP Cons',innerHTML:'',disabled:false},sitePlatform:{value:'AP Cons',innerHTML:'',disabled:false}};
   const ctx={TIPONOrgCore:Org,state:{user:{...actor,platform:'AP Cons'},platforms:['CUSTOM'],sites:[],members:[]},$:id=>controls[id],esc:x=>x,console};ctx.window=ctx;vm.createContext(ctx);vm.runInContext(source('platforms.js'),ctx);
   ctx.TIPONPlatforms.fill('memberPlatform','AP Cons');assert.equal(controls.memberPlatform.disabled,false);
-  for(const code of ['ATS','IMG','MSG-SM','CUSTOM','OCG'])assert.ok(controls.memberPlatform.innerHTML.includes('value="'+code+'"'));
+  for(const code of ['ATS','IMG','AP Cons','MSG-NW'])assert.ok(controls.memberPlatform.innerHTML.includes('value="'+code+'"'));
+  for(const code of ['GAK','MSG-SM','MSG-NM','OCG','CUSTOM'])assert.ok(!controls.memberPlatform.innerHTML.includes('value="'+code+'"'));
   ctx.TIPONPlatforms.fill('sitePlatform','AP Cons');assert.equal(controls.sitePlatform.disabled,true);
 });
 test('Editable Member ID preserves the internal record/template key and rejects duplicates',()=>{
@@ -569,7 +570,7 @@ test('Manual Attendance Logs sync has deduplicated status, automatic queue retry
  assert.match(app,/const sync=await TIPONSync.submitPendingNow\(\)/);
  assert.match(app,/local change\(s\) are saved and queued for automatic retry/);
  assert.doesNotMatch(app,/record\(s\) still need synchronization or have sync errors/);
- assert.match(sync,/async function submitPendingNow\(\)/);
+ assert.match(sync,/async function submitPendingNow\(operationId='?'\)/);
  assert.match(sync,/const preceding=activeRun/);
  assert.match(sync,/function correctionAcknowledged\(/);
 });
@@ -962,7 +963,7 @@ test('Server acknowledgment clears all member pending flags',async()=>{
 
 test('Login hero uses the original full-resolution cooperative photo, not a flattened screenshot',()=>{
  const html=source('index.html'),sw=source('sw.js');
- assert.match(html,/src="\.\/login-workers\.webp" width="1047" height="741"/);
+ assert.match(html,/src="\.\/login-workers\.webp" width="1200" height="874"/);
  assert.match(html,/alt="TIPON cooperative members and workers in their professional uniforms"/);
  assert.doesNotMatch(html,/login-reference-overlay|tipon-login-reference-hd\.webp/);
  assert.match(sw,/\.\/login-workers\.webp/);
@@ -1027,4 +1028,37 @@ test('Offline Business Platform additions sync idempotently against the central 
  await ctx.TIPONSync.__flush();
  assert.equal(calls.length,1);assert.equal(calls[0].action,'platformAdd');
  assert.equal(outbox.length,0);assert.deepEqual(synced,['TP']);
+});
+
+test('Member weekly schedule overrides work-location schedule and determines scheduled days',()=>{
+  const site={id:'site-1',schedule:{enabled:true,days:[1,2,3,4,5],start:'08:00',end:'17:00'}};
+  const member={id:'M1',workSchedule:{enabled:true,days:[2,4],start:'07:30',end:'16:30'}};
+  const tuesday=Org.scheduled(member,site,'2026-11-03',[]);
+  assert.equal(tuesday.kind,'REQUIRED');assert.equal(new Date(tuesday.start).toISOString(),'2026-11-02T23:30:00.000Z');
+  assert.equal(Org.scheduled(member,site,'2026-11-04',[]).kind,'REST');
+  assert.equal(Org.scheduled(member,site,'2026-11-05',[]).kind,'REQUIRED');
+});
+test('Admin-created new member records remain eligible for immediate sync',()=>{
+  const sync=source('sync.js'),app=source('app.js');
+  assert.match(sync,/Number\(x\.baseRev\)>0/);
+  assert.match(sync,/Number\(op\.baseRev\)===0&&!op\.value\?\.deleted&&op\.value\?\.template\?\.alg==='AES-GCM'/);
+  assert.match(app,/submitPendingNow\(opId\)/);
+  assert.match(sync,/priorityOperationId&&eligible\.find/);
+});
+test('Every cooperative-scoped Business Platform picker uses the cooperative mapping',()=>{
+  const platforms=source('platforms.js'),org=source('org-core.js'),html=source('index.html');
+  assert.match(platforms,/function fillScoped\(coopId,platformId,preferred\)/);
+  assert.match(platforms,/function optionsForCoop\(coop\)/);
+  for(const code of ['memberCoop','registerCoop','adminAccountCoop','adminMemberCoop','terminalLogCoop'])assert.ok(html.includes('id=\"'+code+'\"'));
+  assert.match(platforms,/<b>'\+esc\(x\.coops\?\.join\('/);
+  assert.ok(org.includes('"Tnalak":["MSG-SM"]'));
+});
+
+test('Member transfer and Admin edit save the validated weekly schedule centrally',()=>{
+  const workSchedule={enabled:true,days:[1,3,5],start:'07:00',end:'16:00',grace:5};
+  const {ctx,members}=backend(),user=ctx.tp5UserMemberTransferUpdateV2_(actor,{memberId:'TEST-1',baseRev:2,changes:{name:members[0].name,memberNumber:'TEST-1',coop:'Worklife',platform:'OCG',siteIds:['site-2'],workSchedule}});
+  assert.deepEqual(JSON.parse(JSON.stringify(user.member.workSchedule)),workSchedule);
+  const {ctx:adminCtx,members:adminMembers}=backend(),admin=adminCtx.tp5AdminMemberUpdateV2_({id:'admin-1',role:'admin',username:'admin'},{memberId:'TEST-1',baseRev:2,changes:{name:adminMembers[0].name,memberNumber:'TEST-1',coop:'Asiapro',platform:'IMG',siteIds:['site-1'],workSchedule}});
+  assert.deepEqual(JSON.parse(JSON.stringify(admin.member.workSchedule)),workSchedule);
+  assert.throws(()=>adminCtx.tp5AdminMemberUpdateV2_({id:'admin-1',role:'admin'},{memberId:'TEST-1',baseRev:2,changes:{name:adminMembers[0].name,coop:'Asiapro',platform:'IMG',siteIds:['site-1'],workSchedule:{enabled:true,days:[8],start:'07:00',end:'16:00'}}}),/valid work days/);
 });

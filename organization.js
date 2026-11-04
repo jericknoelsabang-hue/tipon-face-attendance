@@ -204,7 +204,7 @@ openMemberForm=async function(member){
  if(!user){$('memberCoop').disabled=false;$('memberPlatform').disabled=false;return;}
  fillCoopSelect('memberCoop');
  $('memberCoop').value=member?.coop||state.user.coop||'';
- TIPONPlatforms.fill('memberPlatform',member?.platform||state.user.platform||'');
+ TIPONPlatforms.fillScoped('memberCoop','memberPlatform',member?.platform||state.user.platform||'');
  $('memberCoop').disabled=false;$('memberPlatform').disabled=false;
  if(!member){fillMemberSites();return;}
  const save=$('memberForm').querySelector('[type="submit"]');
@@ -540,6 +540,7 @@ window.OrgUI=(()=>{
     $('adminAccountPlatform').innerHTML='<option value="">Unassigned</option>'+
       platforms.map(name=>'<option value="'+esc(name)+'">'+esc(name)+'</option>').join('');
     $('adminAccountPlatform').value=u.platform||'';
+    TIPONPlatforms.fillScoped('adminAccountCoop','adminAccountPlatform',u.platform||'');
     $('adminAccountPassword').value='';
     $('adminAccountPasswordConfirm').value='';
     $('adminAccountShowPassword').textContent='Show';
@@ -570,6 +571,9 @@ window.OrgUI=(()=>{
     }
     if(changes.role==='registrar'&&(!changes.coop||!changes.platform)){
       setText('adminAccountEditStatus','A User requires both a Cooperative and Business Platform.');return;
+    }
+    if(changes.role==='registrar'&&!TIPONPlatforms.optionsForCoop(changes.coop).some(value=>TIPONOrgCore.platformKey(value)===TIPONOrgCore.platformKey(changes.platform))){
+      setText('adminAccountEditStatus','Choose a Business Platform assigned to the selected Cooperative.');return;
     }
     if(changes.role==='kiosk'){
       // Do not inherit scope fields from a User account if its role changes.

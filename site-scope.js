@@ -25,7 +25,6 @@ window.TIPONSiteScopes=(()=>{
   const coop=$('siteCoop')?.value||'',platform=$('sitePlatform')?.value||'';
   if(!coop||!platform)throw Error('Select a Cooperative and its Business Platform.');
   if(!platformsFor(coop).some(x=>norm(x)===norm(platform)))throw Error('This Business Platform is not assigned to the selected Cooperative.');
-  if(previous&&(previous.coop!==coop||norm(previous.platform)!==norm(platform)))throw Error('Editing a Work Location cannot change its Cooperative or Business Platform.');
   return [{coop,platform}];
  }
  function bind(){

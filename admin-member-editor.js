@@ -1,7 +1,11 @@
-/* TIPON 5.5.32 — Admin member edits use the shared central/offline queue. */
+/* TIPON 5.5.32 — Admin member edits and schedules use the shared central/offline queue. */
 'use strict';
 (()=>{
  const $=id=>document.getElementById(id),key=x=>TIPONOrgCore.platformKey(x||'');
+function normalizeAdminWorkSchedule(value){const days=Array.isArray(value?.days)?[...new Set(value.days.map(Number).filter(d=>Number.isInteger(d)&&d>=0&&d<=6))].sort((a,b)=>a-b):[];return {enabled:value?.enabled!==false,days,start:String(value?.start||''),end:String(value?.end||''),grace:Number(value?.grace)||0};}
+function fillAdminWorkSchedule(value){const x=normalizeAdminWorkSchedule(value);const root=$('adminMemberWorkDays');if(root)root.innerHTML=[['Mon',1],['Tue',2],['Wed',3],['Thu',4],['Fri',5],['Sat',6],['Sun',0]].map(([label,day])=>'<label class="work-day-option"><input type="checkbox" data-admin-work-day="'+day+'"'+(x.days.includes(day)?' checked':'')+'/><span>'+label+'</span></label>').join('');if($('adminMemberWorkStart'))$('adminMemberWorkStart').value=x.start;if($('adminMemberWorkEnd'))$('adminMemberWorkEnd').value=x.end;}
+function readAdminWorkSchedule(){return {enabled:true,days:[...document.querySelectorAll('#adminMemberWorkDays [data-admin-work-day]:checked')].map(el=>Number(el.dataset.adminWorkDay)).sort((a,b)=>a-b),start:$('adminMemberWorkStart')?.value||'',end:$('adminMemberWorkEnd')?.value||'',grace:0};}
+
  const ids=m=>[...new Set((Array.isArray(m?.siteIds)&&m.siteIds.length?m.siteIds:[m?.siteId]).filter(Boolean).map(String))];
  let current=null;
  const beforeRender=renderMembers;
@@ -46,9 +50,8 @@
   coop.innerHTML='<option value="">Select cooperative</option>'+
     [...new Set([...TIPONOrgCore.COOPS,member.coop])].filter(Boolean).map(v=>'<option value="'+esc(v)+'">'+esc(v)+'</option>').join('');
   coop.value=member.coop;
-  platform.innerHTML='<option value="">Select business platform</option>'+
-    TIPONOrgCore.platformNames([...TIPONPlatforms.names(),member.platform]).map(v=>'<option value="'+esc(v)+'">'+esc(v)+'</option>').join('');
-  platform.value=member.platform;choices(ids(member));
+  TIPONPlatforms.fillScoped('adminMemberCoop','adminMemberPlatform',member.platform);
+  fillAdminWorkSchedule(member.workSchedule);choices(ids(member));
   $('adminMemberSitePicker').open=false;
   setText('adminMemberFaceStatus',member.template&&member.active!==false
     ?'ENROLLED — face template and attendance history are preserved.'
@@ -62,11 +65,12 @@
   const member=state.members.find(x=>x.id===current);
   if(!member||member._pendingOp){setText('adminMemberEditStatus','Sync pending member changes before editing.');return;}
   const memberNumber=$('adminMemberId').value.trim(),name=$('adminMemberName').value.trim(),coop=$('adminMemberCoop').value,
-    platform=$('adminMemberPlatform').value,siteIds=selected();
+    platform=$('adminMemberPlatform').value,siteIds=selected(),workSchedule=readAdminWorkSchedule();
   if(!name||name.length>120||!TIPONOrgCore.COOPS.includes(coop)||
-     !TIPONPlatforms.names().some(v=>key(v)===key(platform))){
+     !TIPONPlatforms.optionsForCoop(coop).some(v=>key(v)===key(platform))){
    setText('adminMemberEditStatus','Enter a valid Full Name, Cooperative and Business Platform.');return;
   }
+  if(!workSchedule.days.length||!workSchedule.start||!workSchedule.end||workSchedule.start===workSchedule.end){setText('adminMemberEditStatus','Select at least one work day and valid start/end times.');return;}
   if(!siteIds.length){setText('adminMemberEditStatus','Select at least one Assigned Location.');return;}
   if(siteIds.length>40||siteIds.some(id=>{
    const site=state.sites.find(x=>x.id===id&&!x.deleted&&!x._pendingOp);
@@ -74,13 +78,14 @@
   })){setText('adminMemberEditStatus','Choose synced locations matching the selected Cooperative and Business Platform.');return;}
   const scopeChanged=coop!==member.coop||key(platform)!==key(member.platform);
   const locationChanged=!same(ids(member),siteIds),nameChanged=name!==member.name;
-  if(memberNumber===(member.memberNumber||member.id)&&!scopeChanged&&!locationChanged&&!nameChanged){$('adminMemberDialog').close();return;}
+  const scheduleChanged=JSON.stringify(workSchedule)!==JSON.stringify(normalizeAdminWorkSchedule(member.workSchedule));
+  if(memberNumber===(member.memberNumber||member.id)&&!scopeChanged&&!locationChanged&&!nameChanged&&!scheduleChanged){$('adminMemberDialog').close();return;}
   if(scopeChanged||locationChanged){
    if(!await confirmAction('Confirm Member Assignment','Update '+member.name+'? Complete open Time Out first. Existing face data and attendance history remain unchanged.'))return;
   }
   const button=$('adminMemberSave');button.disabled=true;setText('adminMemberEditStatus','Saving member changes...');
   try{
-   const result=await window.TIPONMemberMetadataSave(member,{name,coop,platform,siteIds,memberNumber});
+   const result=await window.TIPONMemberMetadataSave(member,{name,coop,platform,siteIds,memberNumber,workSchedule});
    await loadCollections();$('adminMemberDialog').close();renderMembers();renderDashboard();
    showToast(result.pending?'Changes saved locally. Pending Sync.':'Member changes synchronized.','success',7000);
   }catch(error){
@@ -91,7 +96,7 @@
  document.addEventListener('DOMContentLoaded',()=>{
   $('adminMemberForm')?.addEventListener('submit',save);
   $('adminMemberDialog')?.addEventListener('close',()=>current=null);
-  $('adminMemberCoop')?.addEventListener('change',()=>choices(selected()));
+  $('adminMemberCoop')?.addEventListener('change',()=>{TIPONPlatforms.fillScoped('adminMemberCoop','adminMemberPlatform','');choices([]);});
   $('adminMemberPlatform')?.addEventListener('change',()=>choices(selected()));
   $('adminMemberSiteChoices')?.addEventListener('change',updateSummary);
  });

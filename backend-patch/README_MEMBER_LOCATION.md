@@ -1,14 +1,14 @@
-# TIPON KABILANG v5.5.40 — Private Apps Script compatibility patch
+# TIPON KABILANG v5.5.70 — Private Apps Script compatibility patch
 
 This patch is for the **existing private Google Apps Script project** behind the TIPON Face Attendance `/exec` URL. GitHub Pages cannot deploy Apps Script. Do not paste credentials, Script Properties, tokens, deployment IDs, member data, or face data into this public repository.
 
 ## What this patch adds
 
-- Admin/User member editing: edit Member ID, Full Name, Cooperative, Business Platform and required Assigned Work Location in one revision-checked operation. Member ID is a unique business identifier; the internal record key and historical attendance remain unchanged.
+- Admin/User member editing: edit Member ID, Full Name, Cooperative, Business Platform, weekly work days/hours and required Assigned Work Location in one revision-checked operation. Member ID is a unique business identifier; the internal record key and historical attendance remain unchanged.
 - User member transfer: the source member must be in the User's current scope; the destination site must exist centrally and match the selected Cooperative/BP. After transfer, the User loses access if the member leaves their scope.
 - User face re-enrollment: save the newly encrypted AES-GCM face template, consent timestamp and Member ID without replacing the internal record key or attendance history. The server records the enrolling account itself.
 - Attendance Logs Edit/Delete: audited correction overlays, server-side scope checks, revision checks and cross-device refresh. Admins and authorized Users can edit Date, Time In, Date Time Out and Time Out, including adding a missing Time Out to an open session, or delete an open or completed session.
-- Existing member soft delete and Work Location operations remain separate.
+- Weekly member Work Schedules (days, start/end times and grace minutes) are revision-checked and stored with the member; existing soft delete and Work Location operations remain separate.
 
 ## 1. Back up the live project
 

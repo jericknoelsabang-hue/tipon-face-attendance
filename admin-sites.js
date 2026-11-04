@@ -22,7 +22,7 @@ window.TIPONAdminSites=(()=>{
   function render(){
     if(!available())return;
     const query=(field('adminSiteSearch')?.value||'').trim().toLowerCase();
-    const data=state.sites.filter(site=>!site.deleted).map(site=>{const allowed=TIPONOrgCore.COOP_PLATFORMS?.[site.coop]||[];return allowed.length&&!allowed.some(bp=>TIPONOrgCore.platformKey(bp)===TIPONOrgCore.platformKey(site.platform))?{...site,platform:allowed[0]}:site;})
+    const data=state.sites.filter(site=>!site.deleted)
       .filter(site=>!query||[site.id,site.name,site.coop,site.platform,site.address]
         .join(' ').toLowerCase().includes(query))
       .sort((a,b)=>String(a.coop||'').localeCompare(String(b.coop||''))||
@@ -40,11 +40,14 @@ window.TIPONAdminSites=(()=>{
       const lat=Number(site.lat),lng=Number(site.lng);
       const coords=Number.isFinite(lat)&&Number.isFinite(lng)
         ?lat.toFixed(6)+', '+lng.toFixed(6):'Not configured';
+      const allowed=TIPONOrgCore.COOP_PLATFORMS?.[site.coop]||[];
+      const mismatch=!allowed.some(bp=>TIPONOrgCore.platformKey(bp)===TIPONOrgCore.platformKey(site.platform));
+      const coopCell='<b>'+esc(site.coop||'—')+'</b>'+(mismatch?'<small class="scope-warning">Business Platform is not mapped to this Cooperative</small>':'');
       return '<tr>'+
         '<td><b'+(site._pendingOp?
           ' title="Central confirmation is pending. Open Settings & Offline for sync diagnostics."':'')+
           '>'+esc(site.name||'—')+'</b></td>'+
-        '<td>'+esc(site.coop||'—')+'</td><td>'+esc(site.platform||'—')+'</td>'+
+        '<td>'+coopCell+'</td><td>'+esc(site.platform||'—')+'</td>'+
         '<td>'+esc(site.address||'—')+'</td><td><small>'+esc(coords)+'</small></td>'+
         '<td><div class="site-actions">'+
         '<button type="button" class="tiny-button" data-admin-site-edit="'+esc(site.id)+'">Edit</button> '+
@@ -64,8 +67,14 @@ window.TIPONAdminSites=(()=>{
       const result=await TIPONSync.submitPendingNow();
       if(!result?.ok)throw Error(result?.error||'Organization synchronization did not complete.');
       await loadCollections();
+      const corrected=await repairUniqueScopeMismatches();
+      if(corrected){
+        const saved=await TIPONSync.submitPendingNow();
+        await loadCollections();
+        if(!saved?.ok)throw Error(saved?.error||'Some cooperative corrections still need central confirmation.');
+      }
       render();
-      showToast('Work Locations refreshed from the central directory.','success');
+      showToast(corrected?corrected+' unique Cooperative/BP mismatch(es) corrected and synced. Ambiguous mappings are marked for review.':'Work Locations refreshed. Any ambiguous Cooperative/BP mappings are marked for review.','success',8500);
     }catch(error){toastError(error,'Could not refresh work locations');}
     finally{refreshing=false;btn.disabled=false;}
   }
@@ -74,6 +83,19 @@ window.TIPONAdminSites=(()=>{
     (String(member.siteId||'')===String(siteId)||
       Array.isArray(member.siteIds)&&member.siteIds.some(x=>String(x)===String(siteId))));
 
+  async function repairUniqueScopeMismatches(){
+    if(!available())return 0;
+    const mapping=TIPONOrgCore.COOP_PLATFORMS||{};let corrected=0;
+    for(const site of state.sites.filter(item=>!item.deleted&&!item._pendingOp)){
+      const current=mapping[site.coop]||[];
+      if(current.some(bp=>TIPONOrgCore.platformKey(bp)===TIPONOrgCore.platformKey(site.platform)))continue;
+      const candidates=Object.entries(mapping).filter(([,codes])=>codes.some(bp=>TIPONOrgCore.platformKey(bp)===TIPONOrgCore.platformKey(site.platform))).map(([coop])=>coop);
+      if(candidates.length!==1||assignedMembers(state.members,site.id))continue;
+      await OrgDB.saveEntity('sites',{...site,coop:candidates[0]});
+      corrected++;
+    }
+    return corrected;
+  }
   function describeSiteError(error){
     const code=String(error?.code||'').toUpperCase();
     const message=String(error?.message||error||'The central server did not confirm this request.');

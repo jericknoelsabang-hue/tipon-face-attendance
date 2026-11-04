@@ -14,7 +14,7 @@ window.TIPONAPI=(()=>{
   return {raw,call};
 })();
 window.TIPONSync=(()=>{
-  let busy=false,timer=null,attempt=0,message='Sign in to enable organization sync.',lastSync='',stopped=true,activeRun=null,siteFastRetry=0,eventVersionSupported=null;
+  let busy=false,timer=null,attempt=0,priorityOperationId='',message='Sign in to enable organization sync.',lastSync='',stopped=true,activeRun=null,siteFastRetry=0,eventVersionSupported=null;
   // Only changes owned by the signed-in account and attendance recorded by this
   // device are actionable here. A central catalog may include other users' data.
   let cachedOutbox=[];
@@ -195,18 +195,23 @@ window.TIPONSync=(()=>{
       await OrgDB.rawSave('outbox',op);
     }
     if(actor.role==='admin'){
-      for(const op of outbox.filter(x=>x.type==='members'&&!x.value?.deleted&&x.errorCode!=='NEEDS_REVIEW')){
+      for(const op of outbox.filter(x=>x.type==='members'&&Number(x.baseRev)>0&&!x.value?.deleted&&x.errorCode!=='NEEDS_REVIEW')){
         op.error='Legacy member edit needs review. Use the current Member List editor.';
         op.errorCode='NEEDS_REVIEW';await OrgDB.rawSave('outbox',op);
       }
     }
+    // Earlier releases incorrectly marked every Admin-created new member as a legacy edit.
+    // Clear only that known local error so the first enrollment can be submitted now.
+    if(actor.role==='admin')for(const op of outbox.filter(x=>x.type==='members'&&Number(x.baseRev)===0&&!x.value?.deleted&&x.value?.template?.alg==='AES-GCM'&&/Legacy member edit needs review/i.test(x.error||''))){delete op.error;delete op.errorCode;await OrgDB.rawSave('outbox',op);}
     const specialTypes=['memberEdits','memberFaceUpdates','memberDeletes','attendanceCorrections','siteDeletes','platformChanges'];
     const eligible=outbox.filter(op=>
       !['NEEDS_REVIEW','CONFLICT','FORBIDDEN','NOT_FOUND'].includes(op.errorCode)&&
-      !specialTypes.includes(op.type)&&!(actor.role==='admin'&&op.type==='members')&&
+      !specialTypes.includes(op.type)&&!(actor.role==='admin'&&op.type==='members'&&!(Number(op.baseRev)===0&&!op.value?.deleted&&op.value?.template?.alg==='AES-GCM'))&&
       !(op.type==='sites'&&suspendedSiteIds.has(String(op.value?.id||''))));
     const siteQueue=eligible.filter(op=>op.type==='sites');
-    const operations=actor.role==='kiosk'?[]:(siteQueue.length?siteQueue.slice(0,3):eligible.slice(0,5));
+    const priority=priorityOperationId&&eligible.find(op=>op.id===priorityOperationId);
+    const operations=actor.role==='kiosk'?[]:(priority?[priority]:(siteQueue.length?siteQueue.slice(0,3):eligible.slice(0,5)));
+    if(priority)priorityOperationId='';
     // Backend submit events are limited to approved User/Physical Kiosk.
     // Administrators can edit attendance through the distinct audited
     // attendanceCorrect action, but must NEVER upload raw punches.
@@ -647,9 +652,10 @@ window.TIPONSync=(()=>{
   }
   // An Admin edit can be queued during an existing poll. Finish that poll,
   // then explicitly submit the NEW operation rather than returning BUSY.
-  async function submitPendingNow(){
+  async function submitPendingNow(operationId=''){
     const preceding=activeRun;
     if(preceding){try{await preceding;}catch(_){}}
+    priorityOperationId=String(operationId||'');
     return run();
   }
   async function init(){

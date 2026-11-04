@@ -120,7 +120,7 @@
   function scheduled(member,site,day,overrides){
     const over=(overrides||[]).find(x=>x.memberId===member.id&&x.date===day&&!x.deleted);
     if(over&&['REST','LEAVE','EXCUSED'].includes(over.status))return {kind:over.status};
-    const plan=over?.status==='REQUIRED'?over:site?.schedule;
+    const plan=over?.status==='REQUIRED'?over:(member?.workSchedule?.enabled?member.workSchedule:site?.schedule);
     if(!plan||!plan.enabled&&over?.status!=='REQUIRED')return {kind:'UNSCHEDULED'};
     const weekday=new Date(day+'T00:00:00Z').getUTCDay();
     if(!over&&!(plan.days||[]).includes(weekday))return {kind:'REST'};

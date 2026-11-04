@@ -300,6 +300,20 @@ function memberNameFromFields(){
  return last.toLocaleUpperCase('en-PH')+', '+first.toLocaleUpperCase('en-PH')+
    (middle?' '+middle.toLocaleUpperCase('en-PH')+'.':'');
 }
+const MEMBER_WORK_DAYS=[{value:1,label:'Mon'},{value:2,label:'Tue'},{value:3,label:'Wed'},{value:4,label:'Thu'},{value:5,label:'Fri'},{value:6,label:'Sat'},{value:0,label:'Sun'}];
+function normalizeMemberWorkSchedule(value){
+ const days=Array.isArray(value?.days)?[...new Set(value.days.map(Number).filter(d=>Number.isInteger(d)&&d>=0&&d<=6))].sort((a,b)=>a-b):[];
+ return {enabled:value?.enabled!==false,days,start:String(value?.start||''),end:String(value?.end||''),grace:Number(value?.grace)||0};
+}
+function fillMemberWorkSchedule(value){
+ const schedule=normalizeMemberWorkSchedule(value);
+ const root=$('memberWorkDays');if(root)root.innerHTML=MEMBER_WORK_DAYS.map(day=>'<label class="work-day-option"><input type="checkbox" data-work-day="'+day.value+'"'+(schedule.days.includes(day.value)?' checked':'')+'/><span>'+day.label+'</span></label>').join('');
+ if($('memberWorkStart'))$('memberWorkStart').value=schedule.start;
+ if($('memberWorkEnd'))$('memberWorkEnd').value=schedule.end;
+}
+function readMemberWorkSchedule(){
+ return {enabled:true,days:[...document.querySelectorAll('#memberWorkDays [data-work-day]:checked')].map(el=>Number(el.dataset.workDay)).sort((a,b)=>a-b),start:$('memberWorkStart')?.value||'',end:$('memberWorkEnd')?.value||'',grace:0};
+}
 function openMemberForm(member){
  if(!canEdit())return;
  state.editMember=member||null;
@@ -308,7 +322,10 @@ function openMemberForm(member){
  state.pendingDescriptors=member?.descriptors?.map(a=>[...a])||[];
  state.consentAcknowledgedAt=member?.consentAt||null;
  $('memberForm').reset();
- TIPONPlatforms.fill('memberPlatform',member?.platform||state.user?.platform||'');
+ fillMemberWorkSchedule(member?.workSchedule||{days:[],start:'',end:''});
+ fillCoopSelect('memberCoop');
+ $('memberCoop').value=member?.coop||state.user?.coop||'';
+ TIPONPlatforms.fillScoped('memberCoop','memberPlatform',member?.platform||state.user?.platform||'');
  $('memberPlatform').disabled=state.user?.role==='registrar';
  const identityLocked=!!member&&(member.workLocationReassignmentRequired===true||
   ((member.importPending===true||member.importedWithoutFace===true)&&!member.template));
@@ -379,12 +396,12 @@ async function addExistingEnrolledMemberLocations(old,siteIds){
 async function saveMemberMetadata(member,changes){
  if(!member||(!isAdmin()&&!canEdit()))throw Error('An approved Administrator or User session is required.');
  const clean={memberNumber:String(changes.memberNumber||member.memberNumber||member.id).trim(),name:String(changes.name||'').trim(),coop:String(changes.coop||''),platform:String(changes.platform||'').trim(),
-  siteIds:[...new Set((changes.siteIds||[]).map(String).filter(Boolean))]};
- if(!clean.name||!clean.coop||!clean.platform||!clean.siteIds.length)throw Error('Member name, Cooperative, Business Platform and at least one Assigned Work Location are required.');
+  siteIds:[...new Set((changes.siteIds||[]).map(String).filter(Boolean))],workSchedule:normalizeMemberWorkSchedule(changes.workSchedule||member.workSchedule)};
+ if(!clean.name||!clean.coop||!TIPONPlatforms.optionsForCoop(clean.coop).some(v=>TIPONOrgCore.platformKey(v)===TIPONOrgCore.platformKey(clean.platform))||!clean.siteIds.length)throw Error('Member name, Cooperative, Business Platform and at least one Assigned Work Location are required.');
  if(clean.siteIds.length>40)throw Error('Maximum 40 Assigned Work Locations.');
  if(clean.siteIds.some(id=>{const site=memberSiteCatalog().find(x=>x.id===id&&!x.deleted);return !site||site.coop!==clean.coop||TIPONOrgCore.platformKey(site.platform)!==TIPONOrgCore.platformKey(clean.platform);}))
   throw Error('Choose only synced Work Locations matching the selected Cooperative and Business Platform.');
- const opId=uuid(),payload={memberId:member.id,changes:clean,original:{memberNumber:member.memberNumber||member.id,name:member.name,coop:member.coop,platform:member.platform,siteIds:Array.isArray(member.siteIds)&&member.siteIds.length?member.siteIds:[member.siteId].filter(Boolean)}};
+ const opId=uuid(),payload={memberId:member.id,changes:clean,original:{memberNumber:member.memberNumber||member.id,name:member.name,coop:member.coop,platform:member.platform,siteIds:Array.isArray(member.siteIds)&&member.siteIds.length?member.siteIds:[member.siteId].filter(Boolean),workSchedule:normalizeMemberWorkSchedule(member.workSchedule)}};
  const queue=async()=>{
   const stored=await getOne('members',member.id);
   if(stored?._pendingOp)throw Error('This member already has a pending change.');
@@ -403,11 +420,12 @@ async function saveMemberMetadata(member,changes){
   if(!saved||String(saved.id)!==String(member.id)||savedNumber!==clean.memberNumber||
      String(saved.name||'').trim()!==clean.name||String(saved.coop||'')!==clean.coop||
      TIPONOrgCore.platformKey(saved.platform)!==TIPONOrgCore.platformKey(clean.platform)||
+     saved.workSchedule&&JSON.stringify(normalizeMemberWorkSchedule(saved.workSchedule))!==JSON.stringify(clean.workSchedule)||
      savedSites.length!==clean.siteIds.length||!savedSites.every(id=>clean.siteIds.includes(id)))
-   throw Error('The central organization did not confirm the Member ID, identity, Cooperative, Business Platform and Assigned Work Locations. Refresh Member List before retrying.');
+   throw Error('The central organization did not confirm the Member ID, identity, Cooperative, Business Platform, work schedule and Assigned Work Locations. Refresh Member List before retrying.');
   const current=await getOne('members',member.id);
   if(current?._pendingOp)throw Error('A local edit is pending. Sync and reopen the member.');
-  const record={...current,...saved,orgId:state.orgId};delete record._pendingOp;delete record.pendingEdit;delete record.syncIssue;
+  const record={...current,...saved,workSchedule:clean.workSchedule,orgId:state.orgId};delete record._pendingOp;delete record.pendingEdit;delete record.syncIssue;
   await OrgDB.rawSave('members',record);await loadCollections();TIPONSync.kick();
   return {member:record,pending:false};
  }catch(error){
@@ -419,7 +437,7 @@ async function saveMemberMetadata(member,changes){
     // absent from the currently deployed Apps Script.
     await queue();
     if(!navigator.onLine)return {member:await getOne('members',member.id),pending:true,operationId:opId};
-    const result=await TIPONSync.submitPendingNow();
+    const result=await TIPONSync.submitPendingNow(opId);
     await loadCollections();
     const pending=await getOne('outbox',opId),saved=await getOne('members',member.id);
     if(!pending&&!saved?._pendingOp)return {member:saved,pending:false};
@@ -439,9 +457,13 @@ async function persistMemberForm(){
  const memberNumber=$('memberId').value.trim(),id=state.editMember?.id||memberNumber,name=memberNameFromFields(),
    coop=$('memberCoop').value,platform=$('memberPlatform').value.trim(),
    siteIds=[...$('memberSite').selectedOptions].map(o=>o.value),
+   workSchedule=readMemberWorkSchedule(),
    sites=siteIds.map(id=>memberSiteCatalog().find(x=>x.id===id&&!x.deleted));
- if(!memberNumber||!id||!name||!TIPONOrgCore.COOPS.includes(coop)||!TIPONPlatforms.names().some(v=>TIPONOrgCore.platformKey(v)===TIPONOrgCore.platformKey(platform))){
-   showToast('Enter Member ID, Last Name, First Name, Cooperative and Business Platform.','error');return;
+ if(!memberNumber||!id||!name||!TIPONOrgCore.COOPS.includes(coop)||!TIPONPlatforms.optionsForCoop(coop).some(v=>TIPONOrgCore.platformKey(v)===TIPONOrgCore.platformKey(platform))){
+   showToast('Enter Member ID, Last Name, First Name, Cooperative and its Business Platform.','error');return;
+ }
+ if(!workSchedule.days.length||!workSchedule.start||!workSchedule.end||workSchedule.start===workSchedule.end){
+   showToast('Select at least one work day and a valid start and end time.','error');return;
  }
  if(!siteIds.length){$('memberSitePicker').open=true;$('memberSiteSummary').focus();$('memberSiteSummary').setAttribute('aria-invalid','true');showToast('Select at least one Assigned Work Location.','error');return;}
  if(siteIds.length>40||sites.some(s=>!s||s.coop!==coop||
@@ -460,16 +482,17 @@ async function persistMemberForm(){
   const previousIds=Array.isArray(old.siteIds)&&old.siteIds.length?old.siteIds:[old.siteId].filter(Boolean);
   const sameSites=previousIds.length===siteIds.length&&previousIds.every(site=>siteIds.includes(site));
   const changed=memberNumber!==(old.memberNumber||old.id)||name!==old.name||coop!==old.coop||
-    TIPONOrgCore.platformKey(platform)!==TIPONOrgCore.platformKey(old.platform)||!sameSites;
+    TIPONOrgCore.platformKey(platform)!==TIPONOrgCore.platformKey(old.platform)||!sameSites||
+    JSON.stringify(workSchedule)!==JSON.stringify(normalizeMemberWorkSchedule(old.workSchedule));
   if(!changed){$('memberDialog').close();return;}
   if(old._pendingOp){showToast('This member already has a pending change. Sync before editing again.','error');return;}
   const openSession=TIPONOrgCore.project(state.punches.filter(p=>!p.deleted&&!p.reviewStatus)).some(r=>String(r.memberId)===String(id)&&r.timeIn&&!r.timeOut);
   if(openSession){showToast('Complete Time Out before editing member details or Assigned Location.','error');return;}
   const submit=$('memberForm').querySelector('[type="submit"]');if(submit)submit.disabled=true;
   try{
-   const result=await saveMemberMetadata(old,{name,coop,platform,siteIds,memberNumber});
+   const result=await saveMemberMetadata(old,{name,coop,platform,siteIds,memberNumber,workSchedule});
    $('memberDialog').close();await loadCollections();renderMembers();renderDashboard();
-   showToast(result.pending?'Transfer saved locally. Pending Sync; the member may leave your list if moved outside your scope.':'Member changes saved and synchronized.','success',8000);
+   showToast(result.pending?'Member update saved locally. Pending Sync; it will retry when internet is available.':'Member changes saved and synchronized.','success',8000);
   }catch(error){showToast(error.message||String(error),'error',8500);}
   finally{if(submit)submit.disabled=false;}
   return;
@@ -596,7 +619,7 @@ async function persistMemberForm(){
    const descriptors=state.pendingDescriptors.map(vector=>Array.from(vector));
    const template=await TIPONAuth.seal(descriptors,session.faceKey,'member:'+id);
    const now=new Date().toISOString();
-   const record={...(old||{}),id,memberNumber,name,coop,platform,siteId:siteIds[0],siteIds,
+   const record={...(old||{}),id,memberNumber,name,coop,platform,siteId:siteIds[0],siteIds,workSchedule,
      descriptors,template,consentAt,enrolledBy:state.user.id,
      enrolledByUsername:state.user.username||'',
      createdBy:old?.createdBy||state.user.id,createdAt:old?.createdAt||now,updatedAt:now,active:true,faceEnrollmentStatus:'enrolled',
@@ -614,7 +637,7 @@ async function persistMemberForm(){
        faceEnrollmentStatus:old.faceEnrollmentStatus||''
      };
      const changes={name,coop,platform,siteIds,memberNumber,template,consentAt,enrolledBy:state.user.id,
-       enrolledByUsername:state.user.username||''};
+       enrolledByUsername:state.user.username||'',workSchedule};
      operation={id:opId,type:'memberFaceUpdates',value:{memberId:id,changes,original},
        baseRev,orgId:state.orgId,ownerId:state.user.id,createdAt:now,everSent:false};
    }else{
@@ -628,12 +651,11 @@ async function persistMemberForm(){
      tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error);tx.onabort=()=>reject(tx.error);
    });
    await loadCollections();$('memberDialog').close();renderMembers();renderDashboard();
-   TIPONSync.kick();
    let syncOutcome={ok:false,error:'Saved locally. Sync will retry when internet is available.'};
    if(navigator.onLine){
-     try{syncOutcome=await TIPONSync.submitPendingNow();}
+     try{syncOutcome=await TIPONSync.submitPendingNow(opId);}
      catch(syncError){syncOutcome={ok:false,error:String(syncError?.message||syncError)};}
-   }
+   }else TIPONSync.kick();
    await loadCollections();
    const pending=await getOne('outbox',opId),persisted=await getOne('members',id);
    if(!pending&&!persisted?._pendingOp&&Number(persisted?.rev||0)>baseRev){
@@ -984,6 +1006,7 @@ function fillLogFilter(id,values,placeholder){
  const el=$(id);if(!el)return;const old=el.value,unique=[...new Set(values.filter(Boolean))].sort((x,y)=>String(x).localeCompare(String(y)));
  el.innerHTML='<option value="">'+esc(placeholder)+'</option>'+unique.map(v=>'<option value="'+esc(v)+'">'+esc(v)+'</option>').join('');
  if(unique.includes(old))el.value=old;
+ if(id==='terminalLogPlatform')TIPONPlatforms.fillScoped('terminalLogCoop','terminalLogPlatform',el.value);
 }
 function projectTerminalLogEvents(events){
  const sessions=new Map(),rows=[],seenIds=new Set();
@@ -1699,7 +1722,7 @@ function bindEvents(){
  document.addEventListener('fullscreenchange',()=>document.body.classList.toggle('terminal-fullscreen',!!document.fullscreenElement&&state.page==='scanner'));
  attach('addMember','click',()=>openMemberForm(null));attach('memberRows','click',handleMemberTableClick);
  attach('memberForm','submit',saveMemberForm);
- attach('memberCoop','change',()=>fillMemberSites());attach('memberPlatform','change',()=>fillMemberSites());attach('memberSiteChoices','change',e=>{const cb=e.target.closest('[data-member-site-option]');if(!cb)return;const option=[...$('memberSite').options].find(o=>o.value===cb.dataset.memberSiteOption);if(option)option.selected=cb.checked;updateMemberSite();});
+ attach('memberCoop','change',()=>{TIPONPlatforms.fillScoped('memberCoop','memberPlatform','');fillMemberSites();});attach('memberPlatform','change',()=>fillMemberSites());attach('memberSiteChoices','change',e=>{const cb=e.target.closest('[data-member-site-option]');if(!cb)return;const option=[...$('memberSite').options].find(o=>o.value===cb.dataset.memberSiteOption);if(option)option.selected=cb.checked;updateMemberSite();});
  attach('enrollFaceButton','click',beginEnrollment);
  attach('adminSitePlaceFind','click',findUserSiteAddress);
  attach('siteAddress','keydown',event=>{if(event.key==='Enter'&&canEdit()&&$('siteDialog')?.open){event.preventDefault();void findUserSiteAddress();}});

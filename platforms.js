@@ -1,4 +1,4 @@
-/* TIPON KABILANG - Business Platform directory v5.5.19.
+/* TIPON KABILANG - Business Platform directory v5.5.70.
  * Codes are the existing authorization/attendance identifiers. Full names are
  * presentation metadata: changing a full name must never silently change a BP
  * code used by member, device or Work Location records.
@@ -6,6 +6,7 @@
 'use strict';
 window.TIPONPlatforms=(()=>{
   const selectors=['sitePlatform','registerPlatform','migrationPlatform'];
+  const scopedPairs=[['siteCoop','sitePlatform'],['registerCoop','registerPlatform'],['memberFilterCoop','memberFilterPlatform'],['memberCoop','memberPlatform'],['adminAccountCoop','adminAccountPlatform'],['adminMemberCoop','adminMemberPlatform'],['terminalLogCoop','terminalLogPlatform']];
   const PAGE_SIZE=10;
   const COOP_PLATFORMS=TIPONOrgCore.COOP_PLATFORMS||{};
   const STARTER_DIRECTORY=Object.freeze([
@@ -61,26 +62,46 @@ window.TIPONPlatforms=(()=>{
       let displayName=clean(item.displayName||item.fullName||item.label||'');
       if(!displayName&&norm(providedName)!==norm(code))displayName=providedName;
       if(!displayName)displayName=captions.get(norm(code))||code;
-      result.push({code,name:displayName,coop});
+      const coops=Array.isArray(item.coops)?item.coops.map(clean).filter(Boolean):coop?coop.split(/[,;|]/).map(clean).filter(Boolean):[];
+      result.push({code,name:displayName,coop:coops[0]||coop,coops});
     }
     return result;
   }
+  function mappedCoops(code){return Object.entries(COOP_PLATFORMS).filter(([,list])=>(list||[]).some(bp=>norm(bp)===norm(code))).map(([coop])=>coop);}
+  function optionsForCoop(coop){
+    const mapped=(COOP_PLATFORMS[coop]||[]).slice();
+    for(const item of state.platformRecords||[]){
+      const coops=Array.isArray(item.coops)?item.coops:[item.coop].filter(Boolean);
+      if(coops.includes(coop)&&!mapped.some(bp=>norm(bp)===norm(item.code)))mapped.push(item.code);
+    }
+    return TIPONOrgCore.platformNames(mapped);
+  }
   function records(){
     const custom=new Map((state.platformRecords||[]).map(item=>[norm(item.code),item]));
-    return names().map(code=>({
-      code,
-      name:clean(custom.get(norm(code))?.name)||captions.get(norm(code))||code,
-      coop:clean(custom.get(norm(code))?.coop)||Object.keys(COOP_PLATFORMS).find(coop=>(COOP_PLATFORMS[coop]||[]).some(bp=>norm(bp)===norm(code)))||'',
-      isDefault:defaultNames().some(name=>norm(name)===norm(code))
-    }));
+    return names().map(code=>{
+      const item=custom.get(norm(code)),mapped=mappedCoops(code);
+      const coops=Array.isArray(item?.coops)&&item.coops.length?item.coops:
+        item?.coop?(mapped.includes(item.coop)?mapped:[...mapped,item.coop]):mapped;
+      return {code,name:clean(item?.name)||captions.get(norm(code))||code,coop:coops[0]||'',coops,
+        isDefault:defaultNames().some(name=>norm(name)===norm(code))};
+    });
+  }
+  function fillScoped(coopId,platformId,preferred){
+    const coop=$(coopId),el=$(platformId);if(!el)return;
+    const selected=coop?.value||'',value=preferred===undefined?el.value:clean(preferred),options=selected?optionsForCoop(selected):[];
+    const html='<option value="">Select business platform</option>'+options.map(name=>'<option value="'+esc(name)+'">'+esc(name)+'</option>').join('');
+    if(el.innerHTML!==html)el.innerHTML=html;
+    el.disabled=!selected||(state.user?.role==='registrar'&&platformId==='sitePlatform');
+    el.value=options.find(name=>norm(name)===norm(value))||'';
   }
   function fill(id,preferred){
+    const pair=scopedPairs.find(([,platformId])=>platformId===id);
+    if(pair){fillScoped(pair[0],id,preferred);return;}
     const el=$(id);if(!el)return;
     const value=preferred===undefined?el.value:clean(preferred);
     const scoped=state.user?.role==='registrar'&&id==='sitePlatform';
     const options=scoped?[state.user.platform]:TIPONOrgCore.platformNames([...names(),value]);
-    const html='<option value="">Select business platform</option>'+
-      options.filter(Boolean).map(name=>'<option value="'+esc(name)+'">'+esc(name)+'</option>').join('');
+    const html='<option value="">Select business platform</option>'+options.filter(Boolean).map(name=>'<option value="'+esc(name)+'">'+esc(name)+'</option>').join('');
     if(el.innerHTML!==html)el.innerHTML=html;
     el.disabled=scoped;el.value=scoped?state.user.platform:value;
   }
@@ -104,7 +125,7 @@ window.TIPONPlatforms=(()=>{
       const status=pending?'<small class="bp-sync-status">'+(pending.errorCode==='NEEDS_REVIEW'?'Needs review':'Pending sync')+'</small>':'';
       return '<tr><td><b>'+esc(x.name)+'</b>'+status+'</td>'+
       '<td><span class="bp-abbreviation">'+esc(x.code)+'</span></td>'+
-      '<td>'+esc(x.coop||'—')+'</td>'+
+      '<td><b>'+esc(x.coops?.join(', ')||x.coop||'—')+'</b></td>'+
       '<td><div class="bp-row-actions">'+
       '<button type="button" class="tiny-button" data-bp-edit="'+esc(x.code)+'">Edit</button>'+
       '<button type="button" class="tiny-button delete" data-bp-delete="'+esc(x.code)+
@@ -120,6 +141,7 @@ window.TIPONPlatforms=(()=>{
   }
   function render(){
     selectors.forEach(id=>fill(id));
+    scopedPairs.forEach(([coopId,platformId])=>{const coop=$(coopId);if(coop&&!coop.dataset.platformScopeBound){coop.dataset.platformScopeBound='1';coop.addEventListener('change',()=>fillScoped(coopId,platformId,''));}fillScoped(coopId,platformId);});
     if($('platformChips'))$('platformChips').innerHTML=names().map(n=>'<span class="platform-chip">'+esc(n)+'</span>').join('');
     document.querySelectorAll('[data-add-platform-for]').forEach(b=>b.hidden=!isAdmin());
     renderDirectory();
@@ -328,5 +350,5 @@ window.TIPONPlatforms=(()=>{
     });
     render();
   }
-  return {bind,render,fill,load,accept,refresh,open,names,records,renderDirectory,hasReferences,verifyRecord,markSynced,setPendingStatus};
+  return {bind,render,fill,fillScoped,optionsForCoop,load,accept,refresh,open,names,records,renderDirectory,hasReferences,verifyRecord,markSynced,setPendingStatus};
 })();
