@@ -1,5 +1,5 @@
 {
   "app": "TIPON Face Attendance",
-  "version": "5.5.68",
-  "label": "Original cooperative photo in a responsive login layout; durable offline Work Location and Business Platform queues; offline shell readiness checks."
+  "version": "5.5.69",
+  "label": "Cooperative-filtered Business Platforms; corrected Work Location mapping; offline face library and model precache."
 }
