@@ -989,14 +989,16 @@ test('Server acknowledgment clears all member pending flags',async()=>{
  for(const key of ['_pendingOp','pendingEdit','pendingFaceUpdate','syncIssue'])assert.equal(key in record,false);
 });
 
-test('Login hero uses the transparent team photo without a full-background overlay',()=>{
+test('Login hero is text-only and prominently placed below Federation branding',()=>{
  const html=source('index.html'),sw=source('sw.js');
- assert.ok(html.includes('src="./login-workers.webp" width="1436" height="874"'));
- assert.ok(html.includes('alt="TIPON cooperative members and workers in their professional uniforms"'));
- assert.ok(!html.includes('login-reference-overlay'));
- assert.ok(!html.includes('tipon-login-reference-hd.webp'));
- assert.ok(sw.includes("'./login-workers.webp'"));
- assert.ok(!sw.includes('tipon-login-reference-hd.webp'));
+ const hero=html.slice(html.indexOf('<aside class="login-story"'),html.indexOf('</aside>'));
+ assert.doesNotMatch(hero,/<img[^>]*login-team-art/);
+ assert.doesNotMatch(html,/<link[^>]*rel="preload"[^>]*login-workers/);
+ assert.ok(hero.includes('TIPON KABILANG / COOPERATIVE ATTENDANCE'));
+ assert.ok(hero.includes('Kabilang Ka.<br/><em>Mahalaga Ka.</em>'));
+ assert.ok(hero.includes('Bawat isa, mahalaga.'));
+ assert.ok(html.includes('text-only landing visual, immediately under Federation logo'));
+ assert.ok(!sw.includes("'./login-workers.webp'"));
 });
 test('Work Location creation writes an atomic site and outbox record for offline synchronization',()=>{
  const app=source('app.js'),start=app.indexOf('async function saveSiteForm('),end=app.indexOf('async function queueWorkLocationDelete',start);
@@ -1014,8 +1016,8 @@ test('Offline readiness verifies the cached app shell, IndexedDB stores and acti
  assert.match(app,/async function checkOfflineFoundation\(\)/);
  assert.match(app,/DB_STORE\.every\(name=>db\.objectStoreNames\.contains\(name\)\)/);
  assert.match(html,/id="offlineFoundationStatus"/);
- assert.ok(app.includes("'./login-workers.webp'"));
- assert.ok(sw.includes("'./login-workers.webp'"));
+ assert.ok(!app.includes("'./login-workers.webp'"));
+ assert.ok(!sw.includes("'./login-workers.webp'"));
 });
 test('Server acknowledgment clears Work Location pending flags',async()=>{
  const sync=source('sync.js'),start=sync.indexOf('  async function markOps('),end=sync.indexOf('  const wire=',start);

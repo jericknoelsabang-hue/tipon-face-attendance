@@ -1614,7 +1614,7 @@ async function checkOfflineFoundation(){
    const shellName=names[names.length-1];
    if(shellName){
     const shell=await caches.open(shellName);
-    const required=['./index.html','./app.js','./auth.js','./sync.js','./login-workers.webp','./logo.png','./manifest.webmanifest'];
+    const required=['./index.html','./app.js','./auth.js','./sync.js','./logo.png','./manifest.webmanifest'];
     const cached=await Promise.all(required.map(path=>shell.match(new URL(path,location.href),{ignoreSearch:true})));
     shellReady=cached.every(Boolean);
    }
