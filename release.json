@@ -1,5 +1,5 @@
 {
   "app": "TIPON Face Attendance",
-  "version": "5.5.82",
-  "label": "Restore left-aligned login text and shift it slightly down below TIPON Federation."
+  "version": "5.5.83",
+  "label": "Vertically center left-aligned login message between Federation logo and feature cards."
 }

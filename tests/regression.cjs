@@ -998,8 +998,11 @@ test('Login hero is text-only and prominently placed below Federation branding',
  assert.ok(hero.includes('Kabilang Ka.<br/><em>Mahalaga Ka.</em>'));
  assert.ok(hero.includes('Bawat isa, mahalaga.'));
  assert.ok(html.includes('text-only landing visual, immediately under Federation logo'));
- assert.match(html,/width:100%;max-width:100%;margin:clamp\(46px,6vh,65px\) 0 24px;/);
+ assert.match(html,/grid-template-rows:auto minmax\(min-content,1fr\) auto/);
+ assert.match(html,/align-self:center;justify-self:stretch/);
+ assert.match(html,/width:100%;max-width:100%;margin:0;/);
  assert.match(html,/text-align:left;transform:none/);
+ assert.match(html,/\.login-story \.story-bottom\{margin-top:0\}/);
  assert.match(html,/\.login-accent-rule\{width:120px;height:7px\}/);
  assert.ok(!sw.includes("'./login-workers.webp'"));
 });
