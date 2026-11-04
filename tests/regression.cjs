@@ -978,13 +978,13 @@ test('Server acknowledgment clears all member pending flags',async()=>{
  for(const key of ['_pendingOp','pendingEdit','pendingFaceUpdate','syncIssue'])assert.equal(key in record,false);
 });
 
-test('Login hero uses the original cooperative photo and keeps the legacy cache entry',()=>{
+test('Login hero uses the transparent team photo without a full-background overlay',()=>{
  const html=source('index.html'),sw=source('sw.js');
- assert.match(html,/src="\.\/login-workers\.webp" width="1436" height="874"/);
+ assert.match(html,/src="\\.\\/login-workers-cutout\\.png" width="1536" height="1024"/);
  assert.match(html,/alt="TIPON cooperative members and workers in their professional uniforms"/);
- assert.doesNotMatch(html,/login-reference-overlay|tipon-login-reference-hd\.webp/);
- assert.match(sw,/\.\/login-workers\.webp/);
- assert.doesNotMatch(sw,/tipon-login-reference-hd\.webp/);
+ assert.doesNotMatch(html,/login-reference-overlay|tipon-login-reference-hd\\.webp/);
+ assert.match(sw,/\\.\\/login-workers-cutout\\.png/);
+ assert.doesNotMatch(sw,/tipon-login-reference-hd\\.webp/);
 });
 test('Work Location creation writes an atomic site and outbox record for offline synchronization',()=>{
  const app=source('app.js'),start=app.indexOf('async function saveSiteForm('),end=app.indexOf('async function queueWorkLocationDelete',start);
