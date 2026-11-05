@@ -4,7 +4,7 @@
  */
 'use strict';
 window.TIPONAuth=(()=>{
-  let session=null,signing=false,registrationGpsAccuracy=null;
+  let session=null,signing=false,registrationGpsAccuracy=null,registrationGpsCapturedAt=0;
   const INACTIVITY_MS=90*1000;
   const IDLE_WARNING_MS=75*1000;
   let idleSignoutRunning=false,lastActivityPersist=0,activityPersistTimer=null,logoutInProgress=false;
@@ -171,19 +171,37 @@ window.TIPONAuth=(()=>{
       $('loginPassword').value='';await signedIn(current,{freshLogin:true});status('');
     }catch(err){status(err.message,true);}finally{signing=false;$('loginSubmit').disabled=false;}
   }
+  function kioskRegistrationErrorMessage(error){
+    const code=String(error?.code||'').toUpperCase(),message=String(error?.message||'');
+    if(code==='KIOSK_SETUP_REQUIRED'||/No approved Work Locations|No Work Locations are configured/i.test(message))
+      return 'Kiosk registration is not ready: the new database has no approved Work Locations. Sign in as Administrator → Work Locations List → Add Work Location, enter the actual site GPS and allowed radius, and save. Then return and capture the kiosk GPS again.';
+    if(code==='GEOFENCE'||/Physical Kiosk GPS must match|kiosk GPS.*work location|outside.*work location/i.test(message))
+      return 'Kiosk GPS does not match an approved Work Location within 150 meters. Administrator: open Work Locations List → Add/Edit Work Location, verify its GPS pin and radius, then save. Register the kiosk at that physical site using Use current kiosk GPS.';
+    return message||'Unable to register. Check the connection and try again.';
+  }
+  function setKioskRegistrationStatus(message,isError=false){
+    const el=$('registrationStatus');
+    if(el){el.textContent=message;el.classList.toggle('danger',!!isError);el.dataset.state=isError?'error':'info';}
+  }
   async function register(event){
     event.preventDefault();if(!navigator.onLine){showToast('Registration requires internet. Approved users can work offline after first sign-in.','error');return;}
     const button=$('registerSubmit');button.disabled=true;
     try{
       const password=$('registerPassword').value,accountType=$('registerAccountType').value;
       if(password.length<8||password.length>128)throw Error('Use 8 to 128 password characters. No special-character or uppercase rule.');
+      if(accountType==='kiosk'&&(!Number.isFinite(registrationGpsAccuracy)||registrationGpsAccuracy>100||
+         Date.now()-registrationGpsCapturedAt>120000||registrationGpsCapturedAt<=0))
+        throw Object.assign(Error('Capture a fresh, accurate kiosk GPS fix first. Tap Use current kiosk GPS at the worksite, then submit within 2 minutes.'),{code:'GPS'});
       const profile=TIPONOrgCore.profile({username:$('registerUsername').value,name:$('registerName').value,position:$('registerPosition').value,email:$('registerEmail').value,coop:$('registerCoop').value,platform:$('registerPlatform').value,office:$('registerOffice').value,accountType,officeLat:$('registerOfficeLat').value,officeLng:$('registerOfficeLng').value,gpsAccuracy:registrationGpsAccuracy});
       const salt=randomSalt(),derived=await proof(password,salt);
       const reply=await TIPONAPI.raw({action:'register',profile,salt,proof:derived});
       $('registerPassword').value='';$('registrationDialog').close();
       const confirmation=(reply.message||'Registration submitted.')+' Your account is pending Admin approval. An Admin must approve it before you can sign in.';
       status(confirmation);showToast(confirmation,'success',10000);
-    }catch(err){setText('registrationStatus',err.message);showToast(err.message,'error');}finally{button.disabled=false;}
+    }catch(err){
+      const message=$('registerAccountType').value==='kiosk'?kioskRegistrationErrorMessage(err):String(err?.message||err);
+      setKioskRegistrationStatus(message,true);showToast(message,'error',10000);
+    }finally{button.disabled=false;}
   }
   async function ensureOnline(){
     if(!session)throw Object.assign(Error('Sign in to continue.'),{code:'AUTH'});
@@ -236,7 +254,9 @@ window.TIPONAuth=(()=>{
     // The kiosk has its own GPS authorization; it must not inherit User MPC/BP values.
     if(kiosk){$('registerCoop').value='';$('registerPlatform').value='';}
     document.querySelectorAll('[data-registration-kiosk-only]').forEach(el=>{el.hidden=!kiosk;el.querySelectorAll('input').forEach(input=>input.required=kiosk);});
-    setText('registrationStatus',kiosk?'Physical Kiosk needs accurate GPS at a configured work location.':'User registration requires only approved account details.');
+    setKioskRegistrationStatus(kiosk?
+      'Before registering a Physical Kiosk, the Administrator must first save its approved site under Work Locations List. Capture GPS at that site; maximum distance is 150 meters.':
+      'User registration requires only approved account details.');
   }
 
   async function verifyOrganizationConnection(){
@@ -263,8 +283,20 @@ window.TIPONAuth=(()=>{
   }
   async function init(){
     $('appShell').hidden=true;$('mobileNav').hidden=true;$('loginPage').hidden=true;
-    attach('loginForm','submit',login);attach('openRegistration','click',()=>{$('registrationForm').reset();registrationGpsAccuracy=null;updateRegistrationFields();TIPONPlatforms.render();setText('registrationStatus','');$('registrationDialog').showModal();TIPONPlatforms.refresh().catch(()=>{});});
-    attach('registrationForm','submit',register);attach('registerAccountType','change',updateRegistrationFields);updateRegistrationFields();attach('registerUseGps','click',()=>{if(!navigator.geolocation){setText('registrationStatus','GPS is not available on this device.');return;}setText('registrationStatus','Getting current kiosk GPS...');navigator.geolocation.getCurrentPosition(p=>{$('registerOfficeLat').value=p.coords.latitude.toFixed(7);$('registerOfficeLng').value=p.coords.longitude.toFixed(7);registrationGpsAccuracy=p.coords.accuracy;setText('registrationStatus','Kiosk GPS captured. Accuracy '+Math.round(p.coords.accuracy)+' m.');},e=>setText('registrationStatus',e.message),{enableHighAccuracy:true,timeout:15000,maximumAge:0});});attach('logoutButton','click',signOut);attach('logoutMobile','click',signOut);attach('changePasswordForm','submit',changePassword);
+    attach('loginForm','submit',login);attach('openRegistration','click',()=>{$('registrationForm').reset();registrationGpsAccuracy=null;registrationGpsCapturedAt=0;updateRegistrationFields();TIPONPlatforms.render();$('registrationDialog').showModal();TIPONPlatforms.refresh().catch(()=>{});});
+    attach('registrationForm','submit',register);attach('registerAccountType','change',()=>{registrationGpsAccuracy=null;registrationGpsCapturedAt=0;updateRegistrationFields();});updateRegistrationFields();attach('registerUseGps','click',()=>{
+      if(!navigator.geolocation){setKioskRegistrationStatus('GPS is not available on this device.',true);return;}
+      registrationGpsAccuracy=null;registrationGpsCapturedAt=0;
+      setKioskRegistrationStatus('Getting fresh kiosk GPS...');
+      navigator.geolocation.getCurrentPosition(p=>{
+        $('registerOfficeLat').value=p.coords.latitude.toFixed(7);
+        $('registerOfficeLng').value=p.coords.longitude.toFixed(7);
+        registrationGpsAccuracy=p.coords.accuracy;
+        registrationGpsCapturedAt=Date.now();
+        setKioskRegistrationStatus('GPS captured (accuracy '+Math.round(p.coords.accuracy)+' m). The Admin must have added a Work Location within 150 m of these coordinates.',p.coords.accuracy>100);
+      },e=>setKioskRegistrationStatus('Unable to capture kiosk GPS: '+e.message,true),
+      {enableHighAccuracy:true,timeout:15000,maximumAge:0});
+    });attach('logoutButton','click',signOut);attach('logoutMobile','click',signOut);attach('changePasswordForm','submit',changePassword);
     attach('showPassword','click',()=>{$('loginPassword').type=$('loginPassword').type==='password'?'text':'password';});
     attach('authDiagnostics','click',verifyOrganizationConnection);
     attach('idleContinueButton','click',()=>{touchActivity();});

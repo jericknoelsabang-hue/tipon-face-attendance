@@ -1,5 +1,5 @@
 {
   "app": "TIPON Face Attendance",
-  "version": "5.5.89",
-  "label": "Safe organization switching for new Google Sheets database without deleting legacy offline records."
+  "version": "5.5.90",
+  "label": "Kiosk registration geofence diagnostics, fresh GPS capture and required Work Location setup guidance."
 }

@@ -51,6 +51,32 @@ test('Authenticated new-organization login isolates IndexedDB and preserves the 
  await assert.rejects(ctx.ensureOrganizationDatabase('new-org',{freshOnlineLogin:false}),/Sign in online/);
 });
 
+test('Kiosk registration explains required approved Work Location and enforces fresh captured GPS',()=>{
+ const auth=source('auth.js'),html=source('index.html');
+ const start=auth.indexOf('  function kioskRegistrationErrorMessage(');
+ const end=auth.indexOf('  function setKioskRegistrationStatus(',start);
+ assert.ok(start>=0&&end>start);
+ const ctx={String,Error,Object};
+ vm.createContext(ctx);
+ vm.runInContext(auth.slice(start,end)+'\nthis.translate=kioskRegistrationErrorMessage;',ctx);
+ const message=ctx.translate({code:'GEOFENCE',message:'Physical Kiosk GPS must match a configured work location within 150 meters.'});
+ assert.match(message,/Administrator: open Work Locations List/);
+ assert.match(message,/150 meters/);
+ const setup=ctx.translate({code:'KIOSK_SETUP_REQUIRED'});
+ assert.match(setup,/new database has no approved Work Locations/);
+ const other=ctx.translate({code:'USERNAME',message:'Username is already in use.'});
+ assert.equal(other,'Username is already in use.');
+ assert.match(auth,/registrationGpsCapturedAt>120000/);
+ assert.match(auth,/registrationGpsCapturedAt=Date\.now\(\)/);
+ assert.match(auth,/registrationGpsAccuracy=null;registrationGpsCapturedAt=0/);
+ assert.match(auth,/setKioskRegistrationStatus\(message,true\)/);
+ assert.doesNotMatch(auth,/setText\('registrationStatus',err\.message\)/);
+ assert.match(html,/Admin setup required:<\/b> Log in as Administrator/);
+ assert.match(html,/id="registerOfficeLat"[^>]+readonly/);
+ assert.match(html,/id="registerOfficeLng"[^>]+readonly/);
+ assert.match(html,/id="registrationStatus" role="status" aria-live="polite"/);
+});
+
 test('User Dashboard is denied; terminal and logs are allowed',()=>{
   assert.equal(Org.allowed(actor,'dashboard'),false);
   assert.equal(Org.allowed(actor,'scanner'),true);
