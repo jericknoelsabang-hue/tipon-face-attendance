@@ -1478,7 +1478,7 @@ test('Offline Business Platform additions sync idempotently against the central 
  assert.equal(outbox.length,0);assert.deepEqual(synced,['TP']);
 });
 
-test('New Work Location omits address field while Edit preserves it and backend receives GPS description',()=>{
+test('Admin Add Work Location includes a required address while User Add retains its existing behavior',()=>{
  const html=source('index.html'),app=source('app.js');
  const site=html.slice(html.indexOf('<dialog class="form-dialog" id="siteDialog"'),
    html.indexOf('<dialog class="form-dialog" id="memberDialog"'));
@@ -1499,13 +1499,14 @@ test('New Work Location omits address field while Edit preserves it and backend 
  assert.match(html,/#siteDialog \.site-scope-row\{display:grid;grid-template-columns:repeat\(2,minmax\(0,1fr\)\);gap:16px;width:100%/);
  assert.match(html,/#siteDialog \.site-identity-fields input,#siteDialog \.site-identity-fields select\{display:block;width:100%;height:50px;min-height:50px;margin:0\}/);
  const open=app.slice(app.indexOf('function openSiteForm('),app.indexOf('function updateSiteMap(',app.indexOf('function openSiteForm(')));
- assert.match(open,/addressSection\.hidden=!site/);
- assert.match(open,/addressField\.required=!!site/);
- assert.match(open,/site\?'true':'false'/);
+ assert.match(open,/const addressRequired=isAdmin\(\)\|\|!!site/);
+ assert.match(open,/addressSection\.hidden=!addressRequired/);
+ assert.match(open,/addressField\.required=addressRequired/);
+ assert.match(open,/addressRequired\?'true':'false'/);
  const save=app.slice(app.indexOf('async function saveSiteForm('),app.indexOf('async function saveSiteForm(')+4300);
- assert.match(save,/const address=previous\?\$\('siteAddress'\)\.value\.trim\(\):/);
+ assert.match(save,/const address=addressText\|\|/);
  assert.match(save,/GPS coordinates: /);
- assert.match(save,/if\(previous&&!address\)/);
+ assert.match(save,/if\(\(admin\|\|previous\)&&!addressText\)/);
  assert.doesNotMatch(save,/if\(!address\)\{showToast\('Address \/ Site Description is required/);
  assert.match(save,/const site=\{id:current\?\.id\|\|uuid\(\),name,coop:pair\.coop,platform:pair\.platform,address,/);
 });
@@ -2012,4 +2013,28 @@ test('Backend member import saves weekly schedule fields and rejects changed sch
  assert.equal(ctx.tp5ImportMembersWithSchedule_({role:'admin',id:'admin'},[input]).skipped,1);assert.equal(writes,1);
  assert.throws(()=>ctx.tp5ImportMembersWithSchedule_({role:'admin',id:'admin'},[{...input,workSchedule:{...input.workSchedule,end:'17:00'}}]),e=>e.code==='CONFLICT');
  assert.throws(()=>ctx.tp5ImportMembersWithSchedule_({role:'admin',id:'admin'},[{...input,id:'new',workSchedule:null}]),/Weekly Work Schedule is required/);assert.equal(writes,1);
+});
+
+test('Admin Add shows required Address below scope and enables the map-search button',()=>{
+ const src=source('app.js'),start=src.indexOf('function openSiteForm(site){'),end=src.indexOf('function updateSiteMap(){',start),fields=new Map();
+ const field=id=>{if(!fields.has(id))fields.set(id,{value:'',hidden:true,required:false,attributes:{},setAttribute(k,v){this.attributes[k]=v;},reset(){},showModal(){this.open=true;}});return fields.get(id);};
+ const ctx={state:{},$:field,isAdmin:()=>true,setText:(id,value)=>field(id).textContent=value,updateSiteMap(){}};
+ vm.createContext(ctx);vm.runInContext(src.slice(start,end),ctx);ctx.openSiteForm(null);
+ assert.equal(field('siteAddressSection').hidden,false);assert.equal(field('siteAddress').required,true);
+ assert.equal(field('siteAddress').attributes['aria-required'],'true');assert.equal(field('adminSitePlaceFind').textContent,'Find Location on Map');
+ const html=source('index.html');assert.ok(html.indexOf('id="siteAddressSection"')>html.indexOf('id="siteCoop"'));assert.ok(html.indexOf('id="siteAddressSection"')<html.indexOf('id="siteLat"'));
+ ctx.isAdmin=()=>false;ctx.openSiteForm(null);assert.equal(field('siteAddressSection').hidden,true);assert.equal(field('siteAddress').required,false);
+});
+test('Remote address search fills latitude/longitude without using the device GPS',async()=>{
+ const src=source('admin-sites.js'),fields=new Map(),searches=[];
+ const field=id=>{if(!fields.has(id))fields.set(id,{value:'',disabled:false});return fields.get(id);};field('siteAddress').value='Synthetic Davao address';
+ const ctx={map:null,field,available:()=>true,canEdit:()=>false,canSearchPlaces:()=>true,navigator:{onLine:true},window:{},Number,
+  suggestTimer:null,placeController:null,suggestSeq:0,clearTimeout(){},setText(){},setPin(){},updateSiteMap(){},closeSuggestions(){},openMap:async()=>{},showToast(){},
+  queryPlaces:async q=>{searches.push(q);return [{lat:7.0731,lon:125.6128,display_name:'Synthetic address, Davao City'}];}};
+ vm.createContext(ctx);
+ const coordsStart=src.indexOf('  function setCoordinates('),coordsEnd=src.indexOf('  function syncFromInputs(',coordsStart);
+ const pickStart=src.indexOf('  function pickPlace('),pickEnd=src.indexOf('  function showSuggestions(',pickStart);
+ const findStart=src.indexOf('  async function findPlace(){'),findEnd=src.indexOf('  function restoreMapCanvas(',findStart);
+ vm.runInContext(src.slice(coordsStart,coordsEnd)+src.slice(pickStart,pickEnd)+src.slice(findStart,findEnd),ctx);
+ await ctx.findPlace();assert.deepEqual(searches,['Synthetic Davao address']);assert.equal(field('siteLat').value,'7.0731000');assert.equal(field('siteLng').value,'125.6128000');assert.equal(field('siteAddress').value,'Synthetic address, Davao City');assert.equal(field('adminSitePlaceFind').disabled,false);
 });

@@ -1,5 +1,5 @@
 {
   "app": "TIPON Face Attendance",
-  "version": "5.5.105",
-  "label": "Include Work Days, Work Start and Work End in the member CSV template and save the weekly schedule during import."
+  "version": "5.5.106",
+  "label": "Show required Address and map search when Administrators add Work Locations; fill coordinates from selected remote places."
 }
