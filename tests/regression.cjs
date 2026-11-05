@@ -1263,19 +1263,32 @@ test('Offline Business Platform additions sync idempotently against the central 
  assert.equal(outbox.length,0);assert.deepEqual(synced,['TP']);
 });
 
-test('Work Location fields align and Address is a required input',()=>{
+test('New Work Location omits address field while Edit preserves it and backend receives GPS description',()=>{
  const html=source('index.html'),app=source('app.js');
- const start=html.indexOf('<dialog class="form-dialog" id="siteDialog"'),end=html.indexOf('<dialog class="form-dialog" id="memberDialog"');
- const site=html.slice(start,end);
+ const site=html.slice(html.indexOf('<dialog class="form-dialog" id="siteDialog"'),
+   html.indexOf('<dialog class="form-dialog" id="memberDialog"'));
  assert.match(site,/<input id="siteName"[^>]*required/);
  assert.match(site,/<select id="siteCoop" required/);
  assert.match(site,/<select id="sitePlatform" required/);
- assert.match(site,/Address \/ Site Description <i class="required-star">\*<\/i>/);
- assert.match(site,/<input id="siteAddress" required aria-required="true"/);
+ assert.match(site,/<section id="siteAddressSection"[^>]*hidden>/);
+ assert.match(site,/<input id="siteAddress" aria-required="false"/);
+ assert.doesNotMatch(site,/<input id="siteAddress" required/);
+ assert.match(site,/<input id="siteLat"[^>]*required/);
+ assert.match(site,/<input id="siteLng"[^>]*required/);
+ assert.match(site,/id="adminMapCanvas"/);
+ assert.match(site,/id="siteUseGps"/);
  assert.match(html,/#siteDialog \.dialog-body>\.form-row\.three \.field-caption\{display:block!important;margin:0!important;height:18px/);
  assert.match(html,/#siteDialog \.dialog-body>\.form-row\.three select\{display:block;width:100%;height:50px;min-height:50px;margin:0\}/);
- const save=app.slice(app.indexOf('async function saveSiteForm('),app.indexOf('async function saveSiteForm(')+3200);
- assert.match(save,/if\(!address\)\{showToast\('Address \/ Site Description is required/);
+ const open=app.slice(app.indexOf('function openSiteForm('),app.indexOf('function updateSiteMap(',app.indexOf('function openSiteForm(')));
+ assert.match(open,/addressSection\.hidden=!site/);
+ assert.match(open,/addressField\.required=!!site/);
+ assert.match(open,/site\?'true':'false'/);
+ const save=app.slice(app.indexOf('async function saveSiteForm('),app.indexOf('async function saveSiteForm(')+4300);
+ assert.match(save,/const address=previous\?\$\('siteAddress'\)\.value\.trim\(\):/);
+ assert.match(save,/GPS coordinates: /);
+ assert.match(save,/if\(previous&&!address\)/);
+ assert.doesNotMatch(save,/if\(!address\)\{showToast\('Address \/ Site Description is required/);
+ assert.match(save,/const site=\{id:current\?\.id\|\|uuid\(\),name,coop:pair\.coop,platform:pair\.platform,address,/);
 });
 test('Business Platform modal requires cooperative and backend persists new custom BP MPC association',()=>{
  const html=source('index.html'),front=source('platforms.js'),sync=source('sync.js'),backend=source('backend-patch/BPDirectory.gs');

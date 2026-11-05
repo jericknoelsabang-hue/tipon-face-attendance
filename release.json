@@ -1,5 +1,5 @@
 {
   "app": "TIPON Face Attendance",
-  "version": "5.5.91",
-  "label": "Work Location Cooperative now starts at Select cooperative for new Admin locations."
+  "version": "5.5.92",
+  "label": "Hide Address / Site Description on Add Work Location; keep GPS-based saving and existing location edit."
 }

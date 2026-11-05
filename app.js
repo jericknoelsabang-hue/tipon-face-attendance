@@ -814,6 +814,11 @@ function renderSites(){
 }
 function openSiteForm(site){
  state.editSite=site||null;$('siteForm').reset();setText('siteFormTitle',site?'Edit Work Location':'Add Work Location');$('siteRadius').value='150';
+ const addressSection=$('siteAddressSection'),addressField=$('siteAddress');
+ // New locations are defined by site name, MPC/BP and verified GPS pin.
+ // Retain address editing for existing locations without forcing it on Add.
+ if(addressSection)addressSection.hidden=!site;
+ if(addressField){addressField.required=!!site;addressField.setAttribute('aria-required',site?'true':'false');}
  if(site){$('siteName').value=site.name;$('siteCoop').value=site.coop;$('siteAddress').value=site.address||'';$('siteLat').value=site.lat;$('siteLng').value=site.lng;$('siteRadius').value=150;}
  updateSiteMap();$('siteDialog').showModal();
 }
@@ -856,10 +861,14 @@ async function saveSiteForm(e){
  if(!canEdit()&&!isAdmin())return;
  const admin=isAdmin(),previous=state.editSite;
  if(previous?._pendingOp){showToast('This Work Location already has an unconfirmed change. Sync it before editing again.','info',8000);return;}
- const name=$('siteName').value.trim(),address=$('siteAddress').value.trim();
- if(!address){showToast('Address / Site Description is required. Enter an address or worksite description.','error');$('siteAddress').focus();return;}
+ const name=$('siteName').value.trim();
  const latText=$('siteLat').value.trim(),lngText=$('siteLng').value.trim();
  const lat=Number(latText),lng=Number(lngText),radius=Number($('siteRadius').value);
+ // The central schema still stores an address/description. For a new site,
+ // use the submitted GPS coordinates; never invent a street address.
+ const address=previous?$('siteAddress').value.trim():
+   ($('siteAddress').value.trim()||('GPS coordinates: '+latText+', '+lngText));
+ if(previous&&!address){showToast('Address / Site Description is required when editing this location.','error');$('siteAddress').focus();return;}
  if(!name||!latText||!lngText||!Number.isFinite(lat)||!Number.isFinite(lng)||
     Math.abs(lat)>90||Math.abs(lng)>180||!Number.isFinite(radius)||radius<GPS_MIN_RADIUS||radius>2000){
   showToast('Enter a Work Location Name and select valid GPS coordinates.','error');return;
