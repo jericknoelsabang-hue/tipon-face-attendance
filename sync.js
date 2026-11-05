@@ -17,7 +17,7 @@ window.TIPONSync=(()=>{
   let busy=false,timer=null,attempt=0,priorityOperationId='',message='Sign in to enable organization sync.',lastSync='',stopped=true,activeRun=null,siteFastRetry=0,eventVersionSupported=null;
   // Only changes owned by the signed-in account and attendance recorded by this
   // device are actionable here. A central catalog may include other users' data.
-  let cachedOutbox=[],forceCatalogRefresh=false;
+  let cachedOutbox=[],forceCatalogRefresh=false,rerunRequested=false;
   function queueSummary(outbox,punches,orgId,ownerId,deviceId){
     const owners=(outbox||[]).filter(op=>op&&String(op.orgId)===String(orgId)&&String(op.ownerId)===String(ownerId));
     const local=(punches||[]).filter(p=>p&&String(p.orgId)===String(orgId)&&
@@ -63,14 +63,15 @@ window.TIPONSync=(()=>{
   }
   function syncStampId(){return 'tp5-last-sync:'+String(state.orgId||'')+':'+String(state.user?.id||'');}
   function start(){
-    stopped=false;lastSync='';cachedOutbox=[];
+    stopped=false;lastSync='';cachedOutbox=[];attempt=0;rerunRequested=false;recoveredCompatibleOperations=false;
     getOne('meta',syncStampId()).then(saved=>{if(!lastSync&&saved?.value){lastSync=saved.value;render();}}).catch(()=>{});
     kick();
   }
-  function stop(){stopped=true;clearTimeout(timer);cachedOutbox=[];forceCatalogRefresh=false;}
+  function stop(){stopped=true;clearTimeout(timer);cachedOutbox=[];forceCatalogRefresh=false;rerunRequested=false;}
   function schedule(){clearTimeout(timer);if(stopped)return;
     const localEventsQueued=state.punches.some(p=>p.orgId===state.orgId&&!p.cloudAck&&!p.reviewStatus&&p.deviceId===state.deviceId);
     const base=localEventsQueued?1500:2500;
+    if(rerunRequested){rerunRequested=false;timer=setTimeout(run,100);return;}
     const seconds=siteFastRetry>0&&siteFastRetry<=3&&attempt===0?1800:Math.min(120000,base*2**attempt);
     timer=setTimeout(run,seconds);
   }
@@ -79,7 +80,11 @@ window.TIPONSync=(()=>{
     if(!hasPendingAttendance||!('serviceWorker' in navigator)||!('SyncManager' in window))return;
     navigator.serviceWorker.ready.then(registration=>registration.sync?.register('tipon-attendance-sync')).catch(()=>{});
   }
-  function kick(){clearTimeout(timer);if(!stopped)timer=setTimeout(run,100);requestBackgroundSync();render();}
+  function kick(){clearTimeout(timer);if(!stopped){if(activeRun||busy)rerunRequested=true;else timer=setTimeout(run,100);}requestBackgroundSync();render();}
+  function resumeSync(){
+    attempt=0;forceCatalogRefresh=true;
+    kick();
+  }
   async function markOps(reply){
     const all=await getAll('outbox');
     for(const id of reply.ackOps||[]){const item=all.find(x=>x.id===id);if(!item)continue;const receipt=(reply.receipts||[]).find(x=>x.type===item.type&&x.id===item.value.id);
@@ -611,7 +616,12 @@ window.TIPONSync=(()=>{
       siteCount:seen.sites.size,refreshedAt:Date.now(),complete:true,orgId:state.orgId});
     forceCatalogRefresh=false;
   }
-  function cursorId(){return 'tp5-events:'+state.orgId+':'+state.user.id+':'+state.user.role+':v5.5.36-ledger-recovery:'+String(state.user.version||1)+':'+(state.user.siteIds||[]).join(',');}
+  function cursorId(){
+    // Changing the approved Cooperative/BP must replay the ledger for the new scope.
+    // Reusing the previous cursor skips records already passed under the old scope.
+    const scope=encodeURIComponent(String(state.user.coop||''))+':'+encodeURIComponent(TIPONOrgCore.platformKey(state.user.platform));
+    return 'tp5-events:'+state.orgId+':'+state.user.id+':'+state.user.role+':v5.5.100-scoped-ledger:'+String(state.user.version||1)+':'+scope+':'+[...(state.user.siteIds||[])].map(String).sort().join(',');
+  }
   async function pull(){
     const id=cursorId();let saved=await getOne('meta',id),cursor=saved?.cursor||0,eventVersion=saved?.eventVersion;
     // A legacy cursor has no correction version. Re-read the ledger once to
@@ -712,7 +722,7 @@ window.TIPONSync=(()=>{
   }
   async function init(){
     attach('syncNow','click',kick);attach('syncRecordsNow','click',kick);
-    window.addEventListener('online',kick);window.addEventListener('offline',render);document.addEventListener('visibilitychange',()=>{if(!document.hidden)kick();});
+    window.addEventListener('online',resumeSync);window.addEventListener('offline',render);document.addEventListener('visibilitychange',()=>{if(!document.hidden)kick();});
     navigator.serviceWorker?.addEventListener('message',event=>{if(event.data?.type==='TIPON_SYNC_REQUEST')kick();});render();
   }
   async function recoverAttendance(){

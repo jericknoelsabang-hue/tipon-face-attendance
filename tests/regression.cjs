@@ -822,7 +822,7 @@ test('Lost attendance-correction acknowledgment is cleared only when the server-
 test('Manual Attendance Logs sync has deduplicated status, automatic queue retry and awaits in-flight work',()=>{
  const app=source('app.js'),sync=source('sync.js');
  assert.match(app,/function showDirectorySyncNotice\(/);
- assert.match(app,/const sync=kind==='sites'\?await TIPONSync\.refreshDirectory\(\):await TIPONSync\.submitPendingNow\(\)/);
+ assert.match(app,/const sync=\(kind==='sites'\|\|kind==='members'\)\?await TIPONSync\.refreshDirectory\(\):await TIPONSync\.submitPendingNow\(\)/);
  assert.match(app,/local change\(s\) are saved and queued for automatic retry/);
  assert.doesNotMatch(app,/record\(s\) still need synchronization or have sync errors/);
  assert.match(sync,/async function submitPendingNow\(operationId='?'\)/);
@@ -1688,4 +1688,58 @@ test('Local attendance correction rejects mixed-member events before any write',
  const ctx={canCorrectAttendance:()=>true,getAll:async()=>[],state:{orgId:'org-1',user:actor,punches:[{...event('other','IN','2026-10-28T01:00:00Z'),memberId:'OTHER-MEMBER'}]},attendanceRowByKey:()=>null};
  vm.createContext(ctx);vm.runInContext(app.slice(start,end),ctx);
  await assert.rejects(()=>ctx.saveAttendanceCorrection({key:'session-1',memberId:'TEST-1',eventIds:['other']},{},'Correct test record'),/conflicting member or session IDs/);
+});
+
+test('Attendance read cursor changes with Cooperative/BP scope and keeps location order stable',()=>{
+ const src=source('sync.js'),start=src.indexOf('function cursorId(){'),end=src.indexOf('async function pull(){',start);
+ const user={id:'same-account',role:'registrar',coop:'Asiapro',platform:'AP Cons',version:1,siteIds:['B','A']};
+ const ctx={state:{orgId:'org',user},TIPONOrgCore:Org};vm.createContext(ctx);vm.runInContext(src.slice(start,end),ctx);
+ const original=ctx.cursorId();
+ user.siteIds.reverse();assert.equal(ctx.cursorId(),original);
+ user.platform='IMG';assert.notEqual(ctx.cursorId(),original);
+ user.platform='AP Cons';user.coop='Tnalak';assert.notEqual(ctx.cursorId(),original);
+ user.coop='Asiapro';assert.equal(ctx.cursorId(),original);
+});
+test('Reconnect requests a follow-up cycle instead of losing a sync request during an active run',()=>{
+ const src=source('sync.js'),start=src.indexOf('  function schedule(){'),end=src.indexOf('  async function markOps(',start);
+ const delays=[],ctx={stopped:false,activeRun:Promise.resolve(),busy:true,rerunRequested:false,
+  timer:null,attempt:4,siteFastRetry:0,forceCatalogRefresh:false,
+  state:{punches:[],orgId:'org',deviceId:'device'},window:{},navigator:{},
+  setTimeout:(fn,ms)=>{delays.push(ms);return delays.length;},clearTimeout(){},run(){},render(){}};
+ vm.createContext(ctx);vm.runInContext(src.slice(start,end),ctx);
+ ctx.resumeSync();
+ assert.equal(ctx.attempt,0);assert.equal(ctx.forceCatalogRefresh,true);assert.equal(ctx.rerunRequested,true);
+ assert.equal(delays.length,0,'a timer must not be consumed by the already-running cycle');
+ ctx.activeRun=null;ctx.busy=false;ctx.schedule();assert.equal(delays.pop(),100);assert.equal(ctx.rerunRequested,false);
+ ctx.schedule();assert.equal(delays.pop(),2500,'normal interval resumes after the requested follow-up');
+});
+
+test('Separate devices download the same member details and sites for their Cooperative/BP',async()=>{
+ const src=source('sync.js'),section=src.slice(src.indexOf('async function pullCatalog(version){'),src.indexOf('function cursorId(){'));
+ const remoteMembers=[
+  {id:'000123',memberNumber:'000123',name:'Synthetic Member One',coop:'Asiapro',platform:'AP Cons',rev:1,createdBy:'other-user'},
+  {id:'456789',memberNumber:'456789',name:'Synthetic Member Two',coop:'Asiapro',platform:'AP Cons',rev:1,createdBy:'other-user'},
+  {id:'outside',name:'Different BP',coop:'Asiapro',platform:'IMG',rev:1}
+ ];
+ const remoteSites=[{id:'site-shared',name:'Shared Site',coop:'Asiapro',platform:'AP Cons',rev:1}];
+ function device(){
+  const stores={members:new Map(),sites:new Map(),schedules:new Map(),meta:new Map(),outbox:new Map()};
+  const ctx={state:{orgId:'org-shared',user:{id:'same-account',role:'registrar',coop:'Asiapro',platform:'AP Cons',version:1,siteIds:[]},page:'members'},
+   forceCatalogRefresh:false,stopped:false,document:{hidden:false},TIPONOrgCore:Org,TIPONPlatforms:{accept:async()=>{}},
+   getAll:async type=>[...stores[type].values()],getOne:async(type,id)=>stores[type].get(id),
+   OrgDB:{rawSave:async(type,value)=>stores[type].set(value.id,value),rawDelete:async(type,id)=>stores[type].delete(id)},setText(){},
+   TIPONAPI:{call:async()=>({catalogVersion:1,members:remoteMembers,sites:remoteSites,schedules:[],nextCursor:null,total:remoteMembers.length})}};
+  vm.createContext(ctx);vm.runInContext(section,ctx);return {ctx,stores};
+ }
+ const a=device(),b=device();
+ await a.ctx.pullCatalog(1);await b.ctx.pullCatalog(1);
+ for(const d of [a,b]){
+  assert.deepEqual([...d.stores.members.keys()],['000123','456789'],'show every in-scope member regardless of creator and preserve leading zeroes');
+  assert.deepEqual([...d.stores.sites.keys()],['site-shared']);
+ }
+ const pending={id:'local-offline-site',orgId:'org-shared',coop:'Asiapro',platform:'AP Cons',_pendingOp:'offline-operation'};
+ a.stores.sites.set(pending.id,pending);
+ a.ctx.forceCatalogRefresh=true;await a.ctx.pullCatalog(1);
+ assert.equal(a.stores.sites.get(pending.id)._pendingOp,'offline-operation','refresh must preserve unsynchronized offline changes');
+ assert.equal(b.stores.sites.has(pending.id),false,'local-only changes cannot appear on another device before server acceptance');
 });

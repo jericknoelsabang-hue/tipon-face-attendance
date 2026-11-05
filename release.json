@@ -1,5 +1,5 @@
 {
   "app": "TIPON Face Attendance",
-  "version": "5.5.99",
-  "label": "Validate member and session IDs before attendance corrections are saved or synchronized."
+  "version": "5.5.100",
+  "label": "Refresh shared directories explicitly, replay attendance when account scope changes, and resume queued sync after reconnecting."
 }

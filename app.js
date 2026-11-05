@@ -1865,7 +1865,7 @@ async function refreshDirectoryView(kind,buttonId=''){
  const previous=controls.map(el=>[el,el.disabled]);
  controls.forEach(el=>{el.disabled=true;});
  try{
-  const sync=kind==='sites'?await TIPONSync.refreshDirectory():await TIPONSync.submitPendingNow();
+  const sync=(kind==='sites'||kind==='members')?await TIPONSync.refreshDirectory():await TIPONSync.submitPendingNow();
   if(!sync?.readOk&&!sync?.ok)throw Error(sync?.error||'Central synchronization has not completed. Try Refresh again.');
   await loadCollections();
   if(kind==='members')renderMembers();
