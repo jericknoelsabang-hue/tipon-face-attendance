@@ -1,5 +1,5 @@
 {
   "app": "TIPON Face Attendance",
-  "version": "5.5.102",
-  "label": "Restore member metadata buttons, retry supported metadata edits, reduce redundant requests and bound slow-network startup."
+  "version": "5.5.103",
+  "label": "Schedule-based late, AWOL review and overdue Time Out; reset filters; safe Work Location consolidation and metadata edit guards."
 }

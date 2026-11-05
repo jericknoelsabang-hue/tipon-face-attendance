@@ -121,7 +121,7 @@ enterApp=async function(options={}){
   if(!bound)await OrgDB.rawSave('meta',{id:'tp5-boundOrganization',orgId:state.orgId});
   $('appShell').hidden=false;$('mobileNav').hidden=state.user?.role==='kiosk';
   setText('sidebarUserName',state.user.name);setText('sidebarUserRole',roleName(state.user.role));setText('avatarLetter',initial(state.user.name));setText('greetingName',state.user.name.split(' ')[0]);
-  await loadCollections();await TIPONPlatforms.load();if(navigator.onLine)void TIPONPlatforms.refresh().catch(error=>console.warn('Business Platform refresh:',error.message||error));fillCoopSelect('memberCoop');fillCoopSelect('siteCoop');
+  resetSharedAttendanceFilters(false);await loadCollections();await TIPONPlatforms.load();if(navigator.onLine)void TIPONPlatforms.refresh().catch(error=>console.warn('Business Platform refresh:',error.message||error));fillCoopSelect('memberCoop');fillCoopSelect('siteCoop');
   const savedPage=await getOne('meta','tp5-last-page:'+state.user.id),defaultPage=isAdmin()?'dashboard':TIPONOrgCore.canUseTerminal(state.user)?'scanner':'members';
   // A fresh login always lands on the role's primary workspace.
   // Refreshing/restoring an active session can keep its last allowed tab.
@@ -728,7 +728,7 @@ window.OrgUI=(()=>{
   saveEncryptedBackup=backup;restoreEncryptedBackup=restore;
   return {bind,readSiteSchedule,renderMpc,renderReports,renderAccounts,renderSettings,renderQueue,csv};
 })();
-function fillCoopSelect(id,allowAll=false){const el=$(id);if(!el)return;const old=el.value,options=TIPONOrgCore.COOPS;el.innerHTML=(allowAll?'<option value="">All cooperatives</option>':'<option value="">Select cooperative</option>')+options.map(name=>'<option value="'+esc(name)+'">'+esc(name)+'</option>').join('');if(options.includes(old))el.value=old;}
+function fillCoopSelect(id,allowAll=false){const el=$(id);if(!el)return;const old=el.value,options=TIPONOrgCore.COOPS;el.innerHTML=(allowAll?'<option value="">Select cooperative</option>':'<option value="">Select cooperative</option>')+options.map(name=>'<option value="'+esc(name)+'">'+esc(name)+'</option>').join('');if(options.includes(old))el.value=old;}
 function parseMemberCSV(text){
  const rows=[];let row=[],cell='',quoted=false;
  for(let i=0;i<text.length;i++){const ch=text[i];

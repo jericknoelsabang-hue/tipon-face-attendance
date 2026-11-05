@@ -1,5 +1,5 @@
 /* TIPON KABILANG — Attendance Analytics.
- * Review flags (ABSENT / Open Time In / AWOL) require schedule and sync verification before any personnel action.
+ * Review flags (Absent / Late / No Time Out / AWOL) require schedule and sync verification before any personnel action.
  */
 'use strict';
 window.TIPONAbsenteeism=(()=>{
@@ -9,7 +9,7 @@ window.TIPONAbsenteeism=(()=>{
  const pct=(a,b)=>b?Math.round(1000*a/b)/10:0;
  const fmt=n=>new Intl.NumberFormat('en-PH',{maximumFractionDigits:1}).format(n);
  const PAGE_SIZE=10;
- let reviewPage=1,lastFilterKey='',lastFilters={from:'',to:'',coop:'',valid:true};
+ let lastRenderDataKey='',lastRenderedPage=0,lastReviewRecords=[],reviewPage=1,lastFilterKey='',lastFilters={from:'',to:'',coop:'',valid:true};
 
  function daysBetween(start,end){
   const a=Date.parse(String(start||'')+'T00:00:00Z'),b=Date.parse(String(end||'')+'T00:00:00Z');
@@ -19,108 +19,90 @@ window.TIPONAbsenteeism=(()=>{
   return out;
  }
  function compute(members=[],sites=[],events=[],schedules=[],to='',coop='',now=Date.now(),from='',platform='',site=''){
-  const siteSet=new Set((sites||[]).filter(s=>!site||String(s.id)===String(site)).map(s=>String(s.id)));
-  const scopedMembers=(members||[]).filter(m=>(!platform||TIPONOrgCore.platformKey(m.platform)===TIPONOrgCore.platformKey(platform))&&(!site||String(m.siteId||m.siteIds?.[0]||'')===String(site)));
-  const scopedEvents=(events||[]).filter(e=>(!platform||TIPONOrgCore.platformKey(e.platform)===TIPONOrgCore.platformKey(platform))&&(!site||String(e.siteId||'')===String(site)));
-  members=scopedMembers;events=scopedEvents;sites=(sites||[]).filter(s=>!site||siteSet.has(String(s.id)));
-  const eligible=(members||[]).filter(m=>m&&!m.deleted&&m.active!==false&&(m.template||m.descriptors?.length>=3)&&(!coop||m.coop===coop));
-  const all=(members||[]).filter(m=>m&&!m.deleted&&(!coop||m.coop===coop));
-  const ids=new Set(eligible.map(m=>String(m.id))),byId=new Map(eligible.map(m=>[String(m.id),m]));
-  const loc=new Map((sites||[]).map(s=>[String(s.id),s]));
-  const historyDays=[
-   ...(events||[]).filter(e=>e&&!e.deleted&&e.timestamp).map(e=>ph(e.timestamp)),
-   ...all.filter(m=>m.createdAt).map(m=>ph(m.createdAt)),
-   ...(schedules||[]).map(s=>ph(s.date||s.day||s.createdAt))
-  ].filter(Boolean);
-  const today=ph(new Date(now).toISOString()),endDay=to||today;
-  const knownStart=historyDays.length?[...historyDays].sort()[0]:today;
-  const startDay=from||(historyDays.length?historyDays.sort()[0]:endDay);
-  const days=daysBetween(startDay,endDay);
-  if(!days.length)return {rows:[],focus:null,registered:0,unenrolled:0,coverage:0,noInRate:0,startDay,endDay,
-   summary:{eligibleMemberDays:0,presentMemberDays:0,missingMemberDays:0,leaveMemberDays:0,awolMemberDays:0,
-    awolCount:0,hours:0,complete:0,open:0}};
-
-  const ins=new Map(),outs=new Map(),sessions=new Map(),observed=new Set();
-  for(const e of events||[]){
-   if(!e||e.deleted||e.reviewStatus||!e.timestamp||!ids.has(String(e.memberId))||!['IN','OUT'].includes(e.type))continue;
-   const time=Date.parse(e.timestamp),day=ph(e.timestamp);
-   if(!day||!Number.isFinite(time))continue;
-   observed.add(String(e.memberId)+'|'+day);
-   if(e.type==='IN'){if(!ins.has(day))ins.set(day,new Set());ins.get(day).add(String(e.memberId));}
-   if(e.type==='OUT'){if(!outs.has(day))outs.set(day,new Set());outs.get(day).add(String(e.memberId));}
-   const sessionId=String(e.sessionId||e.id||''),key=String(e.memberId)+':'+sessionId;
-   const session=sessions.get(key)||{memberId:String(e.memberId),sessionId:sessionId,siteId:e.siteId||'',start:null,end:null};
-   if(e.type==='IN'&&(session.start===null||time<session.start)){session.start=time;session.siteId=e.siteId||session.siteId;}
-   if(e.type==='OUT'&&(session.end===null||time>session.end))session.end=time;
-   sessions.set(key,session);
+  const all=(members||[]).filter(m=>m&&!m.deleted&&(!coop||m.coop===coop)&&
+   (!platform||TIPONOrgCore.platformKey(m.platform)===TIPONOrgCore.platformKey(platform))&&
+   (!site||[m.siteId,...(m.siteIds||[])].map(String).includes(String(site))));
+  const eligible=all.filter(m=>m.active!==false),byId=new Map(eligible.map(m=>[String(m.id),m]));
+  const loc=new Map((sites||[]).map(s=>[String(s.id),s])),plans=new Map();
+  const planFor=(member,day)=>{
+   const key=String(member.id)+'|'+day;if(plans.has(key))return plans.get(key);
+   let plan={kind:'UNSCHEDULED'};
+   try{plan=TIPONOrgCore.scheduled(member,loc.get(String(member.siteId||member.siteIds?.[0]||'')),day,schedules||[]);}catch(_){}
+   plans.set(key,plan);return plan;
+  };
+  const filteredEvents=(events||[]).filter(e=>e&&!e.deleted&&!e.reviewStatus&&byId.has(String(e.memberId))&&
+   (!coop||e.coop===coop)&&(!platform||TIPONOrgCore.platformKey(e.platform)===TIPONOrgCore.platformKey(platform))&&
+   (!site||String(e.siteId||'')===String(site))&&Number.isFinite(Date.parse(e.timestamp))&&Date.parse(e.timestamp)<=now);
+  const historyDays=[...filteredEvents.map(e=>ph(e.timestamp)),...all.map(m=>ph(m.createdAt)),
+   ...(schedules||[]).filter(s=>!s.deleted).map(s=>ph(s.date||s.day||s.createdAt))].filter(Boolean).sort();
+  const today=ph(new Date(now).toISOString()),endDay=to||today,knownStart=historyDays[0]||today,startDay=from||knownStart;
+  const emptySummary={eligibleMemberDays:0,presentMemberDays:0,missingMemberDays:0,leaveMemberDays:0,awolMemberDays:0,awolCount:0,hours:0,complete:0,open:0,noTimeOut:0,lateCount:0,lateMinutes:0};
+  if(!daysBetween(startDay,endDay).length)return {rows:[],focus:null,registered:0,unenrolled:0,coverage:0,noInRate:0,startDay,endDay,summary:emptySummary};
+  const sessions=new Map(),seen=new Set(),outOnlyDays=new Map();
+  for(const e of filteredEvents){
+   if(!['IN','OUT'].includes(e.type)||seen.has(String(e.id)))continue;seen.add(String(e.id));
+   const memberId=String(e.memberId),key=memberId+'|'+String(e.sessionId||e.id),time=Date.parse(e.timestamp);
+   const s=sessions.get(key)||{memberId,sessionId:String(e.sessionId||e.id),siteId:e.siteId||'',start:null,end:null};
+   if(e.type==='IN'&&(s.start===null||time<s.start))s.start=time;
+   if(e.type==='OUT'&&(s.end===null||time>s.end))s.end=time;
+   sessions.set(key,s);
   }
-  const shifts=new Map();
-  for(const session of sessions.values()){
-   if(session.start===null)continue;
-   const day=ph(new Date(session.start).toISOString());
-   const tally=shifts.get(day)||{hours:0,complete:0,open:0};
-   if(session.end!==null&&session.end>=session.start&&session.end-session.start<=86400000){tally.hours+=(session.end-session.start)/3600000;tally.complete++;}
-   else if(session.end===null)tally.open++;
-   shifts.set(day,tally);
+  const byDay=new Map();
+  for(const s of sessions.values()){
+   if(s.start===null){const key=s.memberId+'|'+ph(new Date(s.end).toISOString());outOnlyDays.set(key,true);continue;}
+   const member=byId.get(s.memberId),calendarDay=ph(new Date(s.start).toISOString());
+   const previous=new Date(Date.parse(calendarDay+'T00:00:00Z')-86400000).toISOString().slice(0,10),previousPlan=planFor(member,previous);
+   const day=previousPlan.kind==='REQUIRED'&&Number.isFinite(previousPlan.start)&&Number.isFinite(previousPlan.end)&&
+    ph(new Date(previousPlan.end).toISOString())>previous&&s.start>=previousPlan.start-14400000&&s.start<=previousPlan.end?previous:calendarDay;
+   s.day=day;s.member=member;s.validOut=s.end!==null&&s.end>s.start&&s.end-s.start<=86400000;
+   if(!byDay.has(day))byDay.set(day,new Map());
+   const dayMembers=byDay.get(day);if(!dayMembers.has(s.memberId))dayMembers.set(s.memberId,[]);dayMembers.get(s.memberId).push(s);
   }
-  // AWOL is a provisional review flag for three consecutive Philippine
-  // calendar days with neither Time In nor Time Out. Do not count days before
-  // the known registration/history start or approved REST/LEAVE/EXCUSED days.
-  function missingThreeCalendarDays(member,day){
-    const firstDay=ph(member.createdAt)||knownStart;
-    const dayMs=Date.parse(day+'T00:00:00Z');
-    if(!Number.isFinite(dayMs))return false;
-    for(let back=0;back<3;back++){
-      const probe=new Date(dayMs-back*86400000).toISOString().slice(0,10);
-      if(probe<firstDay||observed.has(String(member.id)+'|'+probe))return false;
-      let schedule={kind:'UNSCHEDULED'};
-      try{schedule=TIPONOrgCore.scheduled(member,loc.get(String(member.siteId||member.siteIds?.[0]||'')),probe,schedules||[]);}catch(_){}
-      if(['REST','LEAVE','EXCUSED'].includes(schedule.kind))return false;
+  // Three consecutive scheduled workdays; ordinary rest days are skipped.
+  // Approved leave/excused days reset the streak. A weekly plan needs at most
+  // 21 days to encounter three required days; include 31 days of lookback.
+  const lookback=new Date(Date.parse(startDay+'T00:00:00Z')-31*86400000).toISOString().slice(0,10);
+  const calculationStart=knownStart>lookback?knownStart:lookback,streaks=new Map(),rows=[];
+  for(const day of daysBetween(calculationStart<startDay?calculationStart:startDay,endDay)){
+   const row={day,eligible:0,present:0,noIn:0,outOnly:0,leave:0,provisional:0,hours:0,complete:0,open:0,
+    noTimeOut:0,lateCount:0,lateMinutes:0,missing:[],outOnlyMembers:[],awolMembers:[],openSessions:[],overdueSessions:[],lateMembers:[],plans:new Map()};
+   for(const member of eligible){
+    const id=String(member.id),registered=ph(member.createdAt)||knownStart;if(registered>day)continue;
+    const plan=planFor(member,day),shifts=byDay.get(day)?.get(id)||[],hasIn=shifts.length>0,outOnly=outOnlyDays.has(id+'|'+day)&&!hasIn;
+    row.plans.set(id,plan);
+    const required=plan.kind==='REQUIRED'&&day<=today&&(Number.isFinite(plan.start)?plan.start<=now:plan.end<=now);
+    if(required){row.eligible++;if(hasIn)row.present++;}
+    if(['REST','LEAVE','EXCUSED'].includes(plan.kind)){row.leave++;if(plan.kind!=='REST')streaks.set(id,0);}
+    if(hasIn||outOnly)streaks.set(id,0);
+    else if(required&&Number.isFinite(plan.end)&&plan.end<=now){
+     row.missing.push(member);row.noIn++;const streak=(streaks.get(id)||0)+1;streaks.set(id,streak);
+     if(streak>=3)row.awolMembers.push(member);
     }
-    return true;
-  }
-  const rows=days.map(day=>{
-   const roster=eligible.filter(m=>!ph(m.createdAt)||ph(m.createdAt)<=day);
-   const presentSet=ins.get(day)||new Set();
-   const present=roster.filter(m=>presentSet.has(String(m.id))).length;
-   const missing=[],outOnly=[],leave=[],awolMembers=[];
-   for(const member of roster){
-    if(presentSet.has(String(member.id)))continue;
-    if(outs.get(day)?.has(String(member.id))){outOnly.push(member);continue;}
-    let schedule={kind:'UNSCHEDULED'};
-    try{schedule=TIPONOrgCore.scheduled(member,loc.get(String(member.siteId||member.siteIds?.[0]||'')),day,schedules||[]);}catch(_){}
-    if(['REST','LEAVE','EXCUSED'].includes(schedule.kind)){leave.push(member);continue;}
-    missing.push(member);
-    if(missingThreeCalendarDays(member,day))awolMembers.push(member);
+    if(outOnly){row.outOnlyMembers.push(member);row.outOnly++;row.noIn++;}
+    if(required&&hasIn&&Number.isFinite(plan.deadline??plan.start)){
+     const first=Math.min(...shifts.map(s=>s.start)),deadline=plan.deadline??plan.start;
+     if(first>deadline){const minutes=Math.ceil((first-deadline)/60000);row.lateMembers.push({member,minutes,first,plan});row.lateCount++;row.lateMinutes+=minutes;}
+    }
+    for(const shift of shifts){
+     if(shift.validOut){row.complete++;row.hours+=(shift.end-shift.start)/3600000;}
+     else{
+      row.open++;row.openSessions.push(shift);
+      const deadline=plan.kind==='REQUIRED'&&Number.isFinite(plan.end)?plan.end:shift.start+86400000;
+      if(now>=deadline){row.noTimeOut++;row.overdueSessions.push(shift);}
+     }
+    }
    }
-   const tally=shifts.get(day)||{hours:0,complete:0,open:0};
-   const openSessions=[...sessions.values()].filter(session=>session.start!==null&&
-    (session.end===null||session.end<=session.start)&&
-    ph(new Date(session.start).toISOString())===day)
-    .map(session=>({...session,member:byId.get(session.memberId)})).filter(session=>session.member);
-   return {day,eligible:roster.length,present,noIn:missing.length+outOnly.length,outOnly:outOnly.length,leave:leave.length,
-    provisional:awolMembers.length,hours:tally.hours,complete:tally.complete,open:openSessions.length,
-    missing,outOnlyMembers:outOnly,awolMembers,openSessions};
-  });
-  const focus=rows[rows.length-1]||null;
-  const registered=all.filter(m=>!ph(m.createdAt)||ph(m.createdAt)<=endDay).length;
-  const sum=rows.reduce((a,row)=>({
-   eligibleMemberDays:a.eligibleMemberDays+row.eligible,
-   presentMemberDays:a.presentMemberDays+row.present,
-   missingMemberDays:a.missingMemberDays+row.noIn,
-   leaveMemberDays:a.leaveMemberDays+row.leave,
-   awolMemberDays:a.awolMemberDays+row.provisional,
-   hours:a.hours+row.hours,complete:a.complete+row.complete
-  }),{eligibleMemberDays:0,presentMemberDays:0,missingMemberDays:0,leaveMemberDays:0,awolMemberDays:0,hours:0,complete:0});
-  const awolIds=new Set(rows.flatMap(row=>row.awolMembers.map(m=>String(m.id))));
-  const open=[...sessions.values()].filter(session=>session.start!==null&&
-    (session.end===null||session.end<=session.start)&&
-    ph(new Date(session.start).toISOString())>=startDay&&
-    ph(new Date(session.start).toISOString())<=endDay);
-  const summary={...sum,awolCount:awolIds.size,open:open.length};
-  return {rows,focus,registered,unenrolled:Math.max(0,registered-(focus?.eligible||0)),
-   coverage:pct(sum.presentMemberDays,sum.eligibleMemberDays),noInRate:pct(sum.missingMemberDays,sum.eligibleMemberDays),
-   summary,startDay,endDay};
+   row.provisional=row.awolMembers.length;if(day>=startDay)rows.push(row);
+  }
+  const summary=rows.reduce((sum,row)=>{
+   sum.eligibleMemberDays+=row.eligible;sum.presentMemberDays+=row.present;sum.missingMemberDays+=row.noIn;
+   sum.leaveMemberDays+=row.leave;sum.awolMemberDays+=row.provisional;sum.hours+=row.hours;sum.complete+=row.complete;
+   sum.open+=row.open;sum.noTimeOut+=row.noTimeOut;sum.lateCount+=row.lateCount;sum.lateMinutes+=row.lateMinutes;return sum;
+  },{...emptySummary});
+  summary.awolCount=new Set(rows.flatMap(r=>r.awolMembers.map(m=>String(m.id)))).size;
+  const focus=rows[rows.length-1]||null,registered=all.filter(m=>!ph(m.createdAt)||ph(m.createdAt)<=endDay).length;
+  return {rows,focus,registered,unenrolled:Math.max(0,registered-eligible.length),coverage:pct(summary.presentMemberDays,summary.eligibleMemberDays),
+   noInRate:pct(summary.missingMemberDays,summary.eligibleMemberDays),summary,startDay,endDay};
  }
  function potentialOvertime(rows,{from='',to='',coop='',platform='',site=''}={},account=null){
   const scoped=(rows||[]).filter(row=>{
@@ -165,23 +147,19 @@ window.TIPONAbsenteeism=(()=>{
   return svg+'</svg>';
  }
  function reviewRecords(data,syncVerified){
-  const records=new Map();
-  const add=(member,day,flag,sessionId='')=>{
-   if(!member)return;
-   const key=[String(member.id),day,flag,sessionId].join('|');
-   if(!records.has(key))records.set(key,{member,day,flag});
-  };
+  const records=[];
+  const add=(member,row,flag,extra={})=>records.push({member,day:row.day,flag,plan:row.plans?.get(String(member.id))||{},syncVerified,...extra});
   for(const row of data.rows){
    const awol=new Set(row.awolMembers.map(m=>String(m.id)));
-   row.outOnlyMembers.forEach(member=>add(member,row.day,'Absent'));
-   row.missing.forEach(member=>add(member,row.day,awol.has(String(member.id))?'AWOL':'Absent'));
-   row.openSessions.forEach(session=>add(session.member,ph(new Date(session.start).toISOString()),'Open Time In',session.sessionId));
+   row.outOnlyMembers.forEach(member=>add(member,row,'Missing Time In'));
+   row.missing.forEach(member=>add(member,row,awol.has(String(member.id))?'AWOL':'Absent'));
+   (row.lateMembers||[]).forEach(item=>add(item.member,row,'Late',{lateMinutes:item.minutes,timeIn:new Date(item.first).toISOString()}));
+   (row.overdueSessions||[]).forEach(session=>add(session.member,row,'No Time Out',{sessionId:session.sessionId,timeIn:new Date(session.start).toISOString()}));
   }
-  return [...records.values()].sort((a,b)=>b.day.localeCompare(a.day)||
-   String(a.member.name||'').localeCompare(String(b.member.name||''))||a.flag.localeCompare(b.flag));
+  return records.sort((a,b)=>b.day.localeCompare(a.day)||String(a.member.name||'').localeCompare(String(b.member.name||''))||a.flag.localeCompare(b.flag));
  }
  function renderEmpty({from='',to='',coop='',allHistory=false}={}){
-  reviewPage=1;
+  reviewPage=1;lastReviewRecords=[];lastRenderDataKey='';lastRenderedPage=0;if($('absReviewExport'))$('absReviewExport').disabled=true;
   const period=allHistory?'All available history':from===to?'Date: '+from:'Date range: '+from+' to '+to;
   $('absPeriod').textContent=period+' · '+(coop||'All Cooperatives')+' · No recorded attendance';
   const lastSync=window.TIPONSync?.lastSuccessfulSync?.()||'';
@@ -189,10 +167,11 @@ window.TIPONAbsenteeism=(()=>{
     lastSync?'Last Sync: '+lastSync:'Sync required — records may be incomplete';
   $('absKPIs').innerHTML=[
     kpi('Missing Time In','0%','0 unverified members','red'),
-    kpi('Headcount Coverage','0%','0 of 0 enrolled members','blue'),
+    kpi('Scheduled Coverage','0%','0 of 0 enrolled members','blue'),
     kpi('Validated Manhours','0.0 h','0 completed shifts','teal'),
     kpi('Potential Overtime','0.00 h','0 member-days above 8 h','teal'),
-    kpi('Open Time Ins',0,'0 open sessions','orange'),
+    kpi('Late Arrivals',0,'0 scheduled late arrivals','orange'),
+    kpi('No Time Out',0,'No overdue sessions','orange'),
     kpi('AWOL COUNT',0,'No attendance data for the selected filter','red')
   ].join('');
   // No activity means no inferred absence, AWOL, or roster headcount.
@@ -201,7 +180,7 @@ window.TIPONAbsenteeism=(()=>{
   $('absDonut').setAttribute('aria-label','No attendance records for the selected filters');
   $('absStatusLegend').innerHTML='';
   $('absReviewCount').textContent='';
-  $('absReviewRows').innerHTML='<tr><td colspan="5">No attendance records for the selected filters.</td></tr>';
+  $('absReviewRows').innerHTML='<tr><td colspan="8">No attendance records for the selected filters.</td></tr>';
   $('absReviewMore').textContent='Showing 0 review records';
   $('absReviewPrev').disabled=true;$('absReviewNext').disabled=true;
   $('absReviewPage').textContent='Page 1 of 1';
@@ -212,7 +191,16 @@ window.TIPONAbsenteeism=(()=>{
   if(filterKey!==lastFilterKey){reviewPage=1;lastFilterKey=filterKey;}
   if(!valid){invalid();return;}
   if(!state.user||!['admin','registrar'].includes(state.user.role)||!$('absPanel'))return;
-  if(noData){renderEmpty({from,to,coop,allHistory});return;}
+  if(noData&&!(state.members||[]).some(m=>!m.deleted&&m.active!==false&&(!coop||m.coop===coop)&&(m.workSchedule?.enabled||(state.sites||[]).find(s=>s.id===m.siteId)?.schedule?.enabled))){renderEmpty({from,to,coop,allHistory});return;}
+  // Hash record metadata only. Large biometric payloads are not report inputs.
+  const dataKey=JSON.stringify([filterKey,Math.floor(Date.now()/60000),
+   (state.members||[]).map(m=>[m.id,m.memberNumber,m.name,m.coop,m.platform,m.active,m.deleted,m.createdAt,m.siteId,m.siteIds,m.workSchedule,m.rev]),
+   (state.sites||[]).map(s=>[s.id,s.schedule,s.rev]),
+   (state.punches||[]).map(e=>[e.id,e.memberId,e.type,e.sessionId,e.siteId,e.coop,e.platform,e.timestamp,e.deleted,e.reviewStatus]),state.schedules]);
+  if(dataKey===lastRenderDataKey&&reviewPage===lastRenderedPage){
+   const sync=window.TIPONSync?.lastSuccessfulSync?.()||'';
+   $('absConnection').textContent=!navigator.onLine?'Offline — records may be incomplete':sync?'Last Sync: '+sync:'Sync required — records may be incomplete';return;
+  }
   const data=compute(state.members,state.sites,state.punches,state.schedules,to,coop,Date.now(),from,platform,site);
   const focus=data.focus,summary=data.summary;
   if(!focus){renderEmpty({from,to,coop,allHistory});return;}
@@ -230,18 +218,19 @@ window.TIPONAbsenteeism=(()=>{
   const missingNote=rangeSelected?summary.missingMemberDays+' unverified member-day(s) in period':
     focus.noIn+' unverified member(s) on '+focus.day;
   const coverageNote=rangeSelected?summary.presentMemberDays+' of '+summary.eligibleMemberDays+' eligible member-days':
-    focus.present+' of '+focus.eligible+' enrolled members on '+focus.day;
+    focus.present+' of '+focus.eligible+' scheduled members on '+focus.day;
   $('absKPIs').innerHTML=[
    kpi('Missing Time In',fmt(noInValue)+'%',missingNote,'red'),
-   kpi('Headcount Coverage',fmt(coverageValue)+'%',coverageNote,'blue'),
+   kpi('Scheduled Coverage',fmt(coverageValue)+'%',coverageNote,'blue'),
    kpi('Validated Manhours',fmt(Math.round(summary.hours*10)/10)+' h',summary.complete+' completed shifts in selected period','teal'),
    kpi('Potential Overtime',new Intl.NumberFormat('en-PH',{minimumFractionDigits:2,maximumFractionDigits:2}).format(overtime.minutes/60)+' h',
     overtime.memberDays+' member-day(s) above 8 h; estimate only, before break adjustments','teal'),
-   kpi('Open Time Ins',summary.open,'Open sessions in selected period','orange'),
-   kpi('AWOL COUNT',summary.awolCount,'3+ consecutive days with no recorded time; verify before action','red')
+   kpi('Late Arrivals',summary.lateCount,summary.lateMinutes+' late minute(s), after schedule grace','orange'),
+   kpi('No Time Out',summary.noTimeOut,'Missing Time Out after scheduled shift end','orange'),
+   kpi('AWOL COUNT',summary.awolCount,'3+ scheduled workdays absent; provisional, review required','red')
   ].join('');
-  $('absHeadcount').innerHTML=chart(data.rows,'head');
-  $('absHours').innerHTML=chart(data.rows,'hours');
+  $('absHeadcount').innerHTML=chart(data.rows.slice(-60),'head');
+  $('absHours').innerHTML=chart(data.rows.slice(-60),'hours');
   const percent1=pct(focus.present,focus.eligible),percent2=pct(focus.noIn,focus.eligible);
   $('absDonut').style.background=focus.eligible?'conic-gradient(#167bda 0% '+percent1+'%,#e36d64 '+percent1+'% '+(percent1+percent2)+'%,#9bafc5 '+(percent1+percent2)+'% 100%)':'#e6edf5';
   $('absDonut').setAttribute('aria-label',focus.present+' present, '+focus.noIn+' with no Time In, '+focus.leave+' approved rest or leave');
@@ -249,21 +238,23 @@ window.TIPONAbsenteeism=(()=>{
   $('absStatusLegend').innerHTML=[
    ['#167bda','With Time In',focus.present],['#e36d64','Time In Unverified',focus.noIn],['#9bafc5','Rest / Leave',focus.leave]
   ].map(([color,label,count])=>'<div class="ab-legend-row"><i style="background:'+color+'"></i><span>'+escape(label)+'</span><b>'+count+'</b></div>').join('')+
-   '<p class="ab-small">'+data.unenrolled+' registered member(s) not yet eligible for face attendance.</p>';
-  const review=reviewRecords(data,syncVerified),totalPages=Math.max(1,Math.ceil(review.length/PAGE_SIZE));
+   '<p class="ab-small">'+data.unenrolled+' inactive registered member(s) excluded from scheduled attendance metrics.</p>';
+  const review=reviewRecords(data,syncVerified);lastReviewRecords=review;if($('absReviewExport'))$('absReviewExport').disabled=!review.length;
+  const totalPages=Math.max(1,Math.ceil(review.length/PAGE_SIZE));
   reviewPage=Math.max(1,Math.min(reviewPage,totalPages));
   const offset=(reviewPage-1)*PAGE_SIZE,visible=review.slice(offset,offset+PAGE_SIZE);
   $('absReviewCount').textContent='';
   $('absReviewRows').innerHTML=visible.length?visible.map(item=>
-   '<tr><td>'+escape(item.member.memberNumber||item.member.id)+'</td><td>'+escape(item.member.name)+'</td><td>'+escape(item.member.coop)+'</td><td>'+escape(item.day)+'</td><td><span class="ab-flag">'+escape(item.flag)+'</span></td></tr>'
-  ).join(''):'<tr><td colspan="5">No attendance discrepancies in the available records.</td></tr>';
+   '<tr><td>'+escape(item.member.memberNumber||item.member.id)+'</td><td>'+escape(item.member.name)+'</td><td>'+escape(item.member.coop)+'</td><td>'+escape(item.day)+'</td><td>'+escape(item.plan.kind==='REQUIRED'&&Number.isFinite(item.plan.start)&&Number.isFinite(item.plan.end)?TIPONCore.phStamp(new Date(item.plan.start).toISOString()).slice(-8)+' – '+TIPONCore.phStamp(new Date(item.plan.end).toISOString()).slice(-8):'—')+'</td><td>'+escape(item.timeIn?TIPONCore.phStamp(item.timeIn).slice(-8):'—')+'</td><td>'+escape(item.lateMinutes||'—')+'</td><td><span class="ab-flag">'+escape(item.flag)+'</span></td></tr>'
+  ).join(''):'<tr><td colspan="8">No attendance discrepancies in the available records.</td></tr>';
   $('absReviewMore').textContent='Showing '+(review.length?offset+1:0)+'–'+Math.min(offset+PAGE_SIZE,review.length)+' of '+review.length+' review records';
   $('absReviewPrev').disabled=reviewPage<=1;$('absReviewNext').disabled=reviewPage>=totalPages;
-  $('absReviewPage').textContent='Page '+reviewPage+' of '+totalPages;
+  $('absReviewPage').textContent='Page '+reviewPage+' of '+totalPages;lastRenderDataKey=dataKey;lastRenderedPage=reviewPage;
  }
  function invalid(){
+  lastRenderDataKey='';lastRenderedPage=0;lastReviewRecords=[];if($('absReviewExport'))$('absReviewExport').disabled=true;
   if($('absKPIs'))$('absKPIs').innerHTML='<p class="ab-empty">Select a valid date range before viewing attendance analytics.</p>';
-  if($('absReviewRows'))$('absReviewRows').innerHTML='<tr><td colspan="5">Select a valid date range.</td></tr>';
+  if($('absReviewRows'))$('absReviewRows').innerHTML='<tr><td colspan="8">Select a valid date range.</td></tr>';
   if($('absReviewMore'))$('absReviewMore').textContent='Showing 0 review records';
   if($('absReviewPrev'))$('absReviewPrev').disabled=true;if($('absReviewNext'))$('absReviewNext').disabled=true;
  }
@@ -278,12 +269,27 @@ window.TIPONAbsenteeism=(()=>{
   }catch(error){showToast('Sync was not completed: '+(error.message||error),'error',9000);}
   finally{btn.disabled=false;btn.textContent='Sync Now';}
  }
+ function reviewCsv(records){
+  const cell=value=>'"'+String(value??'').replace(/^[=+@\-\t\r]/,v=>"'"+v).replace(/"/g,'""')+'"';
+  const header=['Member ID','Member Name','Cooperative','Work Date','Scheduled Start','Scheduled End','Time In','Late Minutes','Review Flag','Verification'];
+  const rows=(records||[]).map(item=>[item.member.memberNumber||item.member.id,item.member.name,item.member.coop,item.day,
+   Number.isFinite(item.plan.start)?TIPONCore.phStamp(new Date(item.plan.start).toISOString()):'',
+   Number.isFinite(item.plan.end)?TIPONCore.phStamp(new Date(item.plan.end).toISOString()):'',
+   item.timeIn?TIPONCore.phStamp(item.timeIn):'',item.lateMinutes||'',item.flag,'Provisional - human review required']);
+  return [header,...rows].map(row=>row.map(cell).join(',')).join('\r\n');
+ }
+ function exportReview(){
+  if(!lastReviewRecords.length)return;
+  const url=URL.createObjectURL(new Blob(['\ufeff'+reviewCsv(lastReviewRecords)],{type:'text/csv;charset=utf-8'})),link=document.createElement('a');
+  link.href=url;link.download='TIPON_Attendance_Review.csv';link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
+ }
  function bind(){
+  const exportButton=$('absReviewExport');if(exportButton&&!exportButton.dataset.bound){exportButton.dataset.bound='1';exportButton.addEventListener('click',exportReview);}
   const sync=$('absSyncNow');if(sync&&!sync.dataset.bound){sync.dataset.bound='1';sync.addEventListener('click',syncNow);}
   const previous=$('absReviewPrev'),next=$('absReviewNext');
   if(previous&&!previous.dataset.bound){previous.dataset.bound='1';previous.addEventListener('click',()=>{reviewPage=Math.max(1,reviewPage-1);render(lastFilters);});}
   if(next&&!next.dataset.bound){next.dataset.bound='1';next.addEventListener('click',()=>{reviewPage++;render(lastFilters);});}
  }
  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',bind,{once:true});else bind();
- return {compute,reviewRecords,potentialOvertime,render,invalid};
+ return {compute,reviewRecords,reviewCsv,potentialOvertime,render,invalid};
 })();

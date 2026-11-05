@@ -161,7 +161,11 @@ function applySharedAttendanceFilters(source='dashboard',render=true){
  if($('recordFrom'))$('recordFrom').value=f.from;if($('recordTo'))$('recordTo').value=f.to;if($('recordSite'))$('recordSite').value=f.site;
  if(render){state.attendancePage=1;renderDashboard();renderTerminalLogs();renderRecords();}
 }
-function resetSharedAttendanceFilters(){Object.keys(sharedAttendanceFilters).forEach(k=>sharedAttendanceFilters[k]='');applySharedAttendanceFilters('dashboard',true);}
+function resetSharedAttendanceFilters(render=true){
+ Object.keys(sharedAttendanceFilters).forEach(k=>sharedAttendanceFilters[k]='');
+ for(const id of ['dashboardFrom','dashboardTo','dashboardCoop','terminalLogFrom','terminalLogTo','terminalLogCoop','terminalLogPlatform','terminalLogSite','recordFrom','recordTo','recordSite'])if($(id))$(id).value='';
+ applySharedAttendanceFilters('dashboard',render);
+}
 
 function validateAttendanceDateRange(fromId,toId,errorId,actionId=''){
  const fromField=$(fromId),toField=$(toId),error=$(errorId);
@@ -575,9 +579,9 @@ async function persistMemberForm(){
   if(!changed){$('memberDialog').close();return;}
   if(old._pendingOp){showToast('This member already has a pending change. Sync before editing again.','error');return;}
   const openSession=TIPONOrgCore.project(state.punches.filter(p=>!p.deleted&&!p.reviewStatus)).some(r=>String(r.memberId)===String(id)&&r.timeIn&&!r.timeOut);
-  const assignmentChanged=memberNumber!==(old.memberNumber||old.id)||name!==old.name||coop!==old.coop||
+  const assignmentChanged=coop!==old.coop||
    TIPONOrgCore.platformKey(platform)!==TIPONOrgCore.platformKey(old.platform)||!sameSites;
-  if(openSession&&assignmentChanged){showToast('Complete Time Out before editing member details or Assigned Location. Weekly Work Schedule alone can be updated.','error');return;}
+  if(openSession&&assignmentChanged){showToast('Complete Time Out before changing the Cooperative, Business Platform or Assigned Work Location.','error');return;}
   const submit=$('memberForm').querySelector('[type="submit"]');if(submit)submit.disabled=true;
   try{
    const result=await saveMemberMetadata(old,{name,coop,platform,siteIds,memberNumber,workSchedule});

@@ -463,7 +463,7 @@ test('Published assets share one release version and pagination controls cannot 
   assert.ok(source('polish.css').includes('#adminMemberDialog input'));
   const reviewStart=html.indexOf('<div class="ab-review-heading">'),reviewEnd=html.indexOf('</section>',reviewStart),review=html.slice(reviewStart,reviewEnd);
   assert.equal(review.includes('<th>Action</th>'),false);
-  assert.equal(review.includes('<th>Date</th>'),true);
+  assert.equal(review.includes('<th>Work Date</th>'),true);
   assert.match(review,/id="absReviewPrev"/);
   assert.match(review,/id="absReviewNext"/);
   assert.match(source('app.js'),/const SCAN_DELAY_MS=320;/);
@@ -714,7 +714,7 @@ test('Absenteeism dashboard removes BP while retaining all eight MPC options',()
  const ctx={TIPONOrgCore:Org,$:()=>el,esc:v=>v};
  vm.runInNewContext(org.slice(from,to)+';fillCoopSelect("dashboardCoop",true);',ctx);
  for(const coop of Org.COOPS)assert.ok(el.innerHTML.includes('<option value="'+coop+'">'+coop+'</option>'),coop);
- assert.ok(el.innerHTML.includes('<option value="">All cooperatives</option>'));
+ assert.ok(el.innerHTML.includes('<option value="">Select cooperative</option>'));
 });
 
 test('Mobile workspace restores the pre-regression bottom navigation and content layout',()=>{
@@ -1020,7 +1020,7 @@ test('Empty date/MPC filters zero all Absenteeism KPIs, charts, donut and review
  c.TIPONAbsenteeism.render({from:'2026-10-14',to:'2026-10-14',coop:'Asiapro',allHistory:false,noData:true});
  assert.match(element('absKPIs').innerHTML,/Missing Time In/);
  assert.match(element('absKPIs').innerHTML,/0\.00 h/);
- assert.match(element('absKPIs').innerHTML,/Headcount Coverage/);
+ assert.match(element('absKPIs').innerHTML,/Scheduled Coverage/);
  assert.equal(element('absDonutNumber').textContent,'0');
  assert.equal(element('absHeadcount').innerHTML,'');
  assert.equal(element('absHours').innerHTML,'');
@@ -1035,7 +1035,7 @@ test('Empty date/MPC filters zero all Absenteeism KPIs, charts, donut and review
  assert.match(org,/\{coop,members:0,complete:0,missing:0\}/);
  assert.match(source('index.html'),/id="absReviewCount" hidden/);
 });
-test('Review flags: Absent without IN, Open Time In without OUT, AWOL after 3 consecutive no-time days',()=>{
+test('Review flags follow completed scheduled workdays and overdue Time Out',()=>{
  const people=[
   {id:'absent',name:'Missing',coop:'Asiapro',template:{},active:true,createdAt:'2026-10-27T00:00:00Z'},
   {id:'open',name:'Open',coop:'Asiapro',template:{},active:true,createdAt:'2026-10-27T00:00:00Z'},
@@ -1049,7 +1049,7 @@ test('Review flags: Absent without IN, Open Time In without OUT, AWOL after 3 co
   {...event('paired-out','OUT','2026-10-29T08:00:00Z'),memberId:'paired',sessionId:'paired'}
  ];
  const c={Date,Map,Set,Number,Math,Intl,state:{user:{role:'admin'}},
-  TIPONOrgCore:{scheduled:()=>({kind:'UNSCHEDULED'}),platformKey:Org.platformKey},
+  TIPONOrgCore:{scheduled:(member,site,day)=>({kind:'REQUIRED',start:Date.parse(day+'T01:00:00Z'),deadline:Date.parse(day+'T01:00:00Z'),end:Date.parse(day+'T09:00:00Z')}),platformKey:Org.platformKey},
   document:{readyState:'loading',addEventListener(){},getElementById:()=>null}};
  c.window=c;vm.createContext(c);vm.runInContext(source('absenteeism.js'),c);
  const data=c.TIPONAbsenteeism.compute(people,[],events,[],'2026-10-29','Asiapro',
@@ -1057,7 +1057,7 @@ test('Review flags: Absent without IN, Open Time In without OUT, AWOL after 3 co
  const rows=c.TIPONAbsenteeism.reviewRecords(data,false);
  assert.equal(rows.find(x=>x.member.id==='absent'&&x.day==='2026-10-29').flag,'AWOL');
  assert.equal(rows.find(x=>x.member.id==='absent'&&x.day==='2026-10-27').flag,'Absent');
- assert.equal(rows.find(x=>x.member.id==='open'&&x.day==='2026-10-29').flag,'Open Time In');
+ assert.equal(rows.find(x=>x.member.id==='open'&&x.day==='2026-10-29').flag,'No Time Out');
  assert.ok(!rows.some(x=>x.member.id==='paired'&&x.day==='2026-10-29'));
  assert.equal(data.summary.awolCount,1);
  assert.equal(data.summary.open,1);
@@ -1067,9 +1067,9 @@ test('Review flags: Absent without IN, Open Time In without OUT, AWOL after 3 co
  const extraData=c.TIPONAbsenteeism.compute(people,[],noTimeOutOnly,[],'2026-10-29','Asiapro',
   Date.parse('2026-10-29T12:00:00Z'),'2026-10-27');
  const extra=c.TIPONAbsenteeism.reviewRecords(extraData,false);
- assert.equal(extra.find(x=>x.member.id==='absent'&&x.day==='2026-10-29').flag,'Absent');
+ assert.equal(extra.find(x=>x.member.id==='absent'&&x.day==='2026-10-29').flag,'Missing Time In');
  assert.equal(extraData.summary.awolCount,0);
- c.TIPONOrgCore.scheduled=(member,site,day)=>member.id==='absent'&&day==='2026-10-28'?{kind:'LEAVE'}:{kind:'UNSCHEDULED'};
+ c.TIPONOrgCore.scheduled=(member,site,day)=>member.id==='absent'&&day==='2026-10-28'?{kind:'LEAVE'}:{kind:'REQUIRED',start:Date.parse(day+'T01:00:00Z'),deadline:Date.parse(day+'T01:00:00Z'),end:Date.parse(day+'T09:00:00Z')};
  const excused=c.TIPONAbsenteeism.compute(people,[],events,[],'2026-10-29','Asiapro',
   Date.parse('2026-10-29T12:00:00Z'),'2026-10-27');
  assert.equal(c.TIPONAbsenteeism.reviewRecords(excused,false).find(x=>x.member.id==='absent'&&x.day==='2026-10-29').flag,'Absent');
@@ -1174,14 +1174,11 @@ test('Edit Attendance remains responsive while server sync runs and never claims
  assert.match(html,/id="attendanceEditDateOut"/);
  assert.match(html,/id="attendanceEditTimeOut"/);
 });
-test('Attendance Review uses correctly worded status flags without changing underlying policy',()=>{
+test('Attendance Review labels explain schedule-based provisional review',()=>{
  const report=source('absenteeism.js'),html=source('index.html');
- assert.match(report,/row\.outOnlyMembers\.forEach\(member=>add\(member,row\.day,'Absent'\)\)/);
- assert.match(report,/\?'AWOL':'Absent'/);
- assert.match(report,/,'Open Time In',session\.sessionId\)/);
- assert.doesNotMatch(report,/flag,'ABSENT'/);
- assert.match(html,/Absent: no Time In recorded/);
- assert.match(html,/Open Time In: Time In recorded, but no valid Time Out/);
+ assert.match(report,/row.lateMembers/);assert.match(report,/No Time Out/);
+ assert.match(html,/3 consecutive scheduled workdays/);assert.match(html,/provisional flags for human review/);
+ assert.match(html,/Export Review CSV/);
 });
 
 
@@ -1835,4 +1832,94 @@ test('Work Location deletion surfaces the server rejection and preserves the rec
  ctx.window=ctx;vm.createContext(ctx);vm.runInContext(source('sync.js').replace('return {init,start,stop,kick','return {__flush:flush,init,start,stop,kick'),ctx);
  await ctx.TIPONSync.__flush();assert.equal(calls,1);assert.equal(tables.sites[0].deleted,false);assert.equal(op.error,'Location still has assigned members');assert.equal(op.errorCode,'NEEDS_REVIEW');
  op.errorCode='SERVER';op.nextRetryAt=Date.now()+60000;await ctx.TIPONSync.__flush();assert.equal(calls,1,'failed writes honor the retry deadline');
+});
+
+function scheduleAnalytics(){
+ const ctx={Date,Map,Set,Number,Math,Intl,TIPONOrgCore:Org,TIPONCore:Core,document:{readyState:'loading',addEventListener(){},getElementById:()=>null}};
+ ctx.window=ctx;vm.createContext(ctx);vm.runInContext(source('absenteeism.js'),ctx);return ctx.TIPONAbsenteeism;
+}
+const scheduledPerson=(id='scheduled')=>({id,name:'Synthetic scheduled member',coop:'Asiapro',platform:'IMG',active:true,createdAt:'2026-11-05T00:00:00Z',workSchedule:{enabled:true,days:[1,2,3,4,5],start:'08:00',end:'17:00',grace:5}});
+test('AWOL counts three completed scheduled workdays across a weekend and skips unscheduled members',()=>{
+ const api=scheduleAnalytics(),m=scheduledPerson(),unscheduled={...scheduledPerson('unscheduled'),workSchedule:null};
+ const data=api.compute([m,unscheduled],[],[],[],'2026-11-10','Asiapro',Date.parse('2026-11-10T12:00:00Z'),'2026-11-05');
+ const flags=api.reviewRecords(data,true);assert.equal(data.summary.awolCount,1);
+ assert.ok(flags.some(r=>r.day==='2026-11-09'&&r.flag==='AWOL'));
+ assert.ok(!flags.some(r=>r.day==='2026-11-07'||r.day==='2026-11-08'||r.member.id==='unscheduled'));
+ const leave=[{memberId:m.id,date:'2026-11-09',status:'LEAVE'}];
+ const excused=api.compute([m],[],[],leave,'2026-11-10','Asiapro',Date.parse('2026-11-10T12:00:00Z'),'2026-11-05');
+ assert.equal(excused.summary.awolCount,0,'approved leave breaks the absent-workday streak');
+});
+test('Late uses first Time In and grace; an ongoing shift is not No Time Out',()=>{
+ const api=scheduleAnalytics(),m=scheduledPerson(),input={...event('late-in','IN','2026-11-05T00:06:01Z'),memberId:m.id};
+ const active=api.compute([m],[],[input],[],'2026-11-05','Asiapro',Date.parse('2026-11-05T04:00:00Z'),'2026-11-05');
+ assert.equal(active.summary.lateCount,1);assert.equal(active.summary.lateMinutes,2);assert.equal(active.summary.noTimeOut,0);
+ const finished=api.compute([m],[],[input],[],'2026-11-05','Asiapro',Date.parse('2026-11-05T10:00:00Z'),'2026-11-05');
+ assert.equal(finished.summary.noTimeOut,1);assert.ok(api.reviewRecords(finished,true).some(r=>r.flag==='No Time Out'));
+ const csv=api.reviewCsv(api.reviewRecords(finished,true));assert.match(csv,/Late Minutes/);assert.match(csv,/Provisional - human review required/);
+});
+test('Overnight Time In after midnight belongs to the scheduled workday',()=>{
+ const api=scheduleAnalytics(),m={...scheduledPerson(),createdAt:'2026-11-02T00:00:00Z',workSchedule:{enabled:true,days:[1],start:'22:00',end:'06:00',grace:0}};
+ const events=[{...event('night-in','IN','2026-11-02T16:00:00Z'),memberId:m.id},{...event('night-out','OUT','2026-11-02T21:59:00Z'),memberId:m.id}];
+ const data=api.compute([m],[],events,[],'2026-11-03','Asiapro',Date.parse('2026-11-03T00:00:00Z'),'2026-11-02');
+ assert.equal(data.rows[0].present,1);assert.equal(data.rows[0].complete,1);assert.equal(data.rows[0].lateCount,1);assert.equal(data.rows[1].lateCount,0);
+ assert.equal(data.summary.noTimeOut,0);assert.equal(data.summary.awolCount,0);
+});
+test('Reset Filters clears stale form values before propagating shared filters',()=>{
+ const app=source('app.js'),start=app.indexOf('function resetSharedAttendanceFilters('),end=app.indexOf('function validateAttendanceDateRange(',start);
+ const fields=new Map(['dashboardFrom','dashboardTo','dashboardCoop','terminalLogFrom','terminalLogTo','terminalLogCoop','terminalLogPlatform','terminalLogSite','recordFrom','recordTo','recordSite'].map(id=>[id,{value:'stale'}]));
+ const filters={from:'2026-11-01',to:'2026-11-05',coop:'Asiapro',platform:'IMG',site:'site-1'};
+ const c={sharedAttendanceFilters:filters,$:id=>fields.get(id),applySharedAttendanceFilters:()=>{assert.ok([...fields.values()].every(f=>f.value===''));}};
+ vm.createContext(c);vm.runInContext(app.slice(start,end),c);c.resetSharedAttendanceFilters();assert.ok(Object.values(filters).every(x=>x===''));
+});
+test('Member name/schedule edits work during an open shift while assignment changes remain blocked',()=>{
+ const {ctx,members,events}=metadataBackend();events.push({...event('open-meta','IN','2026-11-05T00:00:00Z'),memberId:'metadata-1'});
+ const changes={memberNumber:'000123',name:'Corrected synthetic name',coop:'Asiapro',platform:'IMG',siteIds:['site-1']};
+ const response=ctx.tp5AdminMemberUpdateV2_({role:'admin'},{memberId:'metadata-1',baseRev:2,changes});
+ assert.equal(response.member.name,changes.name);assert.equal(members[0].rev,3);
+ const second=metadataBackend();second.events.push({...event('open-other','IN','2026-11-05T00:00:00Z'),memberId:'metadata-1'});
+ second.ctx.tp5LocationIds_=()=>['different-site'];
+ assert.throws(()=>second.ctx.tp5AdminMemberUpdateV2_({role:'admin'},{memberId:'metadata-1',baseRev:2,changes:{...changes,siteIds:['different-site']}}),e=>e.code==='OPEN_SESSION');
+});
+function duplicateSitesBackend(open=false){
+ const sites=[{id:'primary',name:'Synthetic Coworking',coop:'Asiapro',platform:'IMG',lat:14.5754940,lng:121.0629207,radius:150,createdAt:'2026-01-01',rev:1},
+  {id:'duplicate',name:' Synthetic Coworking ',coop:'Asiapro',platform:'IMG',lat:14.5753484,lng:121.0631265,radius:150,createdAt:'2026-02-01',rev:1}];
+ const members=[{id:'person',name:'Synthetic member',siteId:'duplicate',siteIds:['duplicate'],rev:1}],events=open?[{...event('open','IN','2026-11-05T00:00:00Z'),memberId:'person',siteId:'duplicate'}]:[],tokens=[],audit=[];
+ const tables={sites,members,users:[],tokens},ctx={TIPONOrgCore:Org,Set,Map,Date,Number,
+  tp5Admin_:a=>{if(a.role!=='admin')throw Error('Admin required');},tp5Read_:type=>tables[type],tp5AllEvents_:()=>events,tp5ApplyAttendanceCorrections_:x=>x,
+  tp5Must_:(ok,message,code)=>{if(!ok)throw Object.assign(Error(message),{code});},tp5Now_:()=>new Date().toISOString(),tp5Put_:(type,next)=>Object.assign(tables[type].find(v=>v.id===next.id),next),tp5Audit_:(...args)=>audit.push(args),tp5Bump_(){},tp5RefreshMemberDirectory_(){},SpreadsheetApp:{flush(){}}};
+ vm.createContext(ctx);vm.runInContext(source('backend-patch/SiteDuplicates.gs'),ctx);return {ctx,sites,members,events,tokens,audit};
+}
+test('Duplicate location merge preserves member assignments and historical events, and is idempotent',()=>{
+ const f=duplicateSitesBackend();
+ // Prefer the older primary by making both records equally referenced.
+ f.members.push({id:'person2',siteId:'primary',siteIds:['primary'],rev:1});
+ const before=JSON.stringify(f.events),result=f.ctx.tp5MergeDuplicateWorkLocations_({role:'admin'},false);
+ assert.equal(result.merged,1);assert.equal(result.reassigned,1);assert.equal(f.members[0].siteId,'primary');
+ assert.equal(f.sites[1].deleted,true);assert.equal(f.sites[1].mergedIntoSiteId,'primary');assert.equal(JSON.stringify(f.events),before);
+ assert.equal(f.ctx.tp5MergeDuplicateWorkLocations_({role:'admin'},false).merged,0);
+ const resolved=f.ctx.tp5AttendanceSite_(f.sites,'duplicate');assert.equal(resolved.id,'duplicate');assert.equal(resolved._canonicalSiteId,'primary');
+ assert.throws(()=>f.ctx.tp5AssertUniqueWorkLocation_({...f.sites[0],id:'new'}),e=>e.code==='DUPLICATE');
+});
+test('Duplicate cleanup skips open sessions and never groups other scopes or distant places',()=>{
+ const f=duplicateSitesBackend(true);f.members.push({id:'other',siteId:'primary',siteIds:['primary'],rev:1});
+ const result=f.ctx.tp5MergeDuplicateWorkLocations_({role:'admin'},false);assert.equal(result.merged,0);assert.equal(result.blocked.length,1);
+ assert.equal(f.ctx.tp5SameWorkLocation_(f.sites[0],{...f.sites[1],platform:'OCG'}),false);
+ assert.equal(f.ctx.tp5SameWorkLocation_(f.sites[0],{...f.sites[1],lat:15}),false);
+ assert.equal(f.sites.some(s=>s.deleted),false);
+});
+
+test('Review CSV escapes spreadsheet formulas and preserves full review rows',()=>{
+ const api=scheduleAnalytics(),csv=api.reviewCsv([{member:{id:'000123',name:'=1+1',coop:'Asiapro'},day:'2026-11-05',plan:{},flag:'AWOL'}]);
+ assert.match(csv,/"000123"/);assert.match(csv,/"'=1\+1"/);assert.equal(csv.split('\r\n').length,2);
+});
+test('Retired site aliases cannot cross scope or move the approved geofence far away',()=>{
+ const f=duplicateSitesBackend();f.sites[1].deleted=true;f.sites[1].mergedIntoSiteId='primary';
+ assert.ok(f.ctx.tp5AttendanceSite_(f.sites,'duplicate'));
+ f.sites[1].platform='OCG';assert.equal(f.ctx.tp5AttendanceSite_(f.sites,'duplicate'),null);
+ f.sites[1].platform='IMG';f.sites[1].lat=15;assert.equal(f.ctx.tp5AttendanceSite_(f.sites,'duplicate'),null);
+});
+test('Duplicate cleanup preview does not mutate assignments or location rows',()=>{
+ const f=duplicateSitesBackend(),before=JSON.stringify([f.sites,f.members,f.events]);
+ const preview=f.ctx.tp5MergeDuplicateWorkLocations_({role:'admin'},true);
+ assert.equal(preview.groups,1);assert.equal(preview.merged,0);assert.equal(JSON.stringify([f.sites,f.members,f.events]),before);
 });

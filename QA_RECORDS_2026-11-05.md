@@ -26,3 +26,13 @@ Scope: attendance record management, member metadata, work locations, connectivi
 ## Release limits
 
 This is not a certification that every feature is production-ready or that sync is instantaneous. Sync requires the app to be open, a valid account lease/session and a reachable backend. First-time offline use needs prior online setup. No production records were created, edited or deleted solely for QA. Additional live UI and physical-device checks are required before declaring complete operational readiness.
+
+## v5.5.103 schedule-reporting review
+
+104 automated tests passed after adding coverage for scheduled AWOL across weekends, leave resetting the streak, grace-period lateness, active versus overdue open shifts, overnight work-date attribution, filter resets, safe review CSV, metadata-only edits during an open shift, duplicate previews/merges and retired-site scope checks. HTML IDs are unique; changed JavaScript files pass syntax checks.
+
+Frontend reports now use the saved weekly schedule. Attendance Review includes Late and overdue No Time Out alongside provisional AWOL/absence flags, scheduled hours, Time In and late minutes, with a CSV export. Charts draw at most 60 daily values and repeated unchanged renders are reused within the same minute. These changes do not certify instant network sync or personnel findings.
+
+Live preview found one merge candidate group and zero blockers. SiteDuplicates.gs and the updated MemberMetadata.gs were saved to the private project before browser access failed. A subsequent Code.gs change timed out and its saved state could not be confirmed. The browser then reported no connected browser. No actual duplicate merge was run; the latest confirmed backend deployment remains Version 4. The frontend push does not deploy Apps Script. Check current Code.gs, publish the compatible backend version and run the owner cleanup preview/merge before claiming live duplicate removal or the edit-guard fix is deployed. See backend-patch/README_SCHEDULE_REPORTS.md.
+
+Live Admin/User button flows, new dashboard visual layout and two-device offline/reconnect behavior remain unverified for this release because the browser disconnected. Face identification/enrollment remain outside this review.

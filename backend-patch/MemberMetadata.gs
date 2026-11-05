@@ -143,7 +143,9 @@ function tp5UserMemberTransferUpdateV2_(actor,q){
     !tp5SameLocations_(tp5OldLocations_(old),siteIds)||
     !tp5SameMemberScheduleV2_(old.workSchedule,workSchedule);
   if(!changed)return tp5Reply_({member:tp5Safe_(old),unchanged:true});
-  tp5Must_(!tp5MemberOpenSession_(old.id),
+  var assignmentChanged=coop!==old.coop||TIPONOrgCore.platformKey(platform)!==TIPONOrgCore.platformKey(old.platform)||
+    !tp5SameLocations_(tp5OldLocations_(old),siteIds);
+  tp5Must_(!assignmentChanged||!tp5MemberOpenSession_(old.id),
     'Complete Time Out before transferring this member.','OPEN_SESSION');
   var next=Object.assign({},old,{memberNumber:memberNumber,name:name,coop:coop,platform:platform,siteId:siteIds[0],siteIds:siteIds,
     workSchedule:workSchedule,workLocationReassignmentRequired:false,updatedAt:tp5Now_(),rev:Number(old.rev||0)+1});
@@ -198,7 +200,7 @@ function tp5AdminMemberUpdateV2_(actor,q){
   if(!scopeChanged&&!locationsChanged&&name===old.name&&memberNumber===(old.memberNumber||old.id)&&
      tp5SameMemberScheduleV2_(old.workSchedule,workSchedule))
     return tp5Reply_({member:tp5Safe_(old),unchanged:true});
-  tp5Must_(!tp5MemberOpenSession_(old.id),
+  tp5Must_(!(scopeChanged||locationsChanged)||!tp5MemberOpenSession_(old.id),
     'Complete open Time Out before editing the member scope or Assigned Location.','OPEN_SESSION');
   var next=Object.assign({},old,{memberNumber:memberNumber,name:name,coop:coop,platform:platform,
     siteId:siteIds[0]||'',siteIds:siteIds,workSchedule:workSchedule,

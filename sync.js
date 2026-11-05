@@ -246,7 +246,7 @@ window.TIPONSync=(()=>{
       const latest=await getOne('outbox',op.id);if(!latest)return;
       latest.error=String(error.message||error).slice(0,400);
       const code=String(error.code||'SERVER').toUpperCase();
-      latest.errorCode=['ACTION','FORBIDDEN','AUTHZ','PERMISSION','CONFLICT','NOT_FOUND','VALIDATION','OVERLAP','OPEN_SESSION'].includes(code)||
+      latest.errorCode=['ACTION','FORBIDDEN','AUTHZ','PERMISSION','CONFLICT','NOT_FOUND','VALIDATION','OVERLAP','OPEN_SESSION','DUPLICATE'].includes(code)||
         /only an approved user|permission denied|not authorized|revision conflict/i.test(latest.error)?'NEEDS_REVIEW':code;
       await OrgDB.rawSave('outbox',latest);
       if(op.type==='sites'){
