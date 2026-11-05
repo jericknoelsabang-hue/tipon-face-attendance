@@ -1,5 +1,5 @@
 {
   "app": "TIPON Face Attendance",
-  "version": "5.5.104",
-  "label": "Remove Enrolled By; open member metadata forms immediately and overlap cached password derivation with online login verification."
+  "version": "5.5.105",
+  "label": "Include Work Days, Work Start and Work End in the member CSV template and save the weekly schedule during import."
 }

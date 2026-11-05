@@ -1984,3 +1984,32 @@ test('Online authentication rejection cannot fall back to cached offline access'
  const f=loginPerformanceContext();f.ctx.TIPONAPI.raw=async payload=>{if(payload.action==='challenge')return {salt:'cached-salt'};throw Object.assign(Error('Account disabled'),{code:'AUTH'});};
  await f.ctx.login({preventDefault(){}});assert.equal(f.signed.length,0);assert.ok(f.messages.some(x=>/Account disabled/.test(x.text)));
 });
+
+function csvScheduleImportContext(){
+ const src=source('organization.js'),start=src.indexOf('const TIPON_MEMBER_CSV_HEADERS='),end=src.indexOf('async function importMemberCSV(',start),ctx={TIPONOrgCore:Org};
+ vm.createContext(ctx);vm.runInContext(src.slice(start,end)+'\nthis.headers=TIPON_MEMBER_CSV_HEADERS;',ctx);return ctx;
+}
+test('Member CSV includes Work Days/Start/End and parses day names, numbers and overnight hours',()=>{
+ const c=csvScheduleImportContext();
+ const rows=[Array.from(c.headers),['000123','Synthetic Member','Asiapro','IMG','Mon;Tue;Wed;Thu;Fri','8:00','6:30 PM']];
+ const member=c.prepareMemberImport(rows,[])[0];assert.equal(member.id,'000123');assert.deepEqual(Array.from(member.workSchedule.days),[1,2,3,4,5]);assert.equal(member.workSchedule.start,'08:00');assert.equal(member.workSchedule.end,'18:30');
+ const night=c.memberImportWorkSchedule('1,3,5','22:00','06:00',2);assert.equal(night.end,'06:00');
+ assert.deepEqual(Array.from(c.memberImportWorkSchedule('Sunday;Saturday','12:00 AM','12:00 PM',2).days),[0,6]);
+});
+test('Member CSV validates schedules before sending any row',()=>{
+ const c=csvScheduleImportContext();
+ for(const args of [['Mon;Mon','08:00','17:00'],['Holiday','08:00','17:00'],['','08:00','17:00'],['Mon','24:00','17:00'],['Mon','08:00','08:00']])assert.throws(()=>c.memberImportWorkSchedule(...args,2),/Row 2/);
+ assert.throws(()=>c.prepareMemberImport([['Member ID','Full name','Cooperative','Business platform'],['123','Synthetic','Asiapro','IMG']],[]),/seven-column/);
+});
+test('Backend member import saves weekly schedule fields and rejects changed schedules on retry',()=>{
+ const f=metadataBackend(),ctx=f.ctx;let writes=0;
+ ctx.tp5Read_=type=>type==='members'?f.members:[];
+ ctx.tp5Put_=(type,value)=>{assert.equal(type,'members');f.members.push(value);writes++;};
+ vm.runInContext(source('backend-patch/MemberCSVImport.gs'),ctx);
+ const input={id:'000999',name:'Synthetic import',coop:'Asiapro',platform:'IMG',workSchedule:{enabled:true,days:[1,2,3,4,5],start:'08:00',end:'18:30',grace:0}};
+ const result=ctx.tp5ImportMembersWithSchedule_({role:'admin',id:'admin'},[input]);assert.equal(result.added,1);assert.equal(writes,1);
+ const saved=f.members.find(m=>m.id==='000999');assert.equal(saved.workDays,'1,2,3,4,5');assert.equal(saved.workStart,'08:00');assert.equal(saved.workEnd,'18:30');
+ assert.equal(ctx.tp5ImportMembersWithSchedule_({role:'admin',id:'admin'},[input]).skipped,1);assert.equal(writes,1);
+ assert.throws(()=>ctx.tp5ImportMembersWithSchedule_({role:'admin',id:'admin'},[{...input,workSchedule:{...input.workSchedule,end:'17:00'}}]),e=>e.code==='CONFLICT');
+ assert.throws(()=>ctx.tp5ImportMembersWithSchedule_({role:'admin',id:'admin'},[{...input,id:'new',workSchedule:null}]),/Weekly Work Schedule is required/);assert.equal(writes,1);
+});

@@ -746,17 +746,36 @@ window.addEventListener('DOMContentLoaded',()=>{
 },{once:true});
 
 /* Registry CSV uploads: validate the complete file before enqueueing rows. */
-const TIPON_MEMBER_CSV_HEADERS=['Member ID','Full name','Cooperative','Business platform'];
+const TIPON_MEMBER_CSV_HEADERS=['Member ID','Full name','Cooperative','Business platform','Work Days','Work Start','Work End'];
+function memberImportWorkSchedule(daysValue,startValue,endValue,row){
+ const names={sun:0,sunday:0,mon:1,monday:1,tue:2,tuesday:2,wed:3,wednesday:3,thu:4,thursday:4,fri:5,friday:5,sat:6,saturday:6};
+ const tokens=String(daysValue||'').trim().toLowerCase().split(/[;,|\s]+/).filter(Boolean);
+ const days=tokens.map(token=>Object.prototype.hasOwnProperty.call(names,token)?names[token]:/^[0-7]$/.test(token)?Number(token)%7:NaN);
+ if(!days.length||days.some(day=>!Number.isInteger(day))||new Set(days).size!==days.length)
+  throw Error('Row '+row+': Work Days must list unique days, e.g. Mon;Tue;Wed;Thu;Fri (0 or 7 = Sunday).');
+ const time=(value,label)=>{
+  const match=String(value||'').trim().match(/^(\d{1,2}):([0-5]\d)(?::00)?\s*(AM|PM)?$/i);
+  if(!match)throw Error('Row '+row+': '+label+' must be a valid time, e.g. 08:00 or 18:30.');
+  let hour=Number(match[1]);const suffix=(match[3]||'').toUpperCase();
+  if(suffix){if(hour<1||hour>12)throw Error('Row '+row+': invalid '+label+'.');hour=hour%12+(suffix==='PM'?12:0);}
+  else if(hour>23)throw Error('Row '+row+': invalid '+label+'.');
+  return String(hour).padStart(2,'0')+':'+match[2];
+ };
+ const start=time(startValue,'Work Start'),end=time(endValue,'Work End');
+ if(start===end)throw Error('Row '+row+': Work Start and Work End must differ.');
+ return {enabled:true,days:days.sort((a,b)=>a-b),start,end,grace:0};
+}
 function prepareMemberImport(rows,existing){
- if(JSON.stringify(rows[0])!==JSON.stringify(TIPON_MEMBER_CSV_HEADERS))throw Error('Download the latest four-column member template from Member List.');
+ if(JSON.stringify(rows[0])!==JSON.stringify(TIPON_MEMBER_CSV_HEADERS))throw Error('Download the latest seven-column member template, including Work Days, Work Start and Work End.');
  if(rows.length<2||rows.length>501)throw Error('Upload 1–500 members per file.');
  const ids=new Set(existing.filter(m=>!m.deleted).map(m=>String(m.id).trim().toLowerCase()));
  return rows.slice(1).map((r,i)=>{
-  const row=i+2;if(r.length!==4)throw Error('Row '+row+' must contain Member ID, Full name, Cooperative, Business platform only.');
-  const [id,name,coop,platform]=r.map(v=>String(v||'').trim());
+  const row=i+2;if(r.length!==7)throw Error('Row '+row+' must contain the seven columns from the latest member template.');
+  const [id,name,coop,platform,workDays,workStart,workEnd]=r.map(v=>String(v||'').trim());
   if(!id||!name||!platform||id.length>80||name.length>120||!TIPONOrgCore.COOPS.includes(coop))throw Error('Row '+row+': invalid member ID/name/cooperative/platform.');
   if(ids.has(id.toLowerCase()))throw Error('Row '+row+': duplicate Member ID '+id+'. Use Edit.');
-  ids.add(id.toLowerCase());return {id,name,coop,platform};
+  const workSchedule=memberImportWorkSchedule(workDays,workStart,workEnd,row);
+  ids.add(id.toLowerCase());return {id,name,coop,platform,workSchedule};
  });
 }
 async function importMemberCSV(event){
@@ -770,8 +789,8 @@ async function importMemberCSV(event){
   setText('memberUploadStatus','Checking live Apps Script backend compatibility...');
   const health=await TIPONAPI.raw({action:'health'});
   const backendVersion=String(health.version||'unknown');
-  if(!/^5\.5\./.test(backendVersion)){
-   throw Error('Apps Script backend '+backendVersion+' is outdated. Four-column uploads require the matching v5.5 Code.gs AND OrgCore.gs deployment. No members were uploaded.');
+  if(!/^5\.5\./.test(backendVersion)||health.memberImportWorkSchedule!==true){
+   throw Error('Apps Script backend '+backendVersion+' is outdated. Weekly Work Schedule imports require the updated Apps Script import handler. No members were uploaded.');
   }
   const members=prepareMemberImport(parseMemberCSV((await file.text()).replace(/^\uFEFF/,'')),await getAll('members'));
   const response=await TIPONAPI.raw({action:'platforms'});
@@ -783,18 +802,18 @@ async function importMemberCSV(event){
     throw Error('CSV row '+(i+2)+': Business Platform "'+platform+'" is not registered in the live backend. Choose a listed platform in the CSV or have the Admin add it first. No members were uploaded.');
    }
   }
-  if(!await confirmAction('Upload '+members.length+' members?', 'Members are registered without a work location or face template. An authorized User assigns the location during enrollment.'))return;
+  if(!await confirmAction('Upload '+members.length+' members?', 'Weekly Work Schedule will be saved with each member. Work Days use Mon;Tue;Wed;Thu;Fri and times use 24-hour HH:mm. An authorized User assigns the location during enrollment.'))return;
   for(let n=0;n<members.length;n+=20){
-   const result=await TIPONAPI.call({action:'adminMemberImport',rows:members.slice(n,n+20)});
-   if(typeof result.added!=='number')throw Error('Server did not acknowledge member import.');
+   const result=await TIPONAPI.call({action:'adminMemberImportWithSchedule',rows:members.slice(n,n+20)});
+   if(typeof result.added!=='number'||result.memberImportWorkSchedule!==true)throw Error('Server did not acknowledge the member import with Weekly Work Schedule.');
    total+=result.added;setText('memberUploadStatus',total+' members accepted by the central database. Syncing...');
   }
   await TIPONSync.run();TIPONSync.kick();await loadCollections();renderMembers();renderDashboard();
-  setText('memberUploadStatus',total+' uploaded. NOT ENROLLED; the User assigns a work location.');
+  setText('memberUploadStatus',total+' uploaded with Weekly Work Schedule. NOT ENROLLED; the User assigns a work location.');
   showToast(total+' members uploaded.','success');
  }catch(error){
   const message=/Unknown action|office required|work location not found/i.test(error.message||'')
-   ?'Deploy the matching updated Apps Script Code.gs and OrgCore.gs to enable four-column imports.':error.message;
+   ?'Deploy the matching updated Apps Script Code.gs and OrgCore.gs to enable Weekly Work Schedule imports.':error.message;
   setText('memberUploadStatus',(total?total+' previously accepted. ':'No members uploaded. ')+message);showToast(message,'error',9000);
  }finally{button.disabled=false;}
 }
