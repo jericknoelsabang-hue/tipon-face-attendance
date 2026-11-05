@@ -1,5 +1,5 @@
 {
   "app": "TIPON Face Attendance",
-  "version": "5.5.93",
-  "label": "Full-width Work Location Name and visible scoped Cooperative/BP inputs for User and Admin."
+  "version": "5.5.94",
+  "label": "Full-width Work Location Name and reliable User Cooperative/BP selection without stale values."
 }

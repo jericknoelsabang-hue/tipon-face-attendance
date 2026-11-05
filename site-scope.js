@@ -19,6 +19,8 @@ window.TIPONSiteScopes=(()=>{
   if(coop){coop.required=true;coop.disabled=!admin;coop.innerHTML='<option value="">Select cooperative</option>'+TIPONOrgCore.COOPS.map(x=>'<option value="'+esc(x)+'">'+esc(x)+'</option>').join('');coop.value=site?.coop||(admin?'':state.user?.coop||'');}
   // A User can create a worksite only within their approved MPC/BP; the
   // dropdowns must still be visible, prefilled and read-only, not hidden.
+  // Never carry a previous member's or account's BP through a form reset.
+  if(platform)platform.value='';
   renderPlatforms(site?.platform||(!admin?state.user?.platform||'':''));
   if(platform){platform.required=true;platform.disabled=!admin||!coop?.value;}
   const hint=$('siteScopeHint');

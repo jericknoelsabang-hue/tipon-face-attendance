@@ -1170,7 +1170,7 @@ test('Admin Add Work Location begins at Select cooperative instead of Asiapro',(
  ctx.state.user={role:'registrar',coop:'Gawa at Kalinga',platform:''};
  ctx.window.TIPONSiteScopes.reset(null,false);
  assert.equal(single.hidden,false);
- assert.equal(platform.value,'');
+ assert.equal(platform.value,'','reset must not reuse a stale BP from a previous account');
  assert.throws(()=>ctx.window.TIPONSiteScopes.pairs(null),/Ask an Administrator to complete your account scope/);
 });
 
