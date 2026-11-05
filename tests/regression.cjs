@@ -1161,6 +1161,17 @@ test('Admin Add Work Location begins at Select cooperative instead of Asiapro',(
  ctx.window.TIPONSiteScopes.reset(null,false);
  assert.equal(coop.value,'Gawa at Kalinga','User remains scoped to assigned Cooperative');
  assert.equal(coop.disabled,true);
+ assert.equal(platform.value,'GAK','User sees their assigned Business Platform');
+ assert.equal(platform.disabled,true,'User cannot choose a different BP');
+ assert.equal(single.hidden,false,'User Cooperative and BP fields are visible');
+ assert.equal(multi.hidden,true,'Multi-select mode remains hidden');
+ assert.match(hint.textContent,/approved User account scope/);
+ assert.deepEqual(JSON.parse(JSON.stringify(ctx.window.TIPONSiteScopes.pairs(null))),[{coop:'Gawa at Kalinga',platform:'GAK'}]);
+ ctx.state.user={role:'registrar',coop:'Gawa at Kalinga',platform:''};
+ ctx.window.TIPONSiteScopes.reset(null,false);
+ assert.equal(single.hidden,false);
+ assert.equal(platform.value,'');
+ assert.throws(()=>ctx.window.TIPONSiteScopes.pairs(null),/Ask an Administrator to complete your account scope/);
 });
 
 test('Work Location Business Platforms are filtered by selected cooperative',()=>{
@@ -1277,8 +1288,12 @@ test('New Work Location omits address field while Edit preserves it and backend 
  assert.match(site,/<input id="siteLng"[^>]*required/);
  assert.match(site,/id="adminMapCanvas"/);
  assert.match(site,/id="siteUseGps"/);
- assert.match(html,/#siteDialog \.dialog-body>\.form-row\.three \.field-caption\{display:block!important;margin:0!important;height:18px/);
- assert.match(html,/#siteDialog \.dialog-body>\.form-row\.three select\{display:block;width:100%;height:50px;min-height:50px;margin:0\}/);
+ assert.match(site,/<div class="site-identity-fields">\s*<label class="site-name-field">/);
+ assert.match(site,/<div class="site-scope-row">\s*<div class="site-scope-column">/);
+ assert.match(html,/#siteDialog \.site-identity-fields\{display:grid;grid-template-columns:minmax\(0,1fr\);gap:18px;width:100%/);
+ assert.match(html,/#siteDialog \.site-identity-fields>\.site-name-field #siteName\{width:100%;max-width:none;box-sizing:border-box\}/);
+ assert.match(html,/#siteDialog \.site-scope-row\{display:grid;grid-template-columns:repeat\(2,minmax\(0,1fr\)\);gap:16px;width:100%/);
+ assert.match(html,/#siteDialog \.site-identity-fields input,#siteDialog \.site-identity-fields select\{display:block;width:100%;height:50px;min-height:50px;margin:0\}/);
  const open=app.slice(app.indexOf('function openSiteForm('),app.indexOf('function updateSiteMap(',app.indexOf('function openSiteForm(')));
  assert.match(open,/addressSection\.hidden=!site/);
  assert.match(open,/addressField\.required=!!site/);
