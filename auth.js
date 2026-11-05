@@ -112,9 +112,27 @@ window.TIPONAuth=(()=>{
     state.user=session.account;state.orgId=session.orgId;
     const kioskOnly=value.account?.role==='kiosk';
     document.body.classList.toggle('kiosk-mode',kioskOnly);
-    // Session is encrypted in a serialized queue; UI need not block on its disk write.
-    void persistSession(session);
-    $('loginPage').hidden=true;try{await enterApp({freshLogin});TIPONSync.start();}catch(e){session=null;state.user=null;await clearPersistedSession();document.body.dataset.terminalAccess='denied';document.body.classList.remove('kiosk-mode');$('appShell').hidden=true;$('mobileNav').hidden=true;$('loginPage').hidden=false;throw e;}
+    $('loginPage').hidden=true;
+    try{
+      // The backend-verified org ID determines storage before we persist an
+      // offline vault or session. The previous organization's queue stays intact.
+      const switched=await ensureOrganizationDatabase(session.orgId,{
+        freshOnlineLogin:freshLogin===true&&session.onlineVerified===true
+      });
+      if(freshLogin&&session.onlineVerified===true&&session.salt&&session.proof)
+        void remember(session,session.salt).catch(error=>console.warn('Offline sign-in cache failed:',error));
+      // Session writes are serialized and encrypted within the selected DB.
+      void persistSession(session);
+      await enterApp({freshLogin});
+      TIPONSync.start();
+      if(switched)showToast('New organization connected. Previous organization offline records were retained separately on this device.','info',11000);
+    }catch(e){
+      session=null;state.user=null;state.orgId=null;
+      await clearPersistedSession();
+      document.body.dataset.terminalAccess='denied';document.body.classList.remove('kiosk-mode');
+      $('appShell').hidden=true;$('mobileNav').hidden=true;$('loginPage').hidden=false;
+      throw e;
+    }
   }
   function status(text,bad=false){setText('loginStatus',text);$('loginStatus').classList.toggle('danger',bad);}
   async function login(event){
@@ -136,8 +154,8 @@ window.TIPONAuth=(()=>{
           const derived=await proof(password,challenge.salt);
           const reply=await TIPONAPI.raw({action:'login',username,proof:derived});
           current={...reply,proof:derived,salt:challenge.salt,onlineVerified:true};
-          // Offline vault encryption continues while the signed-in view opens.
-          void remember(current,challenge.salt).catch(error=>console.warn('Offline sign-in cache failed:',error));
+          // Cache credentials only AFTER the authenticated organization has
+          // selected the correct isolated IndexedDB in signedIn().
         }catch(err){
           if(!['NETWORK','TIMEOUT','GATEWAY_OFFLINE'].includes(err.code)||!cached)throw err;
         }

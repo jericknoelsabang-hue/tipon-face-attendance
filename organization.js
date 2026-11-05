@@ -117,7 +117,7 @@ loadCollections=async function(){
 };
 enterApp=async function(options={}){
   const bound=await getOne('meta','tp5-boundOrganization');
-  if(bound&&bound.orgId!==state.orgId)throw Error('This browser profile already belongs to another organization. Use a separate browser profile; do not overwrite its data.');
+  if(bound&&bound.orgId!==state.orgId)throw Error('Organization storage isolation failed. Sign in online again; previous attendance data has not been deleted.');
   if(!bound)await OrgDB.rawSave('meta',{id:'tp5-boundOrganization',orgId:state.orgId});
   $('appShell').hidden=false;$('mobileNav').hidden=state.user?.role==='kiosk';
   setText('sidebarUserName',state.user.name);setText('sidebarUserRole',roleName(state.user.role));setText('avatarLetter',initial(state.user.name));setText('greetingName',state.user.name.split(' ')[0]);

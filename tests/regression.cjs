@@ -6,6 +6,51 @@ const Core=require('../core.js'),Org=require('../org-core.js');
 const source=name=>fs.readFileSync(require('node:path').join(__dirname,'..',name),'utf8');
 const actor={id:'user-1',role:'registrar',coop:'Asiapro',platform:'IMG',username:'test-user'};
 const event=(id,type,timestamp)=>({id,sessionId:'session-1',memberId:'TEST-1',memberName:'Synthetic Member',coop:'Asiapro',platform:'IMG',siteId:'site-1',type,timestamp,orgId:'org-1',cloudAck:true});
+test('Authenticated new-organization login isolates IndexedDB and preserves the legacy attendance queue',async()=>{
+ const app=source('app.js'),auth=source('auth.js'),workspace=source('organization.js');
+ assert.match(app,/const TP5_ACTIVE_DB_KEY='tp5-active-organization-database-v1'/);
+ assert.match(app,/function openDB\(name=currentOrganizationDatabaseName\(\)\)/);
+ assert.match(app,/indexedDB\.open\(name,2\)/);
+ assert.match(app,/if\(!freshOnlineLogin\|\|!navigator\.onLine\)/);
+ assert.match(app,/await crypto\.subtle\.digest\('SHA-256'/);
+ assert.match(app,/localStorage\.setItem\(TP5_ACTIVE_DB_KEY,scopedName\)/);
+ assert.match(auth,/const switched=await ensureOrganizationDatabase\(session\.orgId/);
+ assert.doesNotMatch(auth,/void remember\(current,challenge\.salt\)/);
+ assert.match(auth,/if\(freshLogin&&session\.onlineVerified===true&&session\.salt&&session\.proof\)/);
+ assert.match(workspace,/if\(bound&&bound\.orgId!==state\.orgId\)throw Error\('Organization storage isolation failed/);
+ assert.doesNotMatch(app,/indexedDB\.deleteDatabase\(/);
+ const functionBody=app.slice(app.indexOf('async function ensureOrganizationDatabase('),app.indexOf('function getAll(store)',app.indexOf('async function ensureOrganizationDatabase(')));
+ assert.ok(functionBody.startsWith('async function ensureOrganizationDatabase('));
+ const legacy={name:'legacy',meta:{'tp5-boundOrganization':{id:'tp5-boundOrganization',orgId:'old-org'}},outbox:[{id:'unsynced-old-punch'}],closed:false,close(){this.closed=true;}};
+ const names=new Map(),prefs=new Map(),state={members:[{id:'old-member'}],punches:[{id:'old-event'}],sites:[],users:[],offices:[],schedules:[],accounts:[],devices:[],reviews:[],lastGPS:{accuracy:10}};
+ const ctx={DB_NAME:'tipon-face-local-v1',TP5_ACTIVE_DB_KEY:'tp5-active-organization-database-v1',navigator:{onLine:true},
+  crypto:require('node:crypto').webcrypto,TextEncoder,state,db:legacy,
+  localStorage:{setItem:(k,v)=>prefs.set(k,v),getItem:k=>prefs.get(k)||null},
+  async getOne(store,id){return this.db?.meta?.[id]||null;},
+  async saveOne(store,record){this.db.meta[record.id]=record;},
+  async initializeLocal(){this.state.deviceId='device-test';},
+  async openDB(name){if(!names.has(name))names.set(name,{name,meta:{},outbox:[],close(){this.closed=true;}});return names.get(name);}
+ };
+ vm.createContext(ctx);
+ vm.runInContext(functionBody,ctx);
+ const changed=await ctx.ensureOrganizationDatabase('new-org',{freshOnlineLogin:true});
+ assert.equal(changed,true);
+ assert.equal(legacy.closed,true);
+ assert.equal(legacy.outbox.length,1,'legacy offline outbox is never cleared');
+ assert.equal(legacy.meta['tp5-boundOrganization'].orgId,'old-org');
+ assert.equal(ctx.db.meta['tp5-boundOrganization'].orgId,'new-org');
+ assert.equal(ctx.state.members.length,0);
+ assert.equal(ctx.state.punches.length,0);
+ assert.ok(ctx.db.name.startsWith('tipon-face-local-v1-org-'));
+ assert.equal(prefs.get('tp5-active-organization-database-v1'),ctx.db.name);
+ assert.equal(await ctx.ensureOrganizationDatabase('new-org',{freshOnlineLogin:true}),false);
+ ctx.db=legacy;legacy.closed=false;ctx.navigator.onLine=false;
+ await assert.rejects(ctx.ensureOrganizationDatabase('new-org',{freshOnlineLogin:true}),/Sign in online/);
+ assert.equal(legacy.closed,false,'offline attempts cannot switch or delete the old database');
+ ctx.navigator.onLine=true;
+ await assert.rejects(ctx.ensureOrganizationDatabase('new-org',{freshOnlineLogin:false}),/Sign in online/);
+});
+
 test('User Dashboard is denied; terminal and logs are allowed',()=>{
   assert.equal(Org.allowed(actor,'dashboard'),false);
   assert.equal(Org.allowed(actor,'scanner'),true);

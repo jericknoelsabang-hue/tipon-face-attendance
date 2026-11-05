@@ -1,5 +1,5 @@
 {
   "app": "TIPON Face Attendance",
-  "version": "5.5.88",
-  "label": "Face Terminal performance: parallel GPS and single bounded central preflight."
+  "version": "5.5.89",
+  "label": "Safe organization switching for new Google Sheets database without deleting legacy offline records."
 }

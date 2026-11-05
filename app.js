@@ -14,6 +14,14 @@ const MODEL_FILES = [
 const OFFLINE_ASSETS = [FACE_SCRIPT, ...MODEL_FILES.map((f)=>`${MODEL_ROOT}/${f}`)];
 const REMOTE_CACHE = 'tipon-face-remote-v1';
 const DB_NAME='tipon-face-local-v1';
+// Keep the original IndexedDB untouched when a new, independently
+// authenticated organization signs in at the same GitHub Pages URL.
+const TP5_ACTIVE_DB_KEY='tp5-active-organization-database-v1';
+function currentOrganizationDatabaseName(){
+  let candidate='';
+  try{candidate=String(localStorage.getItem(TP5_ACTIVE_DB_KEY)||'');}catch{}
+  return /^tipon-face-local-v1-org-[a-f0-9]{32}$/.test(candidate)?candidate:DB_NAME;
+}
 const DB_STORE=['users','members','sites','punches','meta','outbox','offices','schedules'];
 // Keep client matching aligned with Apps Script's strict faceDistance < 0.47
 // acceptance rule so a locally "recognized" face is never silently rejected.
@@ -71,11 +79,44 @@ async function waitForCameraFrame(video,timeoutMs=8000){
  throw Error('Camera opened but no video frame arrived. Select another available camera, close other camera apps, and retry.');
 }
 
-function openDB(){return new Promise((resolve,reject)=>{
-  const r=indexedDB.open(DB_NAME,2);
+function openDB(name=currentOrganizationDatabaseName()){return new Promise((resolve,reject)=>{
+  const r=indexedDB.open(name,2);
   r.onupgradeneeded=()=>{const d=r.result;for(const name of DB_STORE)if(!d.objectStoreNames.contains(name)){const store=d.createObjectStore(name,{keyPath:'id'});if(name==='punches')store.createIndex('timestamp','timestamp');}};
   r.onsuccess=()=>{r.result.onversionchange=()=>r.result.close();resolve(r.result);};r.onerror=()=>reject(r.error);r.onblocked=()=>reject(Error('Close every other TIPON tab/app window on this device, then reopen. Do not clear stored data.'));
 });}
+async function ensureOrganizationDatabase(orgId,{freshOnlineLogin=false}={}){
+  const desired=String(orgId||'').trim();
+  if(!desired)throw Error('The authenticated server did not identify an organization.');
+  const bound=await getOne('meta','tp5-boundOrganization');
+  if(!bound||bound.orgId===desired)return false;
+  // Require a newly verified server login. Never switch storage merely from
+  // a saved session, offline token, URL parameter or a stale cached account.
+  if(!freshOnlineLogin||!navigator.onLine)
+    throw Error('This device has records from another organization. Sign in online to open a separate secure local database; old records will be retained.');
+  const digest=new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(desired)));
+  const scopedName=DB_NAME+'-org-'+Array.from(digest.slice(0,16),x=>x.toString(16).padStart(2,'0')).join('');
+  const previous=db;
+  const next=await openDB(scopedName);
+  db=next;
+  try{
+    const check=await getOne('meta','tp5-boundOrganization');
+    if(check&&check.orgId!==desired)
+      throw Error('The selected local database belongs to another organization. No records were changed.');
+    if(!check)await saveOne('meta',{id:'tp5-boundOrganization',orgId:desired});
+    await initializeLocal();
+    // Do not clear, delete, migrate, or upload the previous organization's
+    // IndexedDB outbox, face descriptors, or pending attendance events.
+    localStorage.setItem(TP5_ACTIVE_DB_KEY,scopedName);
+    state.members=[];state.sites=[];state.users=[];state.punches=[];state.offices=[];state.schedules=[];
+    state.accounts=[];state.devices=[];state.reviews=[];state.lastGPS=null;
+    previous.close();
+    return true;
+  }catch(error){
+    db=previous;
+    next.close();
+    throw error;
+  }
+}
 function getAll(store){return new Promise((resolve,reject)=>{const tx=db.transaction(store,'readonly');const request=tx.objectStore(store).getAll();request.onsuccess=()=>resolve(request.result);request.onerror=()=>reject(request.error);});}
 function getOne(store,key){return new Promise((resolve,reject)=>{const tx=db.transaction(store,'readonly');const request=tx.objectStore(store).get(key);request.onsuccess=()=>resolve(request.result);request.onerror=()=>reject(request.error);});}
 function saveOne(store,data){return new Promise((resolve,reject)=>{const tx=db.transaction(store,'readwrite');tx.objectStore(store).put(data);tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error);tx.onabort=()=>reject(tx.error);});}
