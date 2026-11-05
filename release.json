@@ -1,5 +1,5 @@
 {
   "app": "TIPON Face Attendance",
-  "version": "5.5.98",
-  "label": "Protect attendance from wrong-member face matches using three frames and collision-free multiple templates."
+  "version": "5.5.99",
+  "label": "Validate member and session IDs before attendance corrections are saved or synchronized."
 }

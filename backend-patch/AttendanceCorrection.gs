@@ -15,6 +15,7 @@ function tp5ProjectAttendanceSafe_(events){
     seenIds.add(String(event.id));
     var key=String(event.sessionId||event.id),current=sessions.get(key);
     if(!current){sessions.set(key,[event]);return;}
+    if(String(current[0].memberId)!==String(event.memberId))throw new Error('Attendance session contains conflicting member IDs.');
     var sameDirection=current.find(function(item){return item.type===event.type;});
     if(!sameDirection){current.push(event);return;}
     var previous=Date.parse(sameDirection.timestamp),next=Date.parse(event.timestamp);
@@ -108,6 +109,8 @@ function tp5AttendanceCorrect_(actor,q){
   });
   var row=tp5ProjectAttendanceSafe_(events)[0];
   tp5Must_(row,'Attendance session was not found. Refresh the logs.','NOT_FOUND');
+  tp5Must_(q.memberId!==undefined&&q.memberId!==null&&String(q.memberId)!==''&&String(q.memberId)===String(row.memberId),
+    'Attendance member ID does not match this session. Refresh the logs.','MEMBER_MISMATCH');
   tp5Must_(actor.role==='admin'||TIPONOrgCore.inScope(actor,row),
     'Attendance is outside your approved Cooperative/Business Platform.','FORBIDDEN');
   var correctionId='attendance-correction:'+sessionId;

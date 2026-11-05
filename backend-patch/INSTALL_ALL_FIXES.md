@@ -32,3 +32,9 @@ A successful GitHub Pages build does not confirm the Apps Script backend or prod
 
 ### Weekly Work Schedule: v5.5.85
 Both Admin and User can edit a member's weekly days/start/end via Member List. A **private** `memberWorkScheduleUpdateV2` route must be added to the existing authenticated `Code.gs` and a new version of that SAME Apps Script deployment published; the frontend alone cannot make the old endpoint accept new schedule fields. Follow the dedicated steps in [README_MEMBER_LOCATION.md](./README_MEMBER_LOCATION.md). Verify central acknowledgment, refreshed member roster and member-sheet schedule columns with synthetic test accounts before operational rollout.
+
+## v5.5.99 attendance record ownership validation
+
+Update the existing AttendanceCorrection.gs helpers from this repository and deploy a new version of the existing Apps Script Web App. GitHub Pages cannot deploy this private backend automatically. The attendanceCorrect request now includes memberId; the backend rejects a missing or mismatched ID before editing/deleting a session. Duplicate-direction normalization also rejects sessions containing different member IDs instead of silently discarding one member's event.
+
+The frontend validates member/session IDs before local correction writes and before synchronization, including legacy queued edits. This update does not change face identification or repair past misidentified punches.

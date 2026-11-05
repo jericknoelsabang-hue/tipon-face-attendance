@@ -1235,6 +1235,8 @@ async function saveAttendanceCorrection(row,changes,reason,deleted=false){
  const latest=attendanceRowByKey(sessionId)||row;
  const events=state.punches.filter(p=>(latest.eventIds||row.eventIds||[]).includes(p.id));
  if(!events.length)throw Error('Attendance events are not available on this device. Refresh the Attendance Logs and try again.');
+ if(!latest.memberId||events.some(p=>String(p.memberId)!==String(latest.memberId)||String(p.sessionId||p.id)!==sessionId))
+   throw Error('Attendance records contain conflicting member or session IDs. Refresh the logs before editing.');
  if(events.some(p=>p.requiresSessionResolution&&!p.cloudAck))throw Error('This cross-device session is still downloading. Sync the Attendance Logs, then save again.');
  const op=queued||{id:uuid(),type:'attendanceCorrections',orgId:state.orgId,ownerId:state.user.id,createdAt:new Date().toISOString(),everSent:false};
  const previous=queued?.value?.original;

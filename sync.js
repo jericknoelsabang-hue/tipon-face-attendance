@@ -22,7 +22,7 @@ window.TIPONSync=(()=>{
     const owners=(outbox||[]).filter(op=>op&&String(op.orgId)===String(orgId)&&String(op.ownerId)===String(ownerId));
     const local=(punches||[]).filter(p=>p&&String(p.orgId)===String(orgId)&&
       String(p.deviceId)===String(deviceId)&&(!p.cloudAck||p.reviewStatus));
-    const reviewCodes=new Set(['NEEDS_REVIEW','CONFLICT','FORBIDDEN','NOT_FOUND','VALIDATION','PERMISSION','AUTHZ','ACTION']);
+    const reviewCodes=new Set(['NEEDS_REVIEW','CONFLICT','FORBIDDEN','NOT_FOUND','VALIDATION','PERMISSION','AUTHZ','ACTION','MEMBER_MISMATCH']);
     const reviewOps=owners.filter(op=>reviewCodes.has(String(op.errorCode||'').toUpperCase()));
     const queuedOps=owners.filter(op=>!reviewCodes.has(String(op.errorCode||'').toUpperCase()));
     const reviewEvents=local.filter(p=>!!p.reviewStatus);
@@ -457,6 +457,10 @@ window.TIPONSync=(()=>{
           TIPONPlatforms.markSynced(code);
         }else if(op.type==='attendanceCorrections'){
           const ids=op.value.eventIds||[],eventsForCorrection=await Promise.all(ids.map(id=>getOne('punches',id)));
+          // Older queued edits may omit memberId; recover it only from their own ledger events.
+          const memberId=String(op.value.memberId??eventsForCorrection[0]?.memberId??'');
+          if(!memberId||eventsForCorrection.some(p=>p&&(String(p.memberId)!==memberId||String(p.sessionId||p.id)!==String(op.value.sessionId))))
+            throw Object.assign(Error('Attendance records contain conflicting member or session IDs.'),{code:'MEMBER_MISMATCH'});
           const syntheticId='attendance-correction-out:'+String(op.value.sessionId);
           const existingSynthetic=await getOne('punches',syntheticId);
           if(op.everSent&&correctionAcknowledged(op,eventsForCorrection,existingSynthetic)){
@@ -466,7 +470,7 @@ window.TIPONSync=(()=>{
           // Persist the sent marker before making an ambiguous network request.
           // The next poll can safely recognize a commit even if its reply is lost.
           if(!op.everSent){op.everSent=true;await OrgDB.rawSave('outbox',op);}
-          const reply=await TIPONAPI.call({action:'attendanceCorrect',sessionId:op.value.sessionId,
+          const reply=await TIPONAPI.call({action:'attendanceCorrect',sessionId:op.value.sessionId,memberId,
             baseRev:Number(op.baseRev)||0,changes:op.value.changes||{},delete:!!op.value.delete,reason:op.value.reason});
           const correction=reply.correction;
           if(!correction||String(correction.sessionId)!==String(op.value.sessionId))throw Error('Server did not confirm attendance correction.');

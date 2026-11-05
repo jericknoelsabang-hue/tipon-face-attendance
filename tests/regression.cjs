@@ -165,9 +165,9 @@ test('Open-session attendance correction synchronizes a synthetic Time Out event
   const ctx={console,setTimeout,clearTimeout,Date,Map,Set,navigator:{onLine:true},
     state:{user:actor,orgId:'org-1',deviceId:'device',punches},$:()=>null,setText:()=>{},TIPONOrgCore:Org,
     TIPONAuth:{ensureOnline:async()=> 'token'},
-    TIPONGitHubBridge:{request:async()=>({ok:true,protocol:Org.PROTOCOL,correction:{
+    TIPONGitHubBridge:{request:async payload=>{assert.equal(payload.memberId,'TEST-1');return {ok:true,protocol:Org.PROTOCOL,correction:{
       sessionId:'session-1',timeIn:'2026-10-28T01:00:00Z',timeOut:'2026-10-28T08:00:00Z',createdOut:true,rev:1
-    }})},
+    }};}},
     getAll:async name=>{assert.ok(tables[name],name);return tables[name];},
     getOne:async(name,id)=>{assert.ok(tables[name],'Invalid store '+name);return tables[name].find(x=>x.id===id);},
     OrgDB:{rawSave:async(name,item)=>{const i=tables[name].findIndex(x=>x.id===item.id);if(i>=0)tables[name][i]=item;else tables[name].push(item);},
@@ -224,7 +224,7 @@ function attendanceCorrectionBackend(rawEvents){
 test('Attendance correction can add a missing Time Out and synchronizes the corrected session view',()=>{
   const input={...event('open-in','IN','2026-10-28T01:00:00Z'),sessionId:'session-1'};
   const fixture=attendanceCorrectionBackend([input]);
-  const reply=fixture.ctx.tp5AttendanceCorrect_(actor,{sessionId:'session-1',baseRev:0,
+  const reply=fixture.ctx.tp5AttendanceCorrect_(actor,{sessionId:'session-1',memberId:'TEST-1',baseRev:0,
     changes:{timeIn:'2026-10-28T01:00:00Z',timeOut:'2026-10-28T08:00:00Z'},delete:false,reason:'Fix open shift'});
   assert.equal(reply.correction.createdOut,true);
   const corrected=fixture.ctx.tp5ApplyAttendanceCorrections_(fixture.rawEvents);
@@ -237,7 +237,7 @@ test('Attendance correction can add a missing Time Out and synchronizes the corr
 test('Attendance correction can delete an open session without erasing the raw event',()=>{
   const input={...event('open-in','IN','2026-10-28T01:00:00Z'),sessionId:'session-1'};
   const fixture=attendanceCorrectionBackend([input]);
-  const reply=fixture.ctx.tp5AttendanceCorrect_(actor,{sessionId:'session-1',baseRev:0,changes:{},delete:true,reason:'Remove bad punch'});
+  const reply=fixture.ctx.tp5AttendanceCorrect_(actor,{sessionId:'session-1',memberId:'TEST-1',baseRev:0,changes:{},delete:true,reason:'Remove bad punch'});
   assert.equal(reply.correction.deleted,true);
   assert.equal(fixture.rawEvents.length,1);
   assert.equal(fixture.ctx.tp5ApplyAttendanceCorrections_(fixture.rawEvents).filter(e=>!e.deleted).length,0);
@@ -1664,4 +1664,28 @@ test('Member transfer and Admin edit save the validated weekly schedule centrall
   assert.deepEqual(JSON.parse(JSON.stringify(admin.member.workSchedule)),workSchedule);
   assert.equal(admin.member.workDays,'1,3,5');assert.equal(admin.member.workStart,'07:00');assert.equal(admin.member.workEnd,'16:00');assert.equal(admin.member.workGrace,5);
   assert.throws(()=>adminCtx.tp5AdminMemberUpdateV2_({id:'admin-1',role:'admin'},{memberId:'TEST-1',baseRev:2,changes:{name:adminMembers[0].name,coop:'Asiapro',platform:'IMG',siteIds:['site-1'],workSchedule:{enabled:true,days:[8],start:'07:00',end:'16:00'}}}),/valid work days/);
+});
+
+// Record ownership checks are independent of capture or identity-verification methods.
+test('Attendance edits reject a different or missing member ID without changing the ledger',()=>{
+ const fixture=attendanceCorrectionBackend([event('in','IN','2026-10-28T01:00:00Z')]);
+ for(const memberId of ['OTHER-MEMBER','',undefined]){
+  assert.throws(()=>fixture.ctx.tp5AttendanceCorrect_(actor,{sessionId:'session-1',memberId,baseRev:0,changes:{},delete:true,reason:'Remove bad punch'}),error=>error.code==='MEMBER_MISMATCH');
+ }
+ assert.equal(fixture.operations.length,0);assert.equal(fixture.audits.length,0);assert.equal(fixture.projections.length,0);
+ assert.equal(fixture.rawEvents[0].deleted,undefined);
+});
+test('Backend normalization cannot hide a second member behind duplicate punch directions',()=>{
+ const fixture=attendanceCorrectionBackend([event('in-a','IN','2026-10-28T01:00:00Z'),{...event('in-b','IN','2026-10-28T01:01:00Z'),memberId:'OTHER-MEMBER'}]);
+ assert.throws(()=>fixture.ctx.tp5ProjectAttendanceSafe_(fixture.rawEvents),/conflicting member IDs/);
+ assert.throws(()=>fixture.ctx.tp5AttendanceCorrect_(actor,{sessionId:'session-1',memberId:'TEST-1',baseRev:0,changes:{},delete:true,reason:'Remove bad punch'}),/conflicting member IDs/);
+ assert.equal(fixture.operations.length,0);
+});
+
+test('Local attendance correction rejects mixed-member events before any write',async()=>{
+ const app=source('app.js');
+ const start=app.indexOf('async function saveAttendanceCorrection('),end=app.indexOf('async function ',start+1);
+ const ctx={canCorrectAttendance:()=>true,getAll:async()=>[],state:{orgId:'org-1',user:actor,punches:[{...event('other','IN','2026-10-28T01:00:00Z'),memberId:'OTHER-MEMBER'}]},attendanceRowByKey:()=>null};
+ vm.createContext(ctx);vm.runInContext(app.slice(start,end),ctx);
+ await assert.rejects(()=>ctx.saveAttendanceCorrection({key:'session-1',memberId:'TEST-1',eventIds:['other']},{},'Correct test record'),/conflicting member or session IDs/);
 });
