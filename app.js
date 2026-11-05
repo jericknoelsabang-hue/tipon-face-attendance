@@ -262,9 +262,10 @@ function renderMembers(){
   return '<tr><td><div class="row-inline"><div class="initial-avatar">'+esc(initial(m.name))+'</div><div><b>'+esc(m.name)+'</b><small>ID: '+esc(m.memberNumber||m.id)+'</small></div></div></td>'+
    '<td>'+esc(m.coop)+'</td><td>'+esc(m.platform||sites[0]?.platform||'—')+'</td>'+
    '<td><b>'+esc(names||'Unassigned')+'</b><small>'+(sites.length?'GPS verification at assigned work location':'Assign a Work Location before attendance')+'</small></td>'+
+   '<td class="member-schedule-cell">'+renderMemberWorkScheduleCell(m)+'</td>'+
    '<td>'+esc(memberEnrollerLabel(m))+'</td><td><span class="badge '+faceClass+'">'+faceLabel+'</span></td>'+
    '<td><div class="row-inline"><button class="tiny-button" data-member-edit="'+esc(m.id)+'">Edit</button><button class="tiny-button delete" data-member-delete="'+esc(m.id)+'">Delete</button></div></td></tr>';
- }).join(''):'<tr><td colspan="7"><div class="empty-state">'+pageIcon('users')+'No matching members found.</div></td></tr>';
+ }).join(''):'<tr><td colspan="8"><div class="empty-state">'+pageIcon('users')+'No matching members found.</div></td></tr>';
  setText('memberPageCount','Showing '+(data.length?offset+1:0)+'–'+Math.min(offset+pageSize,data.length)+' of '+data.length+' members');
  setText('memberPage','Page '+state.memberPage+' of '+totalPages);
  if($('memberPrev'))$('memberPrev').disabled=state.memberPage<=1;
@@ -345,6 +346,27 @@ const MEMBER_WORK_DAYS=[{value:1,label:'Mon'},{value:2,label:'Tue'},{value:3,lab
 function normalizeMemberWorkSchedule(value){
  const days=Array.isArray(value?.days)?[...new Set(value.days.map(Number).filter(d=>Number.isInteger(d)&&d>=0&&d<=6))].sort((a,b)=>a-b):[];
  return {enabled:value?.enabled!==false,days,start:String(value?.start||''),end:String(value?.end||''),grace:Number(value?.grace)||0};
+}
+function renderMemberWorkScheduleCell(member){
+ // Render exactly the member's saved schedule. The edit form remains the only
+ // place where days and hours may be changed.
+ const flatDays=Array.isArray(member?.workDays)?member.workDays:
+  String(member?.workDays||'').split(/[,;\s]+/).filter(Boolean);
+ const raw=member?.workSchedule&&typeof member.workSchedule==='object'?
+  member.workSchedule:{enabled:true,days:flatDays,start:member?.workStart||'',end:member?.workEnd||''};
+ const schedule=normalizeMemberWorkSchedule(raw);
+ const hasSchedule=schedule.enabled!==false&&schedule.days.length>0&&!!schedule.start&&!!schedule.end;
+ if(!hasSchedule)return '<div class="member-weekly-schedule not-set" aria-label="Weekly Work Schedule not set"><span class="schedule-unset">Not set</span></div>';
+ const selected=MEMBER_WORK_DAYS.filter(day=>schedule.days.includes(day.value)).map(day=>day.label);
+ const label='Weekly Work Schedule: '+selected.join(', ')+'. Start Time '+schedule.start+'. End Time '+schedule.end+'.';
+ const week=MEMBER_WORK_DAYS.map(day=>{
+  const active=schedule.days.includes(day.value);
+  return '<span class="member-schedule-day'+(active?' is-selected':'')+'"><span class="member-schedule-check" aria-hidden="true">'+(active?'✓':'')+'</span><span>'+day.label+'</span></span>';
+ }).join('');
+ return '<div class="member-weekly-schedule" role="group" aria-label="'+esc(label)+'">'+
+  '<div class="member-schedule-days" aria-hidden="true">'+week+'</div>'+
+  '<div class="member-schedule-hours"><span><small>Start Time</small><b>'+esc(schedule.start)+'</b></span>'+
+  '<span><small>End Time</small><b>'+esc(schedule.end)+'</b></span></div></div>';
 }
 function fillMemberWorkSchedule(value){
  const schedule=normalizeMemberWorkSchedule(value);

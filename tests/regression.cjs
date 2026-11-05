@@ -1133,6 +1133,44 @@ test('Each sample challenge completes with exactly one blink and no head turn',(
   assert.equal(ctx.TIPONLiveness.advance(c,{ratio:.25},t+1050).ok,true);
  }
 });
+test('Member List shows Weekly Work Schedule after Assigned Location with saved work-day checks and shift times',()=>{
+ const html=source('index.html'),app=source('app.js'),css=source('style.css');
+ const page=html.slice(html.indexOf('id="page-members"'),html.indexOf('id="page-sites"'));
+ const headers=[...page.matchAll(/<th(?: [^>]*)?>([^<]+)<\/th>/g)].map(x=>x[1]);
+ assert.deepEqual(headers.slice(0,8),['Member','Cooperative','Business Platform','Assigned Location','Weekly Work Schedule','Enrolled By','Face Enrollment Status','Actions']);
+ const render=app.slice(app.indexOf('function renderMembers('),app.indexOf('let lastUserAddressSearch=',app.indexOf('function renderMembers(')));
+ assert.match(render,/renderMemberWorkScheduleCell\(m\)/);
+ assert.match(render,/colspan="8"/);
+ assert.match(css,/#page-members \.table-wrap>table\{min-width:1450px\}/);
+ assert.match(css,/#page-members \.member-schedule-days\{display:grid;grid-template-columns:repeat\(7,minmax\(0,1fr\)\)/);
+ const start=app.indexOf('const MEMBER_WORK_DAYS='),end=app.indexOf('function fillMemberWorkSchedule(',start);
+ assert.ok(start>0&&end>start);
+ const module=app.slice(start,end);
+ const escape=value=>String(value).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+ const context={esc:escape,Number,String,Set};
+ vm.createContext(context);
+ vm.runInContext(module+'\nthis.display=renderMemberWorkScheduleCell;',context);
+ const workWeek=context.display({workSchedule:{enabled:true,days:[1,2,3,4,5],start:'08:00',end:'17:00'}});
+ assert.match(workWeek,/role="group"/);
+ assert.match(workWeek,/Weekly Work Schedule: Mon, Tue, Wed, Thu, Fri/);
+ assert.equal((workWeek.match(/member-schedule-day is-selected/g)||[]).length,5);
+ assert.equal((workWeek.match(/member-schedule-day/g)||[]).length,8); // includes wrapper class in count; count exact day elements below
+ assert.equal((workWeek.match(/class="member-schedule-day(?: is-selected)?"/g)||[]).length,7);
+ assert.match(workWeek,/<small>Start Time<\/small><b>08:00<\/b>/);
+ assert.match(workWeek,/<small>End Time<\/small><b>17:00<\/b>/);
+ const legacy=context.display({workDays:'1,3,5',workStart:'07:00',workEnd:'16:00'});
+ assert.equal((legacy.match(/class="member-schedule-day is-selected"/g)||[]).length,3);
+ assert.match(legacy,/07:00/);
+ assert.match(legacy,/16:00/);
+ const unset=context.display({workSchedule:{days:[],start:'',end:''}});
+ assert.match(unset,/Not set/);
+ assert.doesNotMatch(unset,/is-selected/);
+ const disabled=context.display({workSchedule:{enabled:false,days:[1,2],start:'09:00',end:'18:00'}});
+ assert.match(disabled,/Not set/);
+ const safe=context.display({workSchedule:{days:[1],start:'"><script>',end:'17:00'}});
+ assert.doesNotMatch(safe,/<script>/);
+});
+
 test('Admin Add Work Location begins at Select cooperative instead of Asiapro',()=>{
  const sourceCode=source('site-scope.js'),mapping={Asiapro:['IMG','AP Cons'],'Gawa at Kalinga':['GAK']};
  const coop={value:'Asiapro',innerHTML:'',required:false,disabled:false},
