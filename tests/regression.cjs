@@ -2038,3 +2038,13 @@ test('Remote address search fills latitude/longitude without using the device GP
  vm.runInContext(src.slice(coordsStart,coordsEnd)+src.slice(pickStart,pickEnd)+src.slice(findStart,findEnd),ctx);
  await ctx.findPlace();assert.deepEqual(searches,['Synthetic Davao address']);assert.equal(field('siteLat').value,'7.0731000');assert.equal(field('siteLng').value,'125.6128000');assert.equal(field('siteAddress').value,'Synthetic address, Davao City');assert.equal(field('adminSitePlaceFind').disabled,false);
 });
+
+test('Admin Attendance Logs MPC filter includes every cooperative even without member or attendance records',()=>{
+ const src=source('app.js'),start=src.indexOf('function renderTerminalLogs(){'),end=src.indexOf(' const selector=',start),options=[];
+ const fields={terminalLogRows:{},terminalLogCoop:{value:'Asiapro'},terminalLogPlatform:{value:'IMG'}};
+ const ctx={state:{sites:[],members:[],punches:[]},sharedAttendanceFilters:{},$:id=>fields[id],isAdmin:()=>true,TIPONOrgCore:Org,fillLogFilter:(id,values)=>options.push({id,values})};
+ vm.createContext(ctx);vm.runInContext(src.slice(start,end)+'\n}',ctx);ctx.renderTerminalLogs();
+ const cooperatives=options.find(x=>x.id==='terminalLogCoop').values;assert.equal(cooperatives.length,Org.COOPS.length);
+ for(const coop of Org.COOPS)assert.ok(cooperatives.includes(coop));
+ options.length=0;ctx.isAdmin=()=>false;ctx.renderTerminalLogs();assert.equal(options.length,0,'User filter options are not expanded');assert.equal(fields.terminalLogCoop.value,'');
+});

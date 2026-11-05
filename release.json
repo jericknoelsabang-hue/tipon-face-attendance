@@ -1,5 +1,5 @@
 {
   "app": "TIPON Face Attendance",
-  "version": "5.5.106",
-  "label": "Show required Address and map search when Administrators add Work Locations; fill coordinates from selected remote places."
+  "version": "5.5.107",
+  "label": "Show every cooperative in the Admin Attendance Logs MPC filter, including cooperatives without records."
 }

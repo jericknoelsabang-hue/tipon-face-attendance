@@ -1171,7 +1171,7 @@ function renderTerminalLogs(){
  if(!$('terminalLogRows'))return;
  const sites=[...state.sites],events=state.punches,shared=sharedAttendanceFilters;
  if(isAdmin()){
-  fillLogFilter('terminalLogCoop',[...state.members.map(m=>m.coop),...events.map(p=>p.coop)],'All cooperatives');
+  fillLogFilter('terminalLogCoop',[...TIPONOrgCore.COOPS,...state.members.map(m=>m.coop),...events.map(p=>p.coop)],'All cooperatives');
   fillLogFilter('terminalLogPlatform',[...state.members.map(m=>m.platform),...sites.map(x=>x.platform),...events.map(p=>p.platform)],'All business platforms');
  }else{
   $('terminalLogCoop').value='';$('terminalLogPlatform').value='';
