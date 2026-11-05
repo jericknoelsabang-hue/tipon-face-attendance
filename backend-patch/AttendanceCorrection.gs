@@ -5,6 +5,20 @@
  * Never publish Script Properties, credentials, face data or the private /exec URL.
  */
 
+/** Read the immutable ledger without applying correction overlays.
+ * Code.gs: function tp5AllEvents_(){return tp5RawAttendanceEvents_();}
+ * Overlays may inspect the raw ledger to find an existing OUT; applying them
+ * inside this reader causes recursion once a correction creates a missing OUT.
+ */
+function tp5RawAttendanceEvents_(){
+  var count=tp5EventCount_();
+  if(!count)return [];
+  return tp5Sheet_(TP5.events,['Event ID','Digest','Event JSON','Received At'])
+    .getRange(2,1,count,4).getValues()
+    .filter(function(row){return row[0];})
+    .map(function(row){return JSON.parse(row[2]);});
+}
+
 /** Project malformed legacy sessions without allowing duplicate punches to hide all logs.
  * Keep the earliest IN and latest OUT for summaries; raw ledger events are never removed.
  */
@@ -166,4 +180,16 @@ function tp5AttendanceCorrect_(actor,q){
   tp5RebuildAttendanceProjection_(sessionId);
   return tp5Reply_({correction:{sessionId:sessionId,deleted:deleted,createdOut:createdOut,
     timeIn:timeIn,timeOut:timeOut,actorId:next.actorId,rev:next.rev,updatedAt:next.updatedAt},eventVersion:eventVersion});
+}
+
+/** Read-only owner diagnostic; logs counts, never records, credentials or templates. */
+function verifyTIPONRecordSync(){
+  var raw=tp5RawAttendanceEvents_(),visible=tp5ApplyAttendanceCorrections_(raw);
+  var summary={businessPlatforms:tp5BPDetails_().length,
+    members:tp5Read_('members').filter(function(row){return !row.deleted;}).length,
+    workLocations:tp5Read_('sites').filter(function(row){return !row.deleted;}).length,
+    rawAttendanceEvents:raw.length,correctedAttendanceEvents:visible.length,
+    missingDependencies:false};
+  console.log(JSON.stringify(summary));
+  return summary;
 }

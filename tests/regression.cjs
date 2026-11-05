@@ -1743,3 +1743,16 @@ test('Separate devices download the same member details and sites for their Coop
  assert.equal(a.stores.sites.get(pending.id)._pendingOp,'offline-operation','refresh must preserve unsynchronized offline changes');
  assert.equal(b.stores.sites.has(pending.id),false,'local-only changes cannot appear on another device before server acceptance');
 });
+
+test('Raw attendance reader never applies overlays or recursively reads the ledger',()=>{
+ const rows=[['a','digest',JSON.stringify(event('a','IN','2026-10-28T01:00:00Z')),'received'],['','','','']];
+ let overlays=0,allReads=0;
+ const ctx={TP5:{events:'ledger'},tp5EventCount_:()=>2,
+  tp5Sheet_:(name,headers)=>{assert.equal(name,'ledger');assert.equal(headers.length,4);return {getRange:(r,c,n,w)=>{assert.deepEqual([r,c,n,w],[2,1,2,4]);return {getValues:()=>rows};}};},
+  tp5AllEvents_:()=>{allReads++;throw Error('Recursive reader');},
+  tp5ApplyAttendanceCorrections_:()=>{overlays++;throw Error('Overlay called by raw reader');}};
+ vm.createContext(ctx);vm.runInContext(source('backend-patch/AttendanceCorrection.gs'),ctx);
+ const result=ctx.tp5RawAttendanceEvents_();assert.equal(result.length,1);assert.equal(result[0].id,'a');
+ assert.equal(overlays,0);assert.equal(allReads,0);
+ ctx.tp5EventCount_=()=>0;assert.equal(ctx.tp5RawAttendanceEvents_().length,0);
+});

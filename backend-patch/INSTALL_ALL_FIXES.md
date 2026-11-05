@@ -38,3 +38,15 @@ Both Admin and User can edit a member's weekly days/start/end via Member List. A
 Update the existing AttendanceCorrection.gs helpers from this repository and deploy a new version of the existing Apps Script Web App. GitHub Pages cannot deploy this private backend automatically. The attendanceCorrect request now includes memberId; the backend rejects a missing or mismatched ID before editing/deleting a session. Duplicate-direction normalization also rejects sessions containing different member IDs instead of silently discarding one member's event.
 
 The frontend validates member/session IDs before local correction writes and before synchronization, including legacy queued edits. This update does not change face identification or repair past misidentified punches.
+
+## v5.5.101 missing backend sync dependencies
+
+The live project inspected on November 5 contained Code.gs, OrgCore.gs, AdminBootstrap.gs and PhotoArchive.gs. Code.gs called tp5BPDetails_ and tp5ApplyAttendanceCorrections_ without their helper files. This can fail directory downloads, attendance polling and uploads that inspect the ledger.
+
+1. Add BPDirectory.gs and AttendanceCorrection.gs from this directory to the existing private project; check for duplicate function definitions.
+2. Keep tp5EventWindow_ returning tp5ApplyAttendanceCorrections_(rows). Change the full-ledger reader to `function tp5AllEvents_(){return tp5RawAttendanceEvents_();}` so correction overlays never recursively re-enter themselves.
+3. Keep reports and upload session validation based on the corrected view: use `ledger=tp5ApplyAttendanceCorrections_(allLedger).filter(function(e){return !e.deleted;})` in tp5Submit_, and `TIPONOrgCore.project(tp5ApplyAttendanceCorrections_(tp5AllEvents_()).filter(function(e){return !e.deleted;}))` in rebuildTIPONReport_. The event-ID/digest lookup must still use the raw ledger.
+4. After the existing authenticated `var actor=tp5Auth_(q);`, add the missing attendance route: `if(action==='attendanceCorrect')return tp5Lock_(function(){actor=tp5Auth_(q);return tp5AttendanceCorrect_(actor,q);});`
+5. Save, then edit the existing Web App deployment to use a new version. Preserve its URL, execution identity and existing access settings. Frontend pushes alone do not update this private deployment.
+
+No setup/reset, credential changes, or production record deletion is required. Face matching and biometric enrollment are outside this patch. Confirm actual upload acknowledgments and scoped reads before claiming every device is synchronized.
