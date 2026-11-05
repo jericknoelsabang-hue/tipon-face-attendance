@@ -1,5 +1,5 @@
 {
   "app": "TIPON Face Attendance",
-  "version": "5.5.96",
-  "label": "Automatic one-blink face captures and cross-device scoped Work Location reconciliation."
+  "version": "5.5.97",
+  "label": "Three automatic no-blink face samples with identity consistency and duplicate checks."
 }

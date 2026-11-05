@@ -1623,7 +1623,7 @@ async function beginEnrollment(){
  state.consentAcknowledgedAt=new Date().toISOString();
  if($('memberDialog').open)$('memberDialog').close();if(!$('enrollDialog').open)$('enrollDialog').showModal();state.enrollActive=true;state.enrollCollected=[];state.enrollBlinkClosed=false;state.enrollBlinkSeen=false;state.enrollBlinkOpen=0;state.enrollBlinkBaselineFrames=0;state.enrollBlinkClosedAt=0;
  const run=(state.enrollRun||0)+1;state.enrollRun=run;TIPONCamera.render();
- setText('enrollCount','0 / 3 samples');setText('enrollStatus','Blink once for sample 1. Each successful blink automatically captures one of three samples.');$('enrollProgress').style.width='0%';$('retryEnrollment').hidden=true;
+ setText('enrollCount','0 / 3 samples');setText('enrollStatus','Position one face in the frame. Three samples will capture automatically. No blink or button press is required.');$('enrollProgress').style.width='0%';$('retryEnrollment').hidden=true;
  try{await loadFaceModels();if(!state.enrollActive||state.enrollRun!==run)return;
   const stream=await getCameraStream('enroll');if(!state.enrollActive||state.enrollRun!==run||document.hidden){stream.getTracks().forEach(t=>t.stop());return;}state.enrollStream=stream;const v=$('enrollVideo');v.srcObject=stream;await v.play();await waitForCameraFrame(v);enrollTick();
  }catch(err){state.enrollStream?.getTracks().forEach(track=>track.stop());state.enrollStream=null;$('enrollVideo').pause();$('enrollVideo').srcObject=null;setText('enrollStatus',err.message);$('retryEnrollment').hidden=false;toastError(err,'Enrollment camera');}

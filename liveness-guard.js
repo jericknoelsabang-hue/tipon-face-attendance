@@ -1,6 +1,6 @@
-/* TIPON Face Attendance: interactive camera liveness challenge.
- * Blocks a stationary printed face from triggering a punch.
- * This is NOT certified Presentation Attack Detection: replay/injection may bypass it.
+/* TIPON Face Attendance: enrollment and optional liveness diagnostics.
+ * Enrollment is three automatic detected face frames, without blink verification.
+ * This is NOT presentation attack detection; a photograph could be spoofed.
  */
 'use strict';
 (()=>{
@@ -24,7 +24,7 @@
       openRatio:0,openFrames:0,closed:false,closedAt:0,
       baseYaw:null,yawFrames:0,passed:false};
   }
-  // Each manual enrollment capture requires one fresh blink.
+  // Legacy blink challenge helpers remain for diagnostics only, not enrollment.
   function challenge(){return makeChallenge(['blink']);}
   function blinkChallenge(){return makeChallenge(['blink']);}
   function prompt(s){
@@ -98,119 +98,111 @@
   startScanner=async function(...args){state.scanLiveness=null;return baseStart(...args);};
   const baseStop=stopScanner;
   stopScanner=async function(...args){state.scanLiveness=null;return baseStop(...args);};
-  // Attendance scanning uses the original two-consecutive-frame flow in app.js.
-  // Enrollment requires a fresh blink before each sample.
+  // Attendance scanning continues in app.js; enrollment intentionally has no
+  // blink/head-turn gate. A trained User's explicit Enroll Face action and the
+  // consent record authorize this local three-frame biometric enrollment.
+  const ENROLL_SAMPLE_INTERVAL_MS=320;
   const originalBeginEnrollment=beginEnrollment;
   beginEnrollment=async function(...args){
-    state.enrollLiveness=challenge();
     state.enrollFaceMissing=0;
-    state.enrollReadyDescriptor=null;
     state.enrollConflictMemberId='';
     state.enrollCaptureBusy=false;
-    const capture=$('captureEnrollmentSample');
-    if(capture){capture.disabled=true;capture.textContent='Auto capture 1 of 3';}
+    state.enrollLastCapturedAt=0;
+    state.enrollCollected=[];
+    const status=$('captureEnrollmentSample');
+    if(status){status.disabled=true;status.hidden=true;}
     return originalBeginEnrollment(...args);
   };
-  async function captureEnrollmentSample(){
-    const button=$('captureEnrollmentSample');
-    if(!button||!state.enrollActive||!state.enrollReadyDescriptor||!state.enrollLiveness?.passed||state.enrollConflictMemberId||state.enrollCaptureBusy)return;
+  async function autoCaptureEnrollmentSample(descriptor,run){
+    if(!state.enrollActive||state.enrollRun!==run||state.enrollCaptureBusy||
+       state.enrollConflictMemberId||!Array.isArray(descriptor)||
+       descriptor.length!==128||descriptor.some(value=>!Number.isFinite(value)))return false;
+    const now=Date.now();
+    if(state.enrollCollected.length&&now-(state.enrollLastCapturedAt||0)<ENROLL_SAMPLE_INTERVAL_MS)return false;
     state.enrollCaptureBusy=true;
     try{
-    if(!state.enrollReadyAt||Date.now()-state.enrollReadyAt>2000){button.disabled=true;state.enrollReadyDescriptor=null;setText('enrollStatus','Wait for a fresh live camera frame, then capture.');return;}
-    const memberId=enrollmentMemberKey(),descriptor=state.enrollReadyDescriptor.slice();
-    const conflict=findEnrolledFaceConflict([descriptor],memberId);
-    if(conflict){
-      state.enrollConflictMemberId=conflict.member.id;state.enrollReadyDescriptor=null;button.disabled=true;
-      $('retryEnrollment').hidden=true;setText('enrollStatus',duplicateFaceNotice(conflict));return;
+      // Check every accepted sample against other enrolled members; do not
+      // repeat expensive matching on frames that are not used as samples.
+      const memberId=enrollmentMemberKey();
+      const conflict=findEnrolledFaceConflict([descriptor],memberId);
+      if(conflict){
+        state.enrollConflictMemberId=String(conflict.member?.id||'unknown');
+        setText('enrollStatus',duplicateFaceNotice(conflict));
+        if($('retryEnrollment'))$('retryEnrollment').hidden=false;
+        return false;
+      }
+      const first=state.enrollCollected[0];
+      if(first&&euclidean(first,descriptor)>.50){
+        // A new face entered mid-enrollment; never combine two identities.
+        state.enrollCollected=[];state.enrollLastCapturedAt=0;
+        setText('enrollCount','0 / 3 samples');
+        $('enrollProgress').style.width='0%';
+        setText('enrollStatus','Different face detected. Keep only the same member in the frame. Restarting automatic capture.');
+        return false;
+      }
+      if(!state.enrollActive||state.enrollRun!==run)return false;
+      state.enrollCollected.push(descriptor.slice());
+      state.enrollLastCapturedAt=now;
+      const count=state.enrollCollected.length;
+      setText('enrollCount',count+' / 3 samples');
+      $('enrollProgress').style.width=count/3*100+'%';
+      if(count<3){
+        setText('enrollStatus','Sample '+count+' of 3 captured. Keep your face centered; next sample is automatic.');
+        return true;
+      }
+      const finalConflict=findEnrolledFaceConflict(state.enrollCollected,memberId);
+      if(finalConflict){
+        state.enrollCollected=[];state.enrollConflictMemberId=String(finalConflict.member?.id||'unknown');
+        setText('enrollCount','0 / 3 samples');$('enrollProgress').style.width='0%';
+        setText('enrollStatus',duplicateFaceNotice(finalConflict));
+        if($('retryEnrollment'))$('retryEnrollment').hidden=false;
+        return false;
+      }
+      state.pendingDescriptors=state.enrollCollected.map(vector=>vector.slice());
+      state.faceReplacementPending=!!state.editMember?.template;
+      state.enrollmentProof={memberId,at:Date.now()};
+      setText('enrollFaceLabel','Verified · 3 Face Samples Ready');
+      setText('enrollStatus','Three face samples captured automatically. Save the member record.');
+      playTerminalSound('success');
+      showToast('Three face samples captured. Save the member record.','success');
+      const autoSave=!!state.editMember;
+      await finishEnrollment(false);
+      if(autoSave)await saveMemberForm({preventDefault(){}});
+      return true;
+    }finally{
+      state.enrollCaptureBusy=false;
     }
-    const first=state.enrollCollected[0],previous=state.enrollCollected.at(-1);
-    if(first&&euclidean(first,descriptor)>.50){
-      state.enrollCollected=[];state.enrollReadyDescriptor=null;state.enrollLiveness=challenge();button.disabled=true;
-      setText('enrollCount','0 / 3 samples');$('enrollProgress').style.width='0%';
-      setText('enrollStatus','Different face detected. Repeat the live check.');return;
-    }
-    state.enrollCollected.push(descriptor);state.enrollReadyDescriptor=null;button.disabled=true;
-    setText('enrollCount',state.enrollCollected.length+' / 3 samples');
-    $('enrollProgress').style.width=(state.enrollCollected.length/3*100)+'%';
-    if(state.enrollCollected.length<3){
-      state.enrollLiveness=challenge();button.textContent='Auto capture '+(state.enrollCollected.length+1)+' of 3';
-      setText('enrollStatus','Sample '+state.enrollCollected.length+' captured automatically. Blink once for sample '+(state.enrollCollected.length+1)+'.');return;
-    }
-    const finalConflict=findEnrolledFaceConflict(state.enrollCollected,memberId);
-    if(finalConflict){
-      state.enrollCollected=[];state.enrollConflictMemberId=finalConflict.member.id;
-      state.enrollLiveness=challenge();setText('enrollCount','0 / 3 samples');$('enrollProgress').style.width='0%';
-      $('retryEnrollment').hidden=true;setText('enrollStatus',duplicateFaceNotice(finalConflict));return;
-    }
-    state.pendingDescriptors=state.enrollCollected.map(vector=>vector.slice());
-    state.faceReplacementPending=!!state.editMember?.template;
-    state.enrollmentProof={memberId:memberId,at:Date.now()};
-    setText('enrollFaceLabel','Verified · Three Live Samples Ready');
-    setText('enrollStatus','Three samples captured. Save the member record.');
-    playTerminalSound('success');showToast('Three face samples captured. Save the member record.','success');
-    const autoSave=!!state.editMember;
-    await finishEnrollment(false);
-    if(autoSave)await saveMemberForm({preventDefault(){}});
-    }finally{state.enrollCaptureBusy=false;}
   }
   enrollTick=async function(){
     if(!state.enrollActive)return;
     const run=state.enrollRun;
     try{
-      const video=$('enrollVideo'),button=$('captureEnrollmentSample');
-      if(state.enrollConflictMemberId){
-        const conflict=state.members.find(m=>String(m.id)===String(state.enrollConflictMemberId));
-        if(button)button.disabled=true;$('retryEnrollment').hidden=true;
-        setText('enrollStatus',duplicateFaceNotice(conflict||{id:state.enrollConflictMemberId,name:'another member'}));
-      }else if(video.readyState>=2){
+      const video=$('enrollVideo');
+      if(video?.readyState>=2&&!state.enrollCaptureBusy&&!state.enrollConflictMemberId){
         const faces=await detectFaces(video);
         if(!state.enrollActive||state.enrollRun!==run)return;
         if(faces.length!==1){
-          state.enrollFaceMissing=(state.enrollFaceMissing||0)+1;state.enrollReadyDescriptor=null;
-          if(button)button.disabled=true;
-          if(faces.length>1||state.enrollFaceMissing>=3)state.enrollLiveness=challenge();
-          setText('enrollStatus',faces.length?'One face at a time.':'Position one face in the frame.');
+          state.enrollFaceMissing=(state.enrollFaceMissing||0)+1;
+          setText('enrollStatus',faces.length?
+            'Only one face may be visible for enrollment.':
+            'Position one face clearly in the frame; capture starts automatically.');
         }else{
           state.enrollFaceMissing=0;
-          // Expensive duplicate checks run only on the verified capture, not
-          // on every video frame. The same duplicate guard is preserved below.
-          const descriptor=Array.from(faces[0].descriptor);
-          if(state.enrollReadyDescriptor){
-            if(euclidean(state.enrollReadyDescriptor,descriptor)>.50){
-              state.enrollReadyDescriptor=null;state.enrollLiveness=challenge();if(button)button.disabled=true;
-              setText('enrollStatus','Face changed. Repeat the live check.');
-            }else{
-              state.enrollReadyDescriptor=descriptor;state.enrollReadyAt=Date.now();
-              if(button)button.disabled=true;
-              await captureEnrollmentSample();
-            }
+          const descriptor=Array.from(faces[0].descriptor||[]);
+          if(descriptor.length!==128||descriptor.some(value=>!Number.isFinite(value))){
+            setText('enrollStatus','Face data is unclear. Face the camera in better lighting.');
           }else{
-            state.enrollLiveness ||= challenge();
-            const live=advance(state.enrollLiveness,faces[0]);
-            if(live.expired){
-              state.enrollLiveness=challenge();if(button)button.disabled=true;
-              setText('enrollStatus','Live check timed out. Follow the new instructions.');
-            }else if(!live.ok){
-              if(button)button.disabled=true;setText('enrollStatus',live.prompt);
-            }else{
-              state.enrollReadyDescriptor=descriptor;state.enrollReadyAt=Date.now();
-              if(button)button.disabled=true;
-              setText('enrollStatus','Blink verified. Capturing sample automatically…');
-              await captureEnrollmentSample();
-            }
+            await autoCaptureEnrollmentSample(descriptor,run);
           }
         }
       }
     }catch(error){
-      console.error('Face enrollment challenge',error);
-      setText('enrollStatus','Enrollment error. Check camera permission and try again.');
-      $('retryEnrollment').hidden=false;
+      console.error('Face enrollment auto capture',error);
+      setText('enrollStatus','Automatic face capture error: '+String(error.message||error));
+      if($('retryEnrollment'))$('retryEnrollment').hidden=false;
     }
-    if(state.enrollActive&&state.enrollRun===run)state.enrollTimer=setTimeout(enrollTick,60);
+    if(state.enrollActive&&state.enrollRun===run)
+      state.enrollTimer=setTimeout(enrollTick,80);
   };
-  const captureButton=$('captureEnrollmentSample');
-  if(captureButton&&!captureButton.dataset.bound){
-    captureButton.dataset.bound='1';captureButton.addEventListener('click',captureEnrollmentSample);
-  }
-  window.TIPONLiveness={version:'5.5.96',challenge,blinkChallenge,advance};
+  window.TIPONLiveness={version:'5.5.97',challenge,blinkChallenge,advance};
 })();

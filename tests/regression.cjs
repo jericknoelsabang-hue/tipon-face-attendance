@@ -493,14 +493,30 @@ test('Admin/User edit routing and transient Time Out fallback are guarded',()=>{
   assert.equal(ctx.canQueueUnresolvedTimeOut('out',true,false,false,Error('Unauthorized')),false);
 });
 
-test('Three manual re-enrollment captures trigger one immediate save with a fresh proof',async()=>{
-  let capture,saves=0;const button={dataset:{},addEventListener:(name,fn)=>capture=fn},nodes={captureEnrollmentSample:button,enrollProgress:{style:{}},retryEnrollment:{}};
-  const ctx={console,Date,Math,Number,Array,crypto:{getRandomValues:a=>{a[0]=0;return a;}},state:{enrollActive:true,enrollCollected:[],editMember:{id:'STABLE-KEY',template:{}}},navigator:{onLine:true},$:id=>nodes[id],speakTerminal:()=>{},loadFaceModels:async()=>{},startScanner:async()=>{},stopScanner:async()=>{},beginEnrollment:async()=>{},scanTick:()=>{},enrollTick:()=>{},blinkRatio:f=>f.ratio,enrollmentMemberKey:()=>'STABLE-KEY',findEnrolledFaceConflict:()=>false,euclidean:(a,b)=>Math.sqrt(a.reduce((n,x,i)=>n+(x-b[i])**2,0)),setText:()=>{},playTerminalSound:()=>{},showToast:()=>{},finishEnrollment:async()=>{},saveMemberForm:async()=>{saves++;}};
-  ctx.window=ctx;vm.createContext(ctx);vm.runInContext(source('liveness-guard.js'),ctx);
-  for(let i=0;i<3;i++){ctx.state.enrollReadyDescriptor=Array(128).fill(.1);ctx.state.enrollReadyAt=Date.now();ctx.state.enrollLiveness={passed:true};await capture();}
-  assert.equal(ctx.state.pendingDescriptors.length,3);assert.equal(ctx.state.enrollmentProof.memberId,'STABLE-KEY');assert.equal(saves,1);
+test('Three automatic re-enrollment captures trigger exactly one save and a fresh proof',async()=>{
+ let now=1000,saves=0;
+ class Clock extends Date{static now(){now+=500;return now;}}
+ const nodes={captureEnrollmentSample:{dataset:{},hidden:true,disabled:true},enrollVideo:{readyState:4},
+  enrollProgress:{style:{}},retryEnrollment:{hidden:true}};
+ const state={enrollActive:true,enrollRun:1,enrollCollected:[],
+  editMember:{id:'STABLE-KEY',template:{}},enrollConflictMemberId:''};
+ const ctx={console,Date:Clock,Math,Number,Array,setTimeout:()=>0,navigator:{onLine:true},state,
+  $:id=>nodes[id]||null,speakTerminal(){},loadFaceModels(){},startScanner(){},
+  stopScanner(){},beginEnrollment:async()=>{},scanTick(){},enrollTick(){},
+  enrollmentMemberKey:()=>'STABLE-KEY',
+  detectFaces:async()=>[{descriptor:Array(128).fill(0.1)}],
+  findEnrolledFaceConflict:()=>null,
+  euclidean:(a,b)=>Math.sqrt(a.reduce((n,x,i)=>n+(x-b[i])**2,0)),
+  setText(){},playTerminalSound(){},showToast(){},
+  finishEnrollment:async()=>{state.enrollActive=false;},
+  saveMemberForm:async()=>{saves++;}};
+ ctx.window=ctx;vm.createContext(ctx);vm.runInContext(source('liveness-guard.js'),ctx);
+ for(let i=0;i<3;i++)await ctx.enrollTick();
+ assert.equal(state.pendingDescriptors.length,3);
+ assert.equal(state.enrollmentProof.memberId,'STABLE-KEY');
+ assert.equal(saves,1);
+ assert.equal(nodes.captureEnrollmentSample.disabled,true);
 });
-
 test('Unified Attendance Logs nav and read-only timesheet estimates retain safe behavior',()=>{
  const html=source('index.html'),sync=source('sync.js'),org=source('organization.js');
  assert.equal((html.match(/data-page="records"/g)||[]).length,0);
@@ -1122,40 +1138,63 @@ test('Attendance Review uses correctly worded status flags without changing unde
 });
 
 
-test('Automatic enrollment captures three verified one-blink samples without button presses',async()=>{
+test('No-blink enrollment automatically captures three distinct frames and retains duplicate protection',async()=>{
  const src=source('liveness-guard.js'),app=source('app.js'),html=source('index.html');
- assert.match(src,/await captureEnrollmentSample\(\)/);
- assert.match(src,/state\.enrollCaptureBusy/);
- assert.match(src,/setTimeout\(enrollTick,60\)/);
- assert.doesNotMatch(src,/Live check passed\. Click Capture Sample\./);
- assert.doesNotMatch(src,/const conflict=findEnrolledFaceConflict\(\[descriptor\],memberId\);\s*if\(conflict\)[\s\S]*?else if\(state\.enrollReadyDescriptor\)/);
- assert.match(html,/camera automatically captures each successful blink/);
- assert.match(app,/Each successful blink automatically captures/);
- let time=2000,faceIndex=0,saveCount=0,duplicateChecks=0,buttonPresses=0;
- class TestDate extends Date{static now(){time+=160;return time;}}
- const ratios=[.25,.25,.02,.25,.25,.25,.02,.25,.25,.25,.02,.25];
- const button={dataset:{},disabled:true,textContent:'',addEventListener() {buttonPresses++;}};
- const nodes={captureEnrollmentSample:button,enrollVideo:{readyState:4},retryEnrollment:{hidden:true},enrollProgress:{style:{width:'0%'}}};
- const state={enrollActive:true,enrollRun:1,enrollCollected:[],enrollLiveness:null,enrollReadyDescriptor:null,
-  editMember:{id:'TEST-001',template:{}},enrollConflictMemberId:'',enrollFaceMissing:0};
- const ctx={Date:TestDate,Math,Number,Array,console,setTimeout:()=>0,navigator:{onLine:true},state,
+ const runtime=src.slice(src.indexOf('const ENROLL_SAMPLE_INTERVAL_MS='),src.indexOf('window.TIPONLiveness='));
+ assert.match(runtime,/const ENROLL_SAMPLE_INTERVAL_MS=320/);
+ assert.match(runtime,/await autoCaptureEnrollmentSample\(descriptor,run\)/);
+ assert.doesNotMatch(runtime,/blinkRatio|advance\(|enrollLiveness|Click Capture Sample|openFrames/);
+ assert.match(runtime,/findEnrolledFaceConflict\(\[descriptor\],memberId\)/);
+ assert.match(runtime,/findEnrolledFaceConflict\(state\.enrollCollected,memberId\)/);
+ assert.match(html,/Three face samples capture automatically without blinking/);
+ assert.match(html,/id="captureEnrollmentSample" type="button" disabled hidden/);
+ assert.match(app,/No blink or button press is required/);
+ let time=1000,frame=0,saveCount=0,duplicateChecks=0;
+ class Clock extends Date{static now(){time+=400;return time;}}
+ const nodes={captureEnrollmentSample:{dataset:{},disabled:true,hidden:true},
+  enrollVideo:{readyState:4},retryEnrollment:{hidden:true},enrollProgress:{style:{width:'0%'}}};
+ const state={enrollActive:true,enrollRun:1,enrollCollected:[],editMember:{id:'TEST-001',template:{}},
+  enrollConflictMemberId:'',enrollFaceMissing:0};
+ const ctx={Date:Clock,Math,Number,Array,console,setTimeout:()=>0,navigator:{onLine:true},state,
   $:id=>nodes[id]||null,speakTerminal(){},loadFaceModels(){},startScanner(){},stopScanner(){},
-  beginEnrollment:async()=>{},scanTick(){},enrollTick(){},blinkRatio:face=>face.ratio,
-  enrollmentMemberKey:()=>'TEST-001',
-  detectFaces:async()=>[{ratio:ratios[faceIndex],descriptor:Array(128).fill(.1+Math.floor(faceIndex/4)*.004)}],
-  findEnrolledFaceConflict:()=>{duplicateChecks++;return false;},
-  euclidean:(a,b)=>Math.sqrt(a.reduce((total,x,i)=>total+(x-b[i])**2,0)),setText(){},
-  playTerminalSound(){},showToast(){},finishEnrollment:async()=>{state.enrollActive=false;},
-  saveMemberForm:async()=>{saveCount++;}};
+  beginEnrollment:async()=>{},scanTick(){},enrollTick(){},enrollmentMemberKey:()=>'TEST-001',
+  detectFaces:async()=>[{descriptor:Array(128).fill(.1+frame*.002)}],
+  findEnrolledFaceConflict:()=>{duplicateChecks++;return null;},
+  euclidean:(a,b)=>Math.sqrt(a.reduce((total,x,i)=>total+(x-b[i])**2,0)),
+  setText(){},playTerminalSound(){},showToast(){},
+  finishEnrollment:async()=>{state.enrollActive=false;},saveMemberForm:async()=>{saveCount++;}};
  ctx.window=ctx;vm.createContext(ctx);vm.runInContext(src,ctx);
- for(faceIndex=0;faceIndex<ratios.length;faceIndex++)await ctx.enrollTick();
- assert.equal(state.enrollCollected.length,3,'one blink produces one capture, repeated three times');
+ for(frame=0;frame<3;frame++)await ctx.enrollTick();
+ assert.equal(state.enrollCollected.length,3);
  assert.equal(state.pendingDescriptors.length,3);
  assert.equal(saveCount,1);
- assert.equal(buttonPresses,1,'only one listener was registered; no clicks were dispatched');
- assert.ok(duplicateChecks<=5,'duplicate search runs per capture, not on every video frame');
- assert.equal(state.enrollCaptureBusy,false);
+ assert.ok(duplicateChecks<=4,'duplicate checking occurs at capture, not every frame');
  assert.equal(state.enrollActive,false);
+ assert.equal(state.enrollCaptureBusy,false);
+});
+test('Enrollment cannot capture multiple faces or mix identities',async()=>{
+ const src=source('liveness-guard.js');
+ let time=1000,frames=[[],[{descriptor:Array(128).fill(.1)},{descriptor:Array(128).fill(.1)}],
+  [{descriptor:Array(128).fill(.1)}],[{descriptor:Array(128).fill(.9)}],
+  [{descriptor:Array(128).fill(.1)}]];
+ class Clock extends Date{static now(){time+=500;return time;}}
+ const nodes={captureEnrollmentSample:{disabled:true,dataset:{},hidden:true},enrollVideo:{readyState:4},
+  enrollProgress:{style:{}},retryEnrollment:{hidden:true}};
+ const state={enrollActive:true,enrollRun:1,enrollCollected:[],editMember:null,enrollConflictMemberId:''};
+ const ctx={Date:Clock,Math,Number,Array,console,setTimeout:()=>0,navigator:{onLine:true},state,
+  $:id=>nodes[id]||null,speakTerminal(){},loadFaceModels(){},startScanner(){},stopScanner(){},
+  beginEnrollment:async()=>{},scanTick(){},enrollTick(){},enrollmentMemberKey:()=>'TEST-2',
+  detectFaces:async()=>frames.shift()||[],
+  findEnrolledFaceConflict:()=>null,
+  euclidean:(a,b)=>Math.sqrt(a.reduce((sum,x,i)=>sum+(x-b[i])**2,0)),
+  setText(){},playTerminalSound(){},showToast(){},finishEnrollment:async()=>{},
+  saveMemberForm:async()=>{}};
+ ctx.window=ctx;vm.createContext(ctx);vm.runInContext(src,ctx);
+ await ctx.enrollTick();assert.equal(state.enrollCollected.length,0);
+ await ctx.enrollTick();assert.equal(state.enrollCollected.length,0);
+ await ctx.enrollTick();assert.equal(state.enrollCollected.length,1);
+ await ctx.enrollTick();assert.equal(state.enrollCollected.length,0,'a different face must reset all samples');
+ await ctx.enrollTick();assert.equal(state.enrollCollected.length,1);
 });
 test('Scoped Work Locations reconcile across devices despite unchanged catalog version and member count',async()=>{
  const src=source('sync.js'),app=source('app.js'),html=source('index.html');
