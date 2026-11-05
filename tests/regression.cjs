@@ -309,7 +309,7 @@ test('Fully closed eyes advance the blink challenge; a stationary face cannot pa
   const staticFace=ctx.TIPONLiveness.challenge();for(let i=1;i<=20;i++)ctx.TIPONLiveness.advance(staticFace,face(.25),staticFace.started+i*150);
   assert.equal(staticFace.passed,false);
 });
-test('Attendance capture restores Oct 28 9 AM flow; enrollment liveness stays separate',()=>{
+test('Attendance capture stays unchanged while enrollment requires no blink',()=>{
   const app=source('app.js'),liveness=source('liveness-guard.js'),html=source('index.html');
   assert.match(app,/const SCAN_DELAY_MS=320;/);
   const start=app.indexOf('async function scanTick(){'),end=app.indexOf('function canQueueUnresolvedTimeOut(');
@@ -319,7 +319,9 @@ test('Attendance capture restores Oct 28 9 AM flow; enrollment liveness stays se
   assert.match(scanner,/await recordRecognizedFace\(member,found\.best\.distance\)/);
   assert.doesNotMatch(scanner,/blinkChallenge|livenessProof/);
   assert.doesNotMatch(liveness,/scanTick=async function\(\)/);
-  assert.match(liveness,/state\.enrollLiveness=challenge\(\)/);
+  const captureFlow=liveness.slice(liveness.indexOf('const ENROLL_SAMPLE_INTERVAL_MS='),liveness.indexOf('window.TIPONLiveness='));
+  assert.match(captureFlow,/await autoCaptureEnrollmentSample\(descriptor,run\)/);
+  assert.doesNotMatch(captureFlow,/enrollLiveness|blinkRatio\(|advance\(/);
   const record=app.slice(app.indexOf('async function recordRecognizedFace('),app.indexOf('async function recordRecognizedFace(')+500);
   assert.doesNotMatch(record,/Live Verification Required|const proof/);
   assert.match(html,/liveness-guard\.js\?v=\d+/);
