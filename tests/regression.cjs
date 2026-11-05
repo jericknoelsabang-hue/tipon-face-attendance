@@ -759,7 +759,7 @@ test('Lost attendance-correction acknowledgment is cleared only when the server-
 test('Manual Attendance Logs sync has deduplicated status, automatic queue retry and awaits in-flight work',()=>{
  const app=source('app.js'),sync=source('sync.js');
  assert.match(app,/function showDirectorySyncNotice\(/);
- assert.match(app,/const sync=await TIPONSync.submitPendingNow\(\)/);
+ assert.match(app,/const sync=kind==='sites'\?await TIPONSync\.refreshDirectory\(\):await TIPONSync\.submitPendingNow\(\)/);
  assert.match(app,/local change\(s\) are saved and queued for automatic retry/);
  assert.doesNotMatch(app,/record\(s\) still need synchronization or have sync errors/);
  assert.match(sync,/async function submitPendingNow\(operationId='?'\)/);
