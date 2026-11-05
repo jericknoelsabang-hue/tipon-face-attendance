@@ -25,8 +25,13 @@ function currentOrganizationDatabaseName(){
 const DB_STORE=['users','members','sites','punches','meta','outbox','offices','schedules'];
 // Keep client matching aligned with Apps Script's strict faceDistance < 0.47
 // acceptance rule so a locally "recognized" face is never silently rejected.
-const MATCH_LIMIT=.47;
-const AMBIGUITY_GAP=.035;
+// More conservative than the backend maximum of 0.47.
+const MATCH_LIMIT=.40;
+const FACE_REFERENCE_SUPPORT_LIMIT=.44;
+const FACE_SECOND_BROAD_LIMIT=.50;
+const FACE_TEMPLATE_COLLISION_LIMIT=.50;
+const AMBIGUITY_GAP=.08;
+const FACE_CONFIRM_FRAMES=3;
 const SCAN_DELAY_MS=320;
 const COOLDOWN_MS=90000;
 const GPS_MIN_RADIUS=20;
@@ -35,7 +40,7 @@ const PH_TIMEZONE='Asia/Manila';
 let db;
 const state={ user:null, page:'dashboard', members:[], sites:[], users:[], punches:[], facePromise:null, modelReady:false,
   scanStream:null, scanTimer:null, scanMode:'in', scanning:false, scanBusy:false, scanCandidate:null,
-  scanCandidateCount:0, scanArmed:true, scanAbsentCount:0, scanRetryAt:0, scanRetryCount:0, lastRecognized:null, lastGPS:null,
+  scanCandidateCount:0, scanCandidateEvidence:[], scanArmed:true, scanAbsentCount:0, scanRetryAt:0, scanRetryCount:0, lastRecognized:null, lastGPS:null,
   enrollStream:null, enrollTimer:null, enrollActive:false, gpsWatchId:null, pendingDescriptors:[], editMember:null, editSite:null,
   installPrompt:null, offlineReady:false, offlineFoundationReady:false, confirmResolver:null, deviceId:null, offices:[], memberPage:1, attendancePage:1 };
 
@@ -1367,10 +1372,54 @@ async function getCameraStream(context='scan'){return TIPONCamera.open(context);
 function optionsFace(){return new faceapi.TinyFaceDetectorOptions({inputSize:256,scoreThreshold:.40});}
 async function detectFaces(video){return await faceapi.detectAllFaces(video,optionsFace()).withFaceLandmarks(true).withFaceDescriptors();}
 function euclidean(a,b){let sum=0;for(let i=0;i<a.length;i++)sum+=(a[i]-b[i])**2;return Math.sqrt(sum);}
-function nearestMember(descriptor){let best,second;for(const member of state.members){if(member.active===false||member.deleted||!(member.descriptors?.length>=3))continue;let distance=Infinity;for(const vector of member.descriptors)distance=Math.min(distance,euclidean(vector,descriptor));const match={member,distance};if(!best||distance<best.distance){second=best;best=match;}else if(!second||distance<second.distance)second=match;}return {best,second};}
+
+function validFaceVector(v){return (Array.isArray(v)||ArrayBuffer.isView(v))&&v.length===128&&Array.from(v).every(Number.isFinite);}
+function nearestMember(descriptor,catalog=state.members){
+ if(!validFaceVector(descriptor))return {best:null,second:null};
+ const rows=[];
+ for(const member of catalog||[]){
+  if(!member||member.deleted||member.active===false||!Array.isArray(member.descriptors))continue;
+  const distance=member.descriptors.filter(validFaceVector).map(v=>euclidean(v,descriptor))
+    .filter(Number.isFinite).sort((a,b)=>a-b);
+  if(distance.length<3)continue;
+  rows.push({member,distance:distance[0],support:distance.filter(d=>d<FACE_REFERENCE_SUPPORT_LIMIT).length});
+ }
+ rows.sort((a,b)=>a.distance-b.distance);
+ return {best:rows[0]||null,second:rows[1]||null};
+}
+function faceMatchVerdict(found){
+ const best=found?.best,second=found?.second;
+ if(!best)return {ok:false,reason:'No eligible enrolled face templates are available.'};
+ if(best.distance>=MATCH_LIMIT||best.support<2)
+  return {ok:false,reason:'Face verification is not strong enough across the stored enrollment samples.'};
+ if(second&&(second.distance<FACE_SECOND_BROAD_LIMIT||second.distance-best.distance<AMBIGUITY_GAP))
+  return {ok:false,reason:'Two member records have similar face templates. An Administrator must verify and re-enroll their faces.'};
+ return {ok:true,member:best.member,distance:best.distance};
+}
+function faceTemplateCollision(member,catalog=state.members){
+ if(!member||!Array.isArray(member.descriptors))return true;
+ const vectors=member.descriptors.filter(validFaceVector);
+ if(vectors.length<3)return true;
+ for(const other of catalog||[]){
+  if(!other||other.deleted||other.active===false||String(other.id||'').toLowerCase()===String(member.id||'').toLowerCase())continue;
+  for(const ref of (Array.isArray(other.descriptors)?other.descriptors:[])){
+   if(validFaceVector(ref)&&vectors.some(v=>euclidean(ref,v)<FACE_TEMPLATE_COLLISION_LIMIT))return true;
+  }
+ }
+ return false;
+}
+function verifiedFaceEvidence(frames,id,catalog=state.members){
+ if(!Array.isArray(frames)||frames.length!==FACE_CONFIRM_FRAMES)return false;
+ const member=(catalog||[]).find(m=>String(m.id)===String(id));
+ if(!member||member.deleted||member.active===false||faceTemplateCollision(member,catalog))return false;
+ return frames.every(vector=>{
+  const verdict=faceMatchVerdict(nearestMember(vector,catalog));
+  return verdict.ok&&String(verdict.member.id)===String(id);
+ });
+}
 
 /* Duplicate checks for enrollment use available synced templates; attendance matching is unchanged. */
-const ENROLLMENT_DUPLICATE_FACE_DISTANCE=0.45;
+const ENROLLMENT_DUPLICATE_FACE_DISTANCE=0.50;
 function findEnrolledFaceConflict(samples,excludeId='',catalog=state.members){
  const vectors=(Array.isArray(samples?.[0])?samples:[samples]).filter(v=>v&&v.length===128);
  if(!vectors.length)return null;
@@ -1400,14 +1449,14 @@ async function startScanner(){if(!hasTerminalSession()){showToast('Face Terminal
      stream.getTracks().forEach(t=>t.stop());if(v.srcObject===stream){v.pause();v.srcObject=null;}if(state.scanStream===stream)state.scanStream=null;return;
    }
    $('cameraIdle').hidden=true;$('startCamera').hidden=true;$('stopCamera').hidden=false;
-   state.scanning=true;state.scanArmed=true;state.scanCandidate=null;state.scanCandidateCount=0;state.scanAbsentCount=0;state.scanRetryAt=0;state.scanRetryCount=0;
+   state.scanning=true;state.scanArmed=true;state.scanCandidate=null;state.scanCandidateCount=0;state.scanCandidateEvidence=[];state.scanAbsentCount=0;state.scanRetryAt=0;state.scanRetryCount=0;
    setText('cameraTopTag',TIPONCamera.label('scan').toUpperCase()+' SCANNING');setText('cameraBottomTag','Scanning automatically — no capture button');
    updateScanResult(enrolled?'Scanning for member':'No enrolled faces',enrolled?'Position one face in the frame. Eligible members are checked against their assigned GPS worksite.':'Camera is live. Enroll member face templates to enable attendance.','neutral');
    scanTick();
  }catch(err){toastError(err,'Scanner unavailable');updateScanResult('Scanner unavailable',err.message,'error');await stopScanner();}
  finally{state.scanBusy=false;$('startCamera').disabled=false;}
 }
-async function stopScanner(){state.scanRun=(state.scanRun||0)+1;state.scanning=false;state.scanRetryAt=0;state.scanRetryCount=0;stopGPSWatch();if(state.scanTimer){clearTimeout(state.scanTimer);state.scanTimer=null;}const v=$('scanVideo');v.pause();v.srcObject=null;if(state.scanStream){state.scanStream.getTracks().forEach(t=>t.stop());state.scanStream=null;}
+async function stopScanner(){state.scanRun=(state.scanRun||0)+1;state.scanning=false;state.scanCandidate=null;state.scanCandidateCount=0;state.scanCandidateEvidence=[];state.scanRetryAt=0;state.scanRetryCount=0;stopGPSWatch();if(state.scanTimer){clearTimeout(state.scanTimer);state.scanTimer=null;}const v=$('scanVideo');v.pause();v.srcObject=null;if(state.scanStream){state.scanStream.getTracks().forEach(t=>t.stop());state.scanStream=null;}
  $('cameraIdle').hidden=false;$('startCamera').hidden=state.user?.role==='kiosk';$('stopCamera').hidden=true;setText('cameraTopTag','AWAITING CAMERA');setText('cameraBottomTag','Camera will start automatically when the kiosk opens');
 }
 async function scanTick(){if(!state.scanning)return;if(!hasTerminalSession()){await stopScanner();updateScanResult('Sign in required','Face Terminal is only for a current approved user or kiosk session.','error');return;}const run=state.scanRun;
@@ -1415,24 +1464,49 @@ async function scanTick(){if(!state.scanning)return;if(!hasTerminalSession()){aw
   const video=$('scanVideo');if(video.readyState>=2&&!state.scanBusy){
    const faces=await detectFaces(video);
    if(!state.scanning||state.scanRun!==run)return;
-   if(faces.length===0){state.scanCandidate=null;state.scanCandidateCount=0;state.scanAbsentCount++;if(state.scanAbsentCount>=3){state.scanArmed=true;state.lastRecognized=null;}setText('cameraBottomTag','Looking for one face…');}
-   else if(faces.length!==1){state.scanCandidate=null;state.scanCandidateCount=0;state.scanAbsentCount=0;updateScanResult('Multiple faces detected','Only one member may appear in the frame at a time.','error');setText('cameraBottomTag','Only one face is allowed');}
-   else{
-    state.scanAbsentCount=0;const found=nearestMember(faces[0].descriptor);
-    if(!found.best||found.best.distance>=MATCH_LIMIT||(found.second&&found.second.distance-found.best.distance<AMBIGUITY_GAP)){
-      state.scanCandidate=null;state.scanCandidateCount=0;
-      const closest=found.best?('Closest registered face: '+found.best.member.name+' (distance '+found.best.distance.toFixed(2)+'; limit '+MATCH_LIMIT.toFixed(2)+').'):'No active enrolled face templates are available on this kiosk.';
-      const reason=!found.best?'No enrolled faces':found.best.distance>=MATCH_LIMIT?'Face detected, but match confidence is low.':'Face detected, but the closest registered matches are too similar.';
-      updateScanResult(reason,closest+' Office GPS is checked after a registered face is identified.','error');
-      setText('cameraBottomTag',found.best?('Face detected · closest match '+found.best.member.name+' · '+found.best.distance.toFixed(2)):'Face detected · no enrolled members');
+   if(faces.length===0){
+    state.scanCandidate=null;state.scanCandidateCount=0;state.scanCandidateEvidence=[];
+    state.scanAbsentCount++;
+    if(state.scanAbsentCount>=3){state.scanArmed=true;state.lastRecognized=null;}
+    setText('cameraBottomTag','Looking for one face…');
+   }else if(faces.length!==1){
+    state.scanCandidate=null;state.scanCandidateCount=0;state.scanCandidateEvidence=[];state.scanAbsentCount=0;
+    updateScanResult('Multiple faces detected','Only one member may be in the frame.','error');
+    setText('cameraBottomTag','Only one face is allowed');
+   }else{
+    state.scanAbsentCount=0;
+    const descriptor=faces[0].descriptor;
+    const verdict=faceMatchVerdict(nearestMember(descriptor));
+    if(!verdict.ok){
+      state.scanCandidate=null;state.scanCandidateCount=0;state.scanCandidateEvidence=[];
+      updateScanResult('Face identity NOT verified',verdict.reason+' Attendance was NOT recorded.','error');
+      setText('cameraBottomTag','Identity not confirmed · Enrollment review required');
     }else{
-      const member=found.best.member;
-      if(!state.scanArmed&&state.lastRecognized!==member.id){state.scanArmed=true;}
-      if(!state.scanArmed){setText('cameraBottomTag','Scan checked. Move out of frame before trying again.');}
-      else {
-        if(state.scanCandidate===member.id)state.scanCandidateCount++;else {state.scanCandidate=member.id;state.scanCandidateCount=1;}
-        setText('cameraBottomTag',`Face detected: ${member.name}. Checking office GPS…`);
-        if(state.scanCandidateCount>=2){state.scanArmed=false;state.lastRecognized=member.id;state.scanCandidate=null;state.scanCandidateCount=0;playTerminalSound('face');await recordRecognizedFace(member,found.best.distance);}
+      const member=verdict.member;
+      if(!state.scanArmed&&state.lastRecognized!==member.id)state.scanArmed=true;
+      if(!state.scanArmed){
+        setText('cameraBottomTag','Scan checked. Move away from camera before trying again.');
+      }else{
+        if(state.scanCandidate===member.id){
+          state.scanCandidateCount++;state.scanCandidateEvidence.push(Array.from(descriptor));
+        }else{
+          state.scanCandidate=member.id;state.scanCandidateCount=1;
+          state.scanCandidateEvidence=[Array.from(descriptor)];
+        }
+        setText('cameraBottomTag','Verifying identity · frame '+state.scanCandidateCount+'/'+FACE_CONFIRM_FRAMES);
+        if(state.scanCandidateCount>=FACE_CONFIRM_FRAMES){
+          const evidence=state.scanCandidateEvidence.slice(0,FACE_CONFIRM_FRAMES);
+          state.scanCandidate=null;state.scanCandidateCount=0;state.scanCandidateEvidence=[];
+          if(!verifiedFaceEvidence(evidence,member.id)){
+            state.scanArmed=false;state.lastRecognized=member.id;
+            updateScanResult('Face enrollment conflict',
+              'Stored member face templates overlap or are inconsistent. No attendance was recorded. Ask an Administrator to check both member records and re-enroll correctly.','error');
+            setText('cameraBottomTag','Face conflict · Administrator review required');
+          }else{
+            state.scanArmed=false;state.lastRecognized=member.id;
+            await recordRecognizedFace(member,verdict.distance,evidence);
+          }
+        }
       }
     }
    }
@@ -1462,9 +1536,12 @@ async function fastAttendanceLedgerRead(maxWaitMs=1800){
  try{return await Promise.race([pending,cutoff]);}
  finally{clearTimeout(timer);}
 }
-async function recordRecognizedFace(member,faceDistance){
- // Restored the Oct 28, 9 AM attendance capture flow: scanTick calls this
- // after two consecutive enrolled-face matches. Enrollment liveness remains separate.
+async function recordRecognizedFace(member,faceDistance,faceEvidence){
+ // Identity must be consistent across three frames and the latest catalog.
+ if(!verifiedFaceEvidence(faceEvidence,member.id)){
+  updateScanResult('Face identity NOT verified','No attendance recorded. Request supervised face re-enrollment.','error');
+  return;
+ }
  if(member.active===false||member.deleted){playTerminalSound('error');speakTerminal('Attendance error. This member is inactive.','error','inactive');showToast('This member is inactive.','error');return;}
  if(!hasTerminalSession()){speakTerminal('Attendance error. Sign in or authorize this kiosk again.','error','session');showToast('Sign in or authorize this kiosk again.','error');return;}
  if(state.scanBusy)return;state.scanBusy=true;let mode=state.scanMode;const run=state.scanRun,actorId=state.user.id;
@@ -1478,7 +1555,11 @@ async function recordRecognizedFace(member,faceDistance){
   centralReadOk=!!refreshed?.readOk;
   if(!centralReadOk&&['AUTH','ACCOUNT','DEVICE_DISABLED','FORBIDDEN','PROTOCOL'].includes(String(refreshed?.code||'').toUpperCase()))
    throw Object.assign(Error(refreshed.error||'Attendance account must reconnect.'),{code:refreshed.code});
-  await loadCollections();member=state.members.find(m=>m.id===member.id)||member;
+  await loadCollections();
+  if(!verifiedFaceEvidence(faceEvidence,member.id))
+   throw Error('Face identity could not be verified against the latest directory. Attendance was NOT recorded. Ask an Administrator to check enrollment.');
+  member=state.members.find(m=>m.id===member.id);
+  if(!member)throw Error('Verified member is missing from the current directory. No attendance recorded.');
   let tx,needsSessionResolution=false;
   const relevantPunches=state.punches.filter(p=>(p.orgId===state.orgId||!p.orgId));
   try{tx=TIPONCore.transition(relevantPunches,member.id,mode,Date.now(),COOLDOWN_MS);}
@@ -1535,9 +1616,9 @@ async function recordRecognizedFace(member,faceDistance){
    const message=String(err?.message||err);
    const retryableGps=/GPS timed out|Current location unavailable|GPS fix is missing, stale, or invalid|GPS accuracy \d+ m is too poor|Nearest assigned work location is \d+ m away/i.test(message);
    state.scanArmed=false;state.lastRecognized=member.id;state.scanCandidate=null;
-   state.scanCandidateCount=0;state.scanLiveness=null;state.livenessProof=null;
-   // Retry a transient GPS reading once. Every retry still runs the full
-   // member match, blink, location-radius and server/duplicate checks.
+   state.scanCandidateCount=0;state.scanCandidateEvidence=[];state.scanLiveness=null;state.livenessProof=null;
+   // Retry transient GPS once; every retry still repeats face verification,
+   // location-radius and server duplicate checks.
    if(retryableGps&&Number(state.scanRetryCount||0)<1){
     state.scanRetryCount=Number(state.scanRetryCount||0)+1;
     state.scanRetryAt=Date.now()+2500;
@@ -1846,7 +1927,7 @@ function bindEvents(){
   const mode=btn.dataset.mode;if(!['in','out'].includes(mode))return;
   if(state.scanBusy){showToast('Wait for the current attendance check to finish before changing mode.','info');return;}
   state.scanMode=mode;
-  state.scanArmed=true;state.lastRecognized=null;state.scanCandidate=null;state.scanCandidateCount=0;
+  state.scanArmed=true;state.lastRecognized=null;state.scanCandidate=null;state.scanCandidateCount=0;state.scanCandidateEvidence=[];
   state.scanAbsentCount=0;state.scanRetryAt=0;state.scanRetryCount=0;state.scanLiveness=null;state.livenessProof=null;
   document.querySelectorAll('.mode-option').forEach(el=>{
     const active=el.dataset.mode===mode;el.classList.toggle('active',active);el.setAttribute('aria-pressed',String(active));
