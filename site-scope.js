@@ -16,7 +16,7 @@ window.TIPONSiteScopes=(()=>{
   const coop=$('siteCoop'),platform=$('sitePlatform');
   document.querySelectorAll('[data-site-scope-single]').forEach(el=>el.hidden=false);
   document.querySelectorAll('[data-site-scope-multi]').forEach(el=>el.hidden=true);
-  if(coop){coop.required=true;coop.disabled=!admin;coop.innerHTML='<option value="">Select cooperative</option>'+TIPONOrgCore.COOPS.map(x=>'<option value="'+esc(x)+'">'+esc(x)+'</option>').join('');coop.value=site?.coop||(state.user?.coop||'Asiapro');}
+  if(coop){coop.required=true;coop.disabled=!admin;coop.innerHTML='<option value="">Select cooperative</option>'+TIPONOrgCore.COOPS.map(x=>'<option value="'+esc(x)+'">'+esc(x)+'</option>').join('');coop.value=site?.coop||(admin?'':state.user?.coop||'');}
   renderPlatforms(site?.platform||''); if(platform){platform.required=true;platform.disabled=!admin||!coop?.value;}
   const hint=$('siteScopeHint');if(hint){hint.hidden=false;hint.textContent='Business Platforms are limited to the selected Cooperative.';}
   document.querySelectorAll('[data-site-scope-single]').forEach(el=>{el.hidden=!admin;});

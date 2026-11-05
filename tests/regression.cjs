@@ -1133,6 +1133,36 @@ test('Each sample challenge completes with exactly one blink and no head turn',(
   assert.equal(ctx.TIPONLiveness.advance(c,{ratio:.25},t+1050).ok,true);
  }
 });
+test('Admin Add Work Location begins at Select cooperative instead of Asiapro',()=>{
+ const sourceCode=source('site-scope.js'),mapping={Asiapro:['IMG','AP Cons'],'Gawa at Kalinga':['GAK']};
+ const coop={value:'Asiapro',innerHTML:'',required:false,disabled:false},
+  platform={value:'AP Cons',innerHTML:'',required:false,disabled:false},
+  hint={hidden:true,textContent:''},single={hidden:false},multi={hidden:false};
+ const nodes={siteCoop:coop,sitePlatform:platform,siteScopeHint:hint};
+ const ctx={window:{TIPONCoopPlatforms:mapping},state:{user:{role:'admin',coop:'Asiapro',platform:'IMG'}},
+  TIPONOrgCore:{COOPS:Object.keys(mapping)},esc:s=>String(s),
+  document:{readyState:'loading',addEventListener(){},
+   getElementById:id=>nodes[id]||null,
+   querySelectorAll:selector=>selector==='[data-site-scope-single]'?[single]:
+     selector==='[data-site-scope-multi]'?[multi]:[]}};
+ vm.createContext(ctx);vm.runInContext(sourceCode,ctx);
+ ctx.window.TIPONSiteScopes.reset(null,true);
+ assert.equal(coop.value,'','Add should not inherit the Admin profile cooperative');
+ assert.match(coop.innerHTML,/<option value="">Select cooperative<\/option>/);
+ assert.equal(coop.required,true);assert.equal(coop.disabled,false);
+ assert.equal(platform.value,'','BP must not auto-select without a cooperative');
+ assert.equal(platform.disabled,true);
+ assert.throws(()=>ctx.window.TIPONSiteScopes.pairs(null),/Select a Cooperative/);
+ ctx.window.TIPONSiteScopes.reset({coop:'Asiapro',platform:'IMG'},true);
+ assert.equal(coop.value,'Asiapro','Edit retains the saved Cooperative');
+ assert.equal(platform.value,'IMG','Edit retains the saved Business Platform');
+ assert.equal(platform.disabled,false);
+ ctx.state.user={role:'registrar',coop:'Gawa at Kalinga',platform:'GAK'};
+ ctx.window.TIPONSiteScopes.reset(null,false);
+ assert.equal(coop.value,'Gawa at Kalinga','User remains scoped to assigned Cooperative');
+ assert.equal(coop.disabled,true);
+});
+
 test('Work Location Business Platforms are filtered by selected cooperative',()=>{
  const nodes={siteCoop:{value:'Asiapro'},sitePlatform:{value:'IMG'},siteCoopChoices:{querySelectorAll:()=>[]},sitePlatformChoices:{querySelectorAll:()=>[]}};
  const mapping={Asiapro:['IMG','AP Cons','Contracting','MSG-NW','ATS'],'Gawa at Kalinga':['GAK']};

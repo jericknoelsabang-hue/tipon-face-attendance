@@ -1,5 +1,5 @@
 {
   "app": "TIPON Face Attendance",
-  "version": "5.5.90",
-  "label": "Kiosk registration geofence diagnostics, fresh GPS capture and required Work Location setup guidance."
+  "version": "5.5.91",
+  "label": "Work Location Cooperative now starts at Select cooperative for new Admin locations."
 }
