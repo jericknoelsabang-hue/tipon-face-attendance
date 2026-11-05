@@ -179,7 +179,7 @@ async function showPage(page){
   document.querySelectorAll('.page').forEach(section=>section.hidden=section.id!==`page-${page}`);
   document.querySelectorAll('[data-page]').forEach(button=>button.classList.toggle('active',button.dataset.page===page));
   setText('crumbTitle',pageNames[page]);window.scrollTo({top:0,behavior:'instant'});
-  if(page==='adminSites'){window.TIPONAdminSites?.render();}if(page==='dashboard'){applySharedAttendanceFilters('dashboard',false);renderDashboard();}if(page==='scanner'){renderTerminal();if(!state.scanning)startScanner();}if(page==='terminalLogs'){applySharedAttendanceFilters('dashboard',false);renderTerminalLogs();}if(page==='members')renderMembers();if(page==='sites'){renderSites();if(typeof renderOfficeDirectory==='function')renderOfficeDirectory();}if(page==='records'){applySharedAttendanceFilters('dashboard',false);renderRecords();}if(page==='settings')await checkOfflineReady();
+  if(page==='adminSites'){window.TIPONAdminSites?.render();}if(page==='dashboard'){applySharedAttendanceFilters('dashboard',false);renderDashboard();}if(page==='scanner'){renderTerminal();if(!state.scanning)startScanner();}if(page==='terminalLogs'){applySharedAttendanceFilters('dashboard',false);renderTerminalLogs();}if(page==='members')renderMembers();if(page==='sites'){renderSites();if(typeof renderOfficeDirectory==='function')renderOfficeDirectory();if(navigator.onLine)void TIPONSync.refreshDirectory().then(async r=>{if(r?.readOk){await loadCollections();if(state.page==='sites')renderSites();}}).catch(error=>console.warn('Work Location refresh:',error.message));}if(page==='records'){applySharedAttendanceFilters('dashboard',false);renderRecords();}if(page==='settings')await checkOfflineReady();
 }
 function renderDashboard(){const today=todayPH(),f=sharedAttendanceFilters;const todayPunches=state.punches.filter(e=>!e.deleted&&!e.reviewStatus&&(!f.from||TIPONCore.phStamp(e.timestamp).slice(0,10)>=f.from)&&(!f.to||TIPONCore.phStamp(e.timestamp).slice(0,10)<=f.to)&&(!f.site||String(e.siteId)===String(f.site))&&(!f.coop||e.coop===f.coop)&&(!f.platform||TIPONOrgCore.platformKey(e.platform)===TIPONOrgCore.platformKey(f.platform)));const present=new Set(todayPunches.filter(e=>e.type==='IN').map(e=>e.memberId));
  setText('metricMembers',state.members.length);setText('metricPresent',present.size);setText('metricPunches',todayPunches.length);setText('metricSites',state.sites.length);
@@ -1623,7 +1623,7 @@ async function beginEnrollment(){
  state.consentAcknowledgedAt=new Date().toISOString();
  if($('memberDialog').open)$('memberDialog').close();if(!$('enrollDialog').open)$('enrollDialog').showModal();state.enrollActive=true;state.enrollCollected=[];state.enrollBlinkClosed=false;state.enrollBlinkSeen=false;state.enrollBlinkOpen=0;state.enrollBlinkBaselineFrames=0;state.enrollBlinkClosedAt=0;
  const run=(state.enrollRun||0)+1;state.enrollRun=run;TIPONCamera.render();
- setText('enrollCount','0 / 3 samples');setText('enrollStatus','Face the camera and blink once, then click Capture Sample. Repeat for all three samples.');$('enrollProgress').style.width='0%';$('retryEnrollment').hidden=true;
+ setText('enrollCount','0 / 3 samples');setText('enrollStatus','Blink once for sample 1. Each successful blink automatically captures one of three samples.');$('enrollProgress').style.width='0%';$('retryEnrollment').hidden=true;
  try{await loadFaceModels();if(!state.enrollActive||state.enrollRun!==run)return;
   const stream=await getCameraStream('enroll');if(!state.enrollActive||state.enrollRun!==run||document.hidden){stream.getTracks().forEach(t=>t.stop());return;}state.enrollStream=stream;const v=$('enrollVideo');v.srcObject=stream;await v.play();await waitForCameraFrame(v);enrollTick();
  }catch(err){state.enrollStream?.getTracks().forEach(track=>track.stop());state.enrollStream=null;$('enrollVideo').pause();$('enrollVideo').srcObject=null;setText('enrollStatus',err.message);$('retryEnrollment').hidden=false;toastError(err,'Enrollment camera');}
@@ -1778,16 +1778,17 @@ async function refreshDirectoryView(kind,buttonId=''){
  if(!navigator.onLine){showToast('Offline: saved records are still available. Connect to the internet to refresh from Google Sheets.','info');return;}
  directoryRefreshBusy=true;
  const button=$(buttonId||(kind==='members'?'memberRefresh':'terminalLogRefresh'));
- const controls=[...new Set([button,$('terminalLogRefresh'),$('terminalLogSync'),$('memberRefresh')].filter(Boolean))];
+ const controls=[...new Set([button,$('terminalLogRefresh'),$('terminalLogSync'),$('memberRefresh'),$('siteRefresh')].filter(Boolean))];
  const previous=controls.map(el=>[el,el.disabled]);
  controls.forEach(el=>{el.disabled=true;});
  try{
-  const sync=await TIPONSync.submitPendingNow();
+  const sync=kind==='sites'?await TIPONSync.refreshDirectory():await TIPONSync.submitPendingNow();
   if(!sync?.readOk&&!sync?.ok)throw Error(sync?.error||'Central synchronization has not completed. Try Refresh again.');
   await loadCollections();
   if(kind==='members')renderMembers();
+  else if(kind==='sites')renderSites();
   else renderTerminalLogs();
-  const subject=kind==='members'?'member directory':'attendance logs';
+  const subject=kind==='members'?'member directory':kind==='sites'?'work locations':'attendance logs';
   const details=sync.details||{};
   if(details.needsReview){
    showDirectorySyncNotice('Latest central '+subject+' loaded. '+details.needsReview+
@@ -1807,6 +1808,7 @@ function bindEvents(){
  attach('topStartScan','click',()=>showPage('scanner'));
  attach('memberSearch','input',()=>{state.memberPage=1;renderMembers();});
  attach('memberRefresh','click',()=>refreshDirectoryView('members'));
+ attach('siteRefresh','click',()=>refreshDirectoryView('sites','siteRefresh'));
  attach('terminalLogRefresh','click',()=>refreshDirectoryView('logs'));
  attach('memberFilterFace','change',()=>{state.memberPage=1;renderMembers();});
  attach('memberResetFilters','click',()=>{

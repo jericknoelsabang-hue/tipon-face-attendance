@@ -106,13 +106,16 @@
     state.enrollFaceMissing=0;
     state.enrollReadyDescriptor=null;
     state.enrollConflictMemberId='';
+    state.enrollCaptureBusy=false;
     const capture=$('captureEnrollmentSample');
-    if(capture){capture.disabled=true;capture.textContent='Capture Sample 1';}
+    if(capture){capture.disabled=true;capture.textContent='Auto capture 1 of 3';}
     return originalBeginEnrollment(...args);
   };
   async function captureEnrollmentSample(){
     const button=$('captureEnrollmentSample');
-    if(!button||!state.enrollActive||!state.enrollReadyDescriptor||!state.enrollLiveness?.passed||state.enrollConflictMemberId)return;
+    if(!button||!state.enrollActive||!state.enrollReadyDescriptor||!state.enrollLiveness?.passed||state.enrollConflictMemberId||state.enrollCaptureBusy)return;
+    state.enrollCaptureBusy=true;
+    try{
     if(!state.enrollReadyAt||Date.now()-state.enrollReadyAt>2000){button.disabled=true;state.enrollReadyDescriptor=null;setText('enrollStatus','Wait for a fresh live camera frame, then capture.');return;}
     const memberId=enrollmentMemberKey(),descriptor=state.enrollReadyDescriptor.slice();
     const conflict=findEnrolledFaceConflict([descriptor],memberId);
@@ -130,8 +133,8 @@
     setText('enrollCount',state.enrollCollected.length+' / 3 samples');
     $('enrollProgress').style.width=(state.enrollCollected.length/3*100)+'%';
     if(state.enrollCollected.length<3){
-      state.enrollLiveness=challenge();button.textContent='Capture Sample '+(state.enrollCollected.length+1)+' of 3';
-      setText('enrollStatus','Sample captured. Blink once, then capture the next sample.');return;
+      state.enrollLiveness=challenge();button.textContent='Auto capture '+(state.enrollCollected.length+1)+' of 3';
+      setText('enrollStatus','Sample '+state.enrollCollected.length+' captured automatically. Blink once for sample '+(state.enrollCollected.length+1)+'.');return;
     }
     const finalConflict=findEnrolledFaceConflict(state.enrollCollected,memberId);
     if(finalConflict){
@@ -148,6 +151,7 @@
     const autoSave=!!state.editMember;
     await finishEnrollment(false);
     if(autoSave)await saveMemberForm({preventDefault(){}});
+    }finally{state.enrollCaptureBusy=false;}
   }
   enrollTick=async function(){
     if(!state.enrollActive)return;
@@ -168,20 +172,17 @@
           setText('enrollStatus',faces.length?'One face at a time.':'Position one face in the frame.');
         }else{
           state.enrollFaceMissing=0;
-          const descriptor=Array.from(faces[0].descriptor),memberId=enrollmentMemberKey();
-          const conflict=findEnrolledFaceConflict([descriptor],memberId);
-          if(conflict){
-            state.enrollConflictMemberId=conflict.member.id;state.enrollReadyDescriptor=null;
-            if(button)button.disabled=true;$('retryEnrollment').hidden=true;
-            setText('enrollStatus',duplicateFaceNotice(conflict));
-          }else if(state.enrollReadyDescriptor){
+          // Expensive duplicate checks run only on the verified capture, not
+          // on every video frame. The same duplicate guard is preserved below.
+          const descriptor=Array.from(faces[0].descriptor);
+          if(state.enrollReadyDescriptor){
             if(euclidean(state.enrollReadyDescriptor,descriptor)>.50){
               state.enrollReadyDescriptor=null;state.enrollLiveness=challenge();if(button)button.disabled=true;
               setText('enrollStatus','Face changed. Repeat the live check.');
             }else{
               state.enrollReadyDescriptor=descriptor;state.enrollReadyAt=Date.now();
-              if(button){button.disabled=false;button.textContent='Capture Sample '+(state.enrollCollected.length+1)+' of 3';}
-              setText('enrollStatus','Live check passed. Click Capture Sample.');
+              if(button)button.disabled=true;
+              await captureEnrollmentSample();
             }
           }else{
             state.enrollLiveness ||= challenge();
@@ -193,8 +194,9 @@
               if(button)button.disabled=true;setText('enrollStatus',live.prompt);
             }else{
               state.enrollReadyDescriptor=descriptor;state.enrollReadyAt=Date.now();
-              if(button){button.disabled=false;button.textContent='Capture Sample '+(state.enrollCollected.length+1)+' of 3';}
-              setText('enrollStatus','Live check passed. Click Capture Sample.');
+              if(button)button.disabled=true;
+              setText('enrollStatus','Blink verified. Capturing sample automatically…');
+              await captureEnrollmentSample();
             }
           }
         }
@@ -204,11 +206,11 @@
       setText('enrollStatus','Enrollment error. Check camera permission and try again.');
       $('retryEnrollment').hidden=false;
     }
-    if(state.enrollActive&&state.enrollRun===run)state.enrollTimer=setTimeout(enrollTick,120);
+    if(state.enrollActive&&state.enrollRun===run)state.enrollTimer=setTimeout(enrollTick,60);
   };
   const captureButton=$('captureEnrollmentSample');
   if(captureButton&&!captureButton.dataset.bound){
     captureButton.dataset.bound='1';captureButton.addEventListener('click',captureEnrollmentSample);
   }
-  window.TIPONLiveness={version:'5.5.46',challenge,blinkChallenge,advance};
+  window.TIPONLiveness={version:'5.5.96',challenge,blinkChallenge,advance};
 })();

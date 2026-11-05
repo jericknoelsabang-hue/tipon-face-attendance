@@ -1,5 +1,5 @@
 {
   "app": "TIPON Face Attendance",
-  "version": "5.5.95",
-  "label": "Show each member’s saved Weekly Work Schedule in Member List (Mon–Sun and shift times)."
+  "version": "5.5.96",
+  "label": "Automatic one-blink face captures and cross-device scoped Work Location reconciliation."
 }

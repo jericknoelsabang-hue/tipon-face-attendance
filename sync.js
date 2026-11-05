@@ -17,7 +17,7 @@ window.TIPONSync=(()=>{
   let busy=false,timer=null,attempt=0,priorityOperationId='',message='Sign in to enable organization sync.',lastSync='',stopped=true,activeRun=null,siteFastRetry=0,eventVersionSupported=null;
   // Only changes owned by the signed-in account and attendance recorded by this
   // device are actionable here. A central catalog may include other users' data.
-  let cachedOutbox=[];
+  let cachedOutbox=[],forceCatalogRefresh=false;
   function queueSummary(outbox,punches,orgId,ownerId,deviceId){
     const owners=(outbox||[]).filter(op=>op&&String(op.orgId)===String(orgId)&&String(op.ownerId)===String(ownerId));
     const local=(punches||[]).filter(p=>p&&String(p.orgId)===String(orgId)&&
@@ -67,7 +67,7 @@ window.TIPONSync=(()=>{
     getOne('meta',syncStampId()).then(saved=>{if(!lastSync&&saved?.value){lastSync=saved.value;render();}}).catch(()=>{});
     kick();
   }
-  function stop(){stopped=true;clearTimeout(timer);cachedOutbox=[];}
+  function stop(){stopped=true;clearTimeout(timer);cachedOutbox=[];forceCatalogRefresh=false;}
   function schedule(){clearTimeout(timer);if(stopped)return;
     const localEventsQueued=state.punches.some(p=>p.orgId===state.orgId&&!p.cloudAck&&!p.reviewStatus&&p.deviceId===state.deviceId);
     const base=localEventsQueued?1500:2500;
@@ -519,16 +519,25 @@ window.TIPONSync=(()=>{
     if(operations.length)await send(operations,[]);
   }
   async function pullCatalog(version){
-    const cfgId='tp5-catalog:'+state.orgId+':'+state.user.id+':'+state.user.role+':v5.5.17-scope:'+String(state.user.version||1)+':'+(state.user.siteIds||[]).join(',');
-    const known=await getOne('meta',cfgId),localMembers=await getAll('members');
+    const scope=encodeURIComponent(String(state.user.coop||''))+':'+encodeURIComponent(TIPONOrgCore.platformKey(state.user.platform));
+    const cfgId='tp5-catalog:'+state.orgId+':'+state.user.id+':'+state.user.role+':v5.5.96-scope:'+String(state.user.version||1)+':'+scope+':'+(state.user.siteIds||[]).join(',');
+    const known=await getOne('meta',cfgId);
+    const [localMembers,localSites,outbox]=await Promise.all([getAll('members'),getAll('sites'),getAll('outbox')]);
     const scoped=localMembers.filter(m=>m.orgId===state.orgId&&TIPONOrgCore.inScope(state.user,m));
+    const scopedSites=localSites.filter(s=>s.orgId===state.orgId&&TIPONOrgCore.inScope(state.user,s));
     const faceCount=scoped.filter(m=>!m.deleted&&m.active!==false&&m.template).length;
-    // Re-download if the cached catalog is incomplete or its local records were
-    // deleted independently. Do not accept version equality alone as evidence.
-    const pendingSites=(await getAll('outbox')).some(op=>op.orgId===state.orgId&&op.ownerId===state.user.id&&op.type==='sites'&&!['NEEDS_REVIEW','FORBIDDEN','CONFLICT'].includes(op.errorCode));
-    if(!pendingSites&&known?.version===version&&Number.isInteger(known.memberCount)&&
+    const pendingSites=outbox.some(op=>op.orgId===state.orgId&&op.ownerId===state.user.id&&op.type==='sites'&&!['NEEDS_REVIEW','FORBIDDEN','CONFLICT'].includes(op.errorCode));
+    const lastFull=Number(known?.refreshedAt)||0;
+    const ttl=(state.page==='sites'||state.page==='adminSites')?12000:30000;
+    const stillFresh=lastFull>0&&Date.now()>=lastFull&&Date.now()-lastFull<ttl;
+    // Member counts alone cannot prove that all Work Locations were loaded.
+    // Reconcile real site IDs/count and periodically download the *scoped*
+    // authoritative snapshot, even if an older backend has a stale version.
+    if(!forceCatalogRefresh&&!pendingSites&&known?.complete===true&&
+       known.version===version&&Number.isInteger(known.memberCount)&&
        known.memberCount===scoped.length&&
-       faceCount>=Number(known.enrolledCount||0))return;
+       Number.isInteger(known.siteCount)&&known.siteCount===scopedSites.length&&
+       faceCount>=Number(known.enrolledCount||0)&&stillFresh)return;
     let cursor=0,startVersion=null,pages=0,memberCount=0,enrolledCount=0;
     const seen={members:new Set(),sites:new Set()};
     do{
@@ -537,6 +546,9 @@ window.TIPONSync=(()=>{
       if(response.businessPlatforms?.length)await TIPONPlatforms.accept(response.businessPlatforms,
         response.businessPlatformRecords||response.businessPlatformDetails||response.platformRecords||null);
       for(const type of ['sites','members','schedules'])for(const entity of response[type]||[]){
+        // Never cache out-of-scope records, even if a server mistakenly sends
+        // them in a catalog response. Admin/User/kiosk scopes remain enforced.
+        if((type==='sites'||type==='members')&&!TIPONOrgCore.inScope(state.user,entity))continue;
         if(type==='members'||type==='sites')seen[type].add(entity.id);
         if(type==='members'){
           memberCount++;
@@ -591,7 +603,9 @@ window.TIPONSync=(()=>{
           await OrgDB.rawDelete(type,item.id);
       }
     }
-    await OrgDB.rawSave('meta',{id:cfgId,version:startVersion,memberCount,enrolledCount,complete:true});
+    await OrgDB.rawSave('meta',{id:cfgId,version:startVersion,memberCount,enrolledCount,
+      siteCount:seen.sites.size,refreshedAt:Date.now(),complete:true,orgId:state.orgId});
+    forceCatalogRefresh=false;
   }
   function cursorId(){return 'tp5-events:'+state.orgId+':'+state.user.id+':'+state.user.role+':v5.5.36-ledger-recovery:'+String(state.user.version||1)+':'+(state.user.siteIds||[]).join(',');}
   async function pull(){
@@ -680,6 +694,12 @@ window.TIPONSync=(()=>{
   }
   // An Admin edit can be queued during an existing poll. Finish that poll,
   // then explicitly submit the NEW operation rather than returning BUSY.
+  async function refreshDirectory(){
+    if(!navigator.onLine)throw Error('Connect to the internet to refresh Work Locations.');
+    await waitUntilIdle();
+    forceCatalogRefresh=true;
+    return run();
+  }
   async function submitPendingNow(operationId=''){
     const preceding=activeRun;
     if(preceding){try{await preceding;}catch(_){}}
@@ -700,5 +720,5 @@ window.TIPONSync=(()=>{
    await OrgDB.rawSave('meta',{...prior,id,cursor:0,eventVersion:undefined,orgId:state.orgId});
    return run();
   }
-  return {init,start,stop,kick,render,run,submitPendingNow,recoverAttendance,pauseSite,waitUntilIdle,isBusy:()=>busy,lastSuccessfulSync:()=>lastSync};
+  return {init,start,stop,kick,render,run,refreshDirectory,submitPendingNow,recoverAttendance,pauseSite,waitUntilIdle,isBusy:()=>busy,lastSuccessfulSync:()=>lastSync};
 })();

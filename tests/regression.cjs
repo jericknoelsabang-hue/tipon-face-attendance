@@ -1122,6 +1122,89 @@ test('Attendance Review uses correctly worded status flags without changing unde
 });
 
 
+test('Automatic enrollment captures three verified one-blink samples without button presses',async()=>{
+ const src=source('liveness-guard.js'),app=source('app.js'),html=source('index.html');
+ assert.match(src,/await captureEnrollmentSample\(\)/);
+ assert.match(src,/state\.enrollCaptureBusy/);
+ assert.match(src,/setTimeout\(enrollTick,60\)/);
+ assert.doesNotMatch(src,/Live check passed\. Click Capture Sample\./);
+ assert.doesNotMatch(src,/const conflict=findEnrolledFaceConflict\(\[descriptor\],memberId\);\s*if\(conflict\)[\s\S]*?else if\(state\.enrollReadyDescriptor\)/);
+ assert.match(html,/camera automatically captures each successful blink/);
+ assert.match(app,/Each successful blink automatically captures/);
+ let time=2000,faceIndex=0,saveCount=0,duplicateChecks=0,buttonPresses=0;
+ class TestDate extends Date{static now(){time+=160;return time;}}
+ const ratios=[.25,.25,.02,.25,.25,.25,.02,.25,.25,.25,.02,.25];
+ const button={dataset:{},disabled:true,textContent:'',addEventListener() {buttonPresses++;}};
+ const nodes={captureEnrollmentSample:button,enrollVideo:{readyState:4},retryEnrollment:{hidden:true},enrollProgress:{style:{width:'0%'}}};
+ const state={enrollActive:true,enrollRun:1,enrollCollected:[],enrollLiveness:null,enrollReadyDescriptor:null,
+  editMember:{id:'TEST-001',template:{}},enrollConflictMemberId:'',enrollFaceMissing:0};
+ const ctx={Date:TestDate,Math,Number,Array,console,setTimeout:()=>0,navigator:{onLine:true},state,
+  $:id=>nodes[id]||null,speakTerminal(){},loadFaceModels(){},startScanner(){},stopScanner(){},
+  beginEnrollment:async()=>{},scanTick(){},enrollTick(){},blinkRatio:face=>face.ratio,
+  enrollmentMemberKey:()=>'TEST-001',
+  detectFaces:async()=>[{ratio:ratios[faceIndex],descriptor:Array(128).fill(.1+Math.floor(faceIndex/4)*.004)}],
+  findEnrolledFaceConflict:()=>{duplicateChecks++;return false;},
+  euclidean:(a,b)=>Math.sqrt(a.reduce((total,x,i)=>total+(x-b[i])**2,0)),setText(){},
+  playTerminalSound(){},showToast(){},finishEnrollment:async()=>{state.enrollActive=false;},
+  saveMemberForm:async()=>{saveCount++;}};
+ ctx.window=ctx;vm.createContext(ctx);vm.runInContext(src,ctx);
+ for(faceIndex=0;faceIndex<ratios.length;faceIndex++)await ctx.enrollTick();
+ assert.equal(state.enrollCollected.length,3,'one blink produces one capture, repeated three times');
+ assert.equal(state.pendingDescriptors.length,3);
+ assert.equal(saveCount,1);
+ assert.equal(buttonPresses,1,'only one listener was registered; no clicks were dispatched');
+ assert.ok(duplicateChecks<=5,'duplicate search runs per capture, not on every video frame');
+ assert.equal(state.enrollCaptureBusy,false);
+ assert.equal(state.enrollActive,false);
+});
+test('Scoped Work Locations reconcile across devices despite unchanged catalog version and member count',async()=>{
+ const src=source('sync.js'),app=source('app.js'),html=source('index.html');
+ assert.match(src,/siteCount:seen\.sites\.size,refreshedAt:Date\.now\(\)/);
+ assert.match(src,/forceCatalogRefresh/);
+ assert.match(src,/async function refreshDirectory\(\)/);
+ assert.match(src,/const ttl=\(state\.page==='sites'\|\|state\.page==='adminSites'\)\?12000:30000/);
+ assert.match(app,/attach\('siteRefresh','click',\(\)=>refreshDirectoryView\('sites','siteRefresh'\)\)/);
+ assert.match(html,/id="siteRefresh"/);
+ assert.doesNotMatch(source('organization.js'),/site\.platform=allowed\[0\]/);
+ const section=src.slice(src.indexOf('async function pullCatalog(version){'),src.indexOf('function cursorId(){'));
+ assert.ok(section.startsWith('async function pullCatalog'));
+ const site=(id,coop='Asiapro',platform='AP Cons')=>({id,name:'Work '+id,coop,platform,rev:1,lat:14,lng:121,radius:150});
+ const remote=[site('SITE-A')],local=new Map(),metas=new Map(),counts={catalog:0};
+ const user={id:'user-a',role:'registrar',coop:'Asiapro',platform:'AP Cons',version:1,siteIds:[]};
+ const state={orgId:'org-x',user,page:'sites'};
+ const ctx={state,Date,Math,Promise,Set,Number,String,Object,encodeURIComponent,stopped:false,
+  document:{hidden:false},forceCatalogRefresh:false,
+  TIPONOrgCore:Org,TIPONAuth:{current:()=>({faceKey:'fake'})},
+  TIPONPlatforms:{accept:async()=>{}},
+  getAll:async type=>type==='sites'?[...local.values()]:[],
+  getOne:async(type,id)=>type==='sites'?local.get(id):metas.get(id),
+  OrgDB:{rawSave:async(type,x)=>{if(type==='sites')local.set(x.id,x);else if(type==='meta')metas.set(x.id,x);},
+   rawDelete:async(type,id)=>{if(type==='sites')local.delete(id);else metas.delete(id);}},
+  setText(){},
+  TIPONAPI:{call:async req=>{assert.equal(req.action,'catalog');counts.catalog++;return {
+   catalogVersion:12,businessPlatforms:[],members:[],sites:remote.slice(),schedules:[],nextCursor:null,total:0};}}};
+ vm.createContext(ctx);vm.runInContext(section,ctx);
+ await ctx.pullCatalog(12);
+ assert.equal(local.size,1,'first device downloads the approved site');
+ assert.equal(counts.catalog,1);
+ await ctx.pullCatalog(12);
+ assert.equal(counts.catalog,1,'short interval uses a confirmed scoped cache');
+ remote.push(site('SITE-B'));
+ ctx.forceCatalogRefresh=true;
+ await ctx.pullCatalog(12);
+ assert.equal(local.size,2,'manual refresh discovers site despite unchanged catalogVersion/member count');
+ assert.equal(ctx.forceCatalogRefresh,false);
+ const current=[...metas.values()].find(m=>m.siteCount===2);
+ assert.ok(current?.refreshedAt);
+ current.refreshedAt=Date.now()-45000;
+ remote.push(site('SITE-C'));
+ await ctx.pullCatalog(12);
+ assert.equal(local.size,3,'automatic periodic reconciliation catches a stale backend version');
+ ctx.forceCatalogRefresh=true;remote.push(site('OTHER','Tnalak','MSG-SM'));
+ await ctx.pullCatalog(12);
+ assert.equal(local.size,3,'other MPC/BP sites are never downloaded into this User cache');
+});
+
 test('Each sample challenge completes with exactly one blink and no head turn',()=>{
  const ctx={Date,Math,Number,Array,state:{},navigator:{onLine:true},$:()=>null,speakTerminal(){},loadFaceModels(){},startScanner(){},stopScanner(){},beginEnrollment(){},enrollTick(){},blinkRatio:f=>f.ratio};
  ctx.window=ctx;vm.createContext(ctx);vm.runInContext(source('liveness-guard.js'),ctx);

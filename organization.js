@@ -267,8 +267,8 @@ renderMembers=function(){
  });
 };
 renderSites=function(){
- // Correct legacy cooperative/platform mismatches in the displayed cached copy.
- state.sites.forEach(site=>{const allowed=TIPONOrgCore.COOP_PLATFORMS?.[site.coop]||[];if(allowed.length&&!allowed.some(bp=>TIPONOrgCore.platformKey(bp)===TIPONOrgCore.platformKey(site.platform))){site.platform=allowed[0];site._mappingCorrected=true;}});
+ // Display the signed-in User's exact server-approved Cooperative and BP
+ // without rewriting Work Location assignments while rendering.
  oldRenderSites();document.querySelectorAll('[data-site-delete],[data-site-edit]').forEach(x=>{const site=state.sites.find(v=>v.id===(x.dataset.siteDelete||x.dataset.siteEdit));x.hidden=false;x.disabled=!(site&&canEdit()&&TIPONOrgCore.inScope(state.user,site));});
 };
 filteredAttendanceRows=function(){
