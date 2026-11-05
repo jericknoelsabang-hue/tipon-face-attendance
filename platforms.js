@@ -151,10 +151,9 @@ window.TIPONPlatforms=(()=>{
     renderDirectory();
   }
   async function load(){
-    const saved=await getOne('meta','tp51-platforms:'+state.orgId);
+    const [saved,queued]=await Promise.all([getOne('meta','tp51-platforms:'+state.orgId),getAll('outbox')]);
     state.platforms=TIPONOrgCore.platformNames(saved?.names||[]);
     state.platformRecords=normalizeRecords(saved?.records);
-    const queued=await getAll('outbox');
     pendingByCode=new Map(queued.filter(op=>op.orgId===state.orgId&&op.type==='platformChanges')
       .map(op=>[norm(op.value?.code),op]));
     render();

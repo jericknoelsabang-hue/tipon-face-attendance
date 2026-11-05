@@ -1,5 +1,5 @@
 {
   "app": "TIPON Face Attendance",
-  "version": "5.5.103",
-  "label": "Schedule-based late, AWOL review and overdue Time Out; reset filters; safe Work Location consolidation and metadata edit guards."
+  "version": "5.5.104",
+  "label": "Remove Enrolled By; open member metadata forms immediately and overlap cached password derivation with online login verification."
 }

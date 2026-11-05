@@ -37,14 +37,8 @@ function readAdminWorkSchedule(){return {enabled:true,days:[...document.querySel
  }
  async function openAdmin(member){
   if(!member)return;
-  if(navigator.onLine){
-   try{
-    const result=await TIPONSync.submitPendingNow();
-    if(result?.readOk){await loadCollections();member=state.members.find(x=>x.id===member.id)||member;}
-   }catch(error){console.warn('Member refresh before edit:',error.message||error);}
-  }
   if(member._pendingOp){showToast('This member has a pending change. Sync or review it before editing.','error');return;}
-  current=member.id;$('adminMemberForm').reset();
+  current={id:member.id,rev:Number(member.rev)||0,orgId:state.orgId,accountId:state.user.id};$('adminMemberForm').reset();
   $('adminMemberId').value=member.memberNumber||member.id;$('adminMemberName').value=member.name||'';
   const coop=$('adminMemberCoop'),platform=$('adminMemberPlatform');
   coop.innerHTML='<option value="">Select cooperative</option>'+
@@ -59,11 +53,15 @@ function readAdminWorkSchedule(){return {enabled:true,days:[...document.querySel
   setText('adminMemberEditStatus','');
   const help=$('adminMemberBackendGuide');if(help)help.hidden=true;
   $('adminMemberDialog').showModal();
+  if(navigator.onLine)TIPONSync.kick();
  }
  async function save(event){
   event.preventDefault();if(!isAdmin()||!current)return;
-  const member=state.members.find(x=>x.id===current);
+  const member=state.members.find(x=>x.id===current?.id);
   if(!member||member._pendingOp){setText('adminMemberEditStatus','Sync pending member changes before editing.');return;}
+  if(!current||current.orgId!==state.orgId||current.accountId!==state.user?.id||Number(member.rev||0)!==current.rev){
+   setText('adminMemberEditStatus','This member changed while the form was open. Close and reopen Edit to use the latest record.');return;
+  }
   const memberNumber=$('adminMemberId').value.trim(),name=$('adminMemberName').value.trim(),coop=$('adminMemberCoop').value,
     platform=$('adminMemberPlatform').value,siteIds=selected(),workSchedule=readAdminWorkSchedule();
   if(!name||name.length>120||!TIPONOrgCore.COOPS.includes(coop)||

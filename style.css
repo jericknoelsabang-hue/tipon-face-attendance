@@ -60,7 +60,7 @@ video#scanVideo,video#enrollVideo{transform:none!important}.boot-alert{padding:2
 
 /* Member List: read-only Weekly Work Schedule preview, matching Enrollment/Edit. */
 #page-members .table-wrap{overflow-x:auto}
-#page-members .table-wrap>table{min-width:1450px}
+#page-members .table-wrap>table{min-width:1220px}
 #page-members .table-wrap th:nth-child(5){min-width:260px}
 #page-members .table-wrap td.member-schedule-cell{min-width:260px;vertical-align:middle}
 #page-members .member-weekly-schedule{display:flex;flex-direction:column;gap:7px;width:246px;max-width:100%;color:#243c57}

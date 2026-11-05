@@ -107,7 +107,7 @@ window.TIPONAuth=(()=>{
     // Restored sessions have already passed the persisted inactivity check.
     // Freshly authenticated interaction begins a new 90-second activity window.
     session={...value,lastActivityAt:Date.now()};
-    if(freshLogin&&typeof resetSharedAttendanceFilters==='function')resetSharedAttendanceFilters();
+    if(freshLogin&&typeof resetSharedAttendanceFilters==='function')resetSharedAttendanceFilters(false);
     lastActivityPersist=Date.now();
     state.user=session.account;state.orgId=session.orgId;
     const kioskOnly=value.account?.role==='kiosk';
@@ -146,12 +146,16 @@ window.TIPONAuth=(()=>{
         ?TIPONAPI.raw({action:'challenge',username}).then(value=>({value}),error=>({error}))
         :null;
       const cached=await cachedLookup;let current;
+      // Overlap expensive password derivation with the online challenge; retain
+      // the server-provided salt and the full password-verification protocol.
+      const cachedProof=cached?.salt?proof(password,cached.salt).then(value=>({value}),()=>null):null;
       if(challengeRequest){
         try{
           const response=await challengeRequest;
           if(response.error)throw response.error;
           const challenge=response.value;
-          const derived=await proof(password,challenge.salt);
+          const prepared=challenge.salt===cached?.salt&&cachedProof?await cachedProof:null;
+          const derived=prepared?.value||await proof(password,challenge.salt);
           const reply=await TIPONAPI.raw({action:'login',username,proof:derived});
           current={...reply,proof:derived,salt:challenge.salt,onlineVerified:true};
           // Cache credentials only AFTER the authenticated organization has
@@ -162,7 +166,8 @@ window.TIPONAuth=(()=>{
       }
       if(!current){
         if(!cached)throw Error('First sign-in on this device needs internet and an approved account.');
-        const derived=await proof(password,cached.salt);let restored;
+        const prepared=cachedProof?await cachedProof:null;
+        const derived=prepared?.value||await proof(password,cached.salt);let restored;
         try{restored=await unseal(cached.vault,await vaultKey(derived),cached.id);}catch{throw Error('Incorrect username or password for this offline account.');}
         if(restored.offlineUntil<Date.now())throw Error('Offline access expired. Connect and sign in online again.');
         if(Date.now()<restored.verifiedAt-300000)throw Error('Device clock moved backwards. Correct the clock before signing in.');

@@ -1303,11 +1303,11 @@ test('Member List shows Weekly Work Schedule after Assigned Location with saved 
  const html=source('index.html'),app=source('app.js'),css=source('style.css');
  const page=html.slice(html.indexOf('id="page-members"'),html.indexOf('id="page-sites"'));
  const headers=[...page.matchAll(/<th(?: [^>]*)?>([^<]+)<\/th>/g)].map(x=>x[1]);
- assert.deepEqual(headers.slice(0,8),['Member','Cooperative','Business Platform','Assigned Location','Weekly Work Schedule','Enrolled By','Face Enrollment Status','Actions']);
+ assert.deepEqual(headers.slice(0,7),['Member','Cooperative','Business Platform','Assigned Location','Weekly Work Schedule','Face Enrollment Status','Actions']);
  const render=app.slice(app.indexOf('function renderMembers('),app.indexOf('let lastUserAddressSearch=',app.indexOf('function renderMembers(')));
  assert.match(render,/renderMemberWorkScheduleCell\(m\)/);
- assert.match(render,/colspan="8"/);
- assert.match(css,/#page-members \.table-wrap>table\{min-width:1450px\}/);
+ assert.match(render,/colspan="7"/);
+ assert.match(css,/#page-members \.table-wrap>table\{min-width:1220px\}/);
  assert.match(css,/#page-members \.member-schedule-days\{display:grid;grid-template-columns:repeat\(7,minmax\(0,1fr\)\)/);
  const start=app.indexOf('const MEMBER_WORK_DAYS='),end=app.indexOf('function fillMemberWorkSchedule(',start);
  assert.ok(start>0&&end>start);
@@ -1922,4 +1922,65 @@ test('Duplicate cleanup preview does not mutate assignments or location rows',()
  const f=duplicateSitesBackend(),before=JSON.stringify([f.sites,f.members,f.events]);
  const preview=f.ctx.tp5MergeDuplicateWorkLocations_({role:'admin'},true);
  assert.equal(preview.groups,1);assert.equal(preview.merged,0);assert.equal(JSON.stringify([f.sites,f.members,f.events]),before);
+});
+
+function loginPerformanceContext({online=true,salt='cached-salt',expired=false}={}){
+ const src=source('auth.js'),start=src.indexOf('  async function login(event){'),end=src.indexOf('  function kioskRegistrationErrorMessage(',start);
+ const fields={loginUsername:{value:'synthetic-user'},loginPassword:{value:'synthetic-password'},loginSubmit:{disabled:false}},calls=[],proofs=[],signed=[],messages=[];
+ let resolveChallenge;const challenge=new Promise(resolve=>resolveChallenge=resolve);
+ const ctx={signing:false,navigator:{onLine:online},Date,$:id=>fields[id],status:(text,bad)=>messages.push({text,bad}),vaultId:u=>u,
+  getOne:async()=>({id:'vault',salt:'cached-salt',vault:{}}),
+  proof:async(password,s)=>{proofs.push(s);return 'proof:'+s;},vaultKey:async x=>x,
+  unseal:async()=>({account:{id:'account-1'},orgId:'org-1',offlineUntil:Date.now()+(expired?-1000:60000),verifiedAt:Date.now()}),
+  TIPONAPI:{raw:async payload=>{calls.push(payload);if(payload.action==='challenge')return challenge;if(payload.action==='login')return {account:{id:'account-1'},orgId:'org-1'};throw Error('Unexpected request');}},
+  signedIn:async value=>signed.push(value)};
+ vm.createContext(ctx);vm.runInContext(src.slice(start,end),ctx);
+ return {ctx,fields,calls,proofs,signed,messages,resolveChallenge:()=>resolveChallenge({salt})};
+}
+test('Cached password derivation overlaps the challenge and still requires online login verification',async()=>{
+ const f=loginPerformanceContext(),pending=f.ctx.login({preventDefault(){}});
+ await new Promise(resolve=>setImmediate(resolve));assert.deepEqual(f.proofs,['cached-salt']);assert.equal(f.signed.length,0);
+ f.resolveChallenge();await pending;
+ assert.deepEqual(f.proofs,['cached-salt'],'matching salt derives once');assert.deepEqual(f.calls.map(x=>x.action),['challenge','login']);
+ assert.equal(f.calls[1].proof,'proof:cached-salt');assert.equal(f.signed[0].onlineVerified,true);assert.equal(f.fields.loginSubmit.disabled,false);
+});
+test('Changed server salt is freshly derived instead of using cached password proof',async()=>{
+ const f=loginPerformanceContext({salt:'new-server-salt'}),pending=f.ctx.login({preventDefault(){}});f.resolveChallenge();await pending;
+ assert.deepEqual(f.proofs,['cached-salt','new-server-salt']);assert.equal(f.calls[1].proof,'proof:new-server-salt');
+});
+test('Offline login makes no server call and rejects an expired account lease',async()=>{
+ const good=loginPerformanceContext({online:false});await good.ctx.login({preventDefault(){}});
+ assert.equal(good.calls.length,0);assert.equal(good.signed.length,1);assert.equal(good.signed[0].onlineVerified,false);
+ const expired=loginPerformanceContext({online:false,expired:true});await expired.ctx.login({preventDefault(){}});
+ assert.equal(expired.signed.length,0);assert.ok(expired.messages.some(x=>/Offline access expired/.test(x.text)));
+});
+test('Admin metadata Edit opens from saved data without waiting for server synchronization',async()=>{
+ const src=source('admin-member-editor.js'),start=src.indexOf(' async function openAdmin('),end=src.indexOf(' async function save(',start);
+ const fields=new Map();let opened=false,kicks=0;
+ const field=id=>{if(!fields.has(id))fields.set(id,{value:'',innerHTML:'',hidden:false,reset(){},showModal(){opened=true;}});return fields.get(id);};
+ const c={current:null,state:{orgId:'org-1',user:{id:'admin-1'}},navigator:{onLine:true},$:field,TIPONOrgCore:Org,esc:x=>x,
+  TIPONPlatforms:{fillScoped(){}},fillAdminWorkSchedule(){},choices(){},ids:m=>m.siteIds||[],setText(){},
+  TIPONSync:{submitPendingNow:()=>new Promise(()=>{}),kick:()=>kicks++}};
+ vm.createContext(c);vm.runInContext(src.slice(start,end),c);
+ const pending=c.openAdmin({id:'member-1',name:'Synthetic',coop:'Asiapro',platform:'IMG',rev:2,siteIds:['site-1']});
+ assert.equal(opened,true,'modal is displayed before any network wait');assert.equal(c.current.rev,2);assert.equal(kicks,1);await pending;
+});
+test('Admin metadata form cannot overwrite a revision received after the form opened',async()=>{
+ const src=source('admin-member-editor.js'),start=src.indexOf(' async function save(event){'),end=src.indexOf(" document.addEventListener('DOMContentLoaded'",start),messages=[];
+ const c={current:{id:'member-1',rev:2,orgId:'org-1',accountId:'admin-1'},state:{orgId:'org-1',user:{id:'admin-1'},members:[{id:'member-1',rev:3}]},isAdmin:()=>true,setText:(id,text)=>messages.push(text)};
+ vm.createContext(c);vm.runInContext(src.slice(start,end),c);await c.save({preventDefault(){}});
+ assert.ok(messages.some(x=>/changed while the form was open/.test(x)));
+});
+
+test('User Edit opens saved member metadata without a network or database round trip',async()=>{
+ const app=source('app.js'),start=app.indexOf('async function handleMemberTableClick(event){'),end=app.indexOf(' if(!del)return;',start);
+ let opened=false,kicks=0;const member={id:'member-1',name:'Synthetic user record'};
+ const c={state:{members:[member]},navigator:{onLine:false},openMemberForm:m=>{assert.equal(m,member);opened=true;},TIPONSync:{kick:()=>kicks++},getOne:()=>{throw Error('Opening Edit must use the saved in-memory record');},showToast(){}};
+ vm.createContext(c);vm.runInContext(app.slice(start,end)+'\n}',c);
+ const pending=c.handleMemberTableClick({target:{closest:selector=>selector==='[data-member-edit]'?{dataset:{memberEdit:member.id}}:null}});
+ assert.equal(opened,true);assert.equal(kicks,0);await pending;
+});
+test('Online authentication rejection cannot fall back to cached offline access',async()=>{
+ const f=loginPerformanceContext();f.ctx.TIPONAPI.raw=async payload=>{if(payload.action==='challenge')return {salt:'cached-salt'};throw Object.assign(Error('Account disabled'),{code:'AUTH'});};
+ await f.ctx.login({preventDefault(){}});assert.equal(f.signed.length,0);assert.ok(f.messages.some(x=>/Account disabled/.test(x.text)));
 });

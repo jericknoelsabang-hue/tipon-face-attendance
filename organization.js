@@ -121,7 +121,7 @@ enterApp=async function(options={}){
   if(!bound)await OrgDB.rawSave('meta',{id:'tp5-boundOrganization',orgId:state.orgId});
   $('appShell').hidden=false;$('mobileNav').hidden=state.user?.role==='kiosk';
   setText('sidebarUserName',state.user.name);setText('sidebarUserRole',roleName(state.user.role));setText('avatarLetter',initial(state.user.name));setText('greetingName',state.user.name.split(' ')[0]);
-  resetSharedAttendanceFilters(false);await loadCollections();await TIPONPlatforms.load();if(navigator.onLine)void TIPONPlatforms.refresh().catch(error=>console.warn('Business Platform refresh:',error.message||error));fillCoopSelect('memberCoop');fillCoopSelect('siteCoop');
+  resetSharedAttendanceFilters(false);await loadCollections();await TIPONPlatforms.load();fillCoopSelect('memberCoop');fillCoopSelect('siteCoop');
   const savedPage=await getOne('meta','tp5-last-page:'+state.user.id),defaultPage=isAdmin()?'dashboard':TIPONOrgCore.canUseTerminal(state.user)?'scanner':'members';
   // A fresh login always lands on the role's primary workspace.
   // Refreshing/restoring an active session can keep its last allowed tab.
@@ -130,6 +130,8 @@ enterApp=async function(options={}){
     (savedPage.page!=='scanner'||hasTerminalSession())?savedPage.page:defaultPage
   );
   applyRoles();await showPage(startPage);refreshClock();
+  const entryOrg=state.orgId,entryAccount=state.user.id;
+  setTimeout(()=>{if(navigator.onLine&&state.orgId===entryOrg&&state.user?.id===entryAccount)void TIPONPlatforms.refresh().catch(error=>console.warn('Business Platform refresh:',error.message||error));},1000);
   void checkOfflineReady().catch(error=>console.warn('Offline readiness check:',error));
 };
 applyRoles=function(){

@@ -272,9 +272,9 @@ function renderMembers(){
    '<td>'+esc(m.coop)+'</td><td>'+esc(m.platform||sites[0]?.platform||'—')+'</td>'+
    '<td><b>'+esc(names||'Unassigned')+'</b><small>'+(sites.length?'GPS verification at assigned work location':'Assign a Work Location before attendance')+'</small></td>'+
    '<td class="member-schedule-cell">'+renderMemberWorkScheduleCell(m)+'</td>'+
-   '<td>'+esc(memberEnrollerLabel(m))+'</td><td><span class="badge '+faceClass+'">'+faceLabel+'</span></td>'+
+   '<td><span class="badge '+faceClass+'">'+faceLabel+'</span></td>'+
    '<td><div class="row-inline"><button class="tiny-button" data-member-edit="'+esc(m.id)+'">Edit</button><button class="tiny-button delete" data-member-delete="'+esc(m.id)+'">Delete</button></div></td></tr>';
- }).join(''):'<tr><td colspan="8"><div class="empty-state">'+pageIcon('users')+'No matching members found.</div></td></tr>';
+ }).join(''):'<tr><td colspan="7"><div class="empty-state">'+pageIcon('users')+'No matching members found.</div></td></tr>';
  setText('memberPageCount','Showing '+(data.length?offset+1:0)+'–'+Math.min(offset+pageSize,data.length)+' of '+data.length+' members');
  setText('memberPage','Page '+state.memberPage+' of '+totalPages);
  if($('memberPrev'))$('memberPrev').disabled=state.memberPage<=1;
@@ -772,9 +772,9 @@ async function handleMemberTableClick(event){
  if(edit){
   const member=state.members.find(x=>x.id===edit.dataset.memberEdit&&!x.deleted);
   if(member){
-   if(member._pendingOp&&navigator.onLine)await TIPONSync.submitPendingNow();
-   const fresh=await getOne('members',member.id);
-   if(fresh&&!fresh.deleted)openMemberForm(state.members.find(x=>x.id===member.id)||fresh);
+   if(member._pendingOp){showToast('This member has a saved change awaiting sync. Refresh or review it before editing.','info');TIPONSync.kick();return;}
+   openMemberForm(member);
+   if(navigator.onLine)TIPONSync.kick();
   }
   return;
  }
