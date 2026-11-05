@@ -1,5 +1,5 @@
 {
   "app": "TIPON Face Attendance",
-  "version": "5.5.100",
-  "label": "Refresh shared directories explicitly, replay attendance when account scope changes, and resume queued sync after reconnecting."
+  "version": "5.5.102",
+  "label": "Restore member metadata buttons, retry supported metadata edits, reduce redundant requests and bound slow-network startup."
 }

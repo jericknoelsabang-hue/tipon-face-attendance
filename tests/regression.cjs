@@ -1756,3 +1756,83 @@ test('Raw attendance reader never applies overlays or recursively reads the ledg
  assert.equal(overlays,0);assert.equal(allReads,0);
  ctx.tp5EventCount_=()=>0;assert.equal(ctx.tp5RawAttendanceEvents_().length,0);
 });
+
+function metadataBackend(){
+ const members=[{id:'metadata-1',memberNumber:'000123',name:'Synthetic Member',coop:'Asiapro',platform:'IMG',siteId:'site-1',siteIds:['site-1'],active:true,rev:2,template:{data:'unchanged-placeholder'}}];
+ const sites=[{id:'site-1',name:'Synthetic site',coop:'Asiapro',platform:'IMG'}],audits=[],events=[];
+ const ctx={TIPONOrgCore:Org,Date,Map,Set,Number,
+  tp5Must_:(ok,message,code)=>{if(!ok)throw Object.assign(Error(message),{code});},
+  tp5Find_:(type,id)=>(type==='members'?members:sites).find(r=>r.id===id),tp5Read_:type=>type==='members'?members:sites,
+  tp5Admin_:u=>{if(u.role!=='admin')throw Error('Administrator required');},tp5ResolvePlatform_:x=>x,
+  tp5AllEvents_:()=>events,tp5ApplyAttendanceCorrections_:x=>x,
+  tp5Put_:(type,next)=>{assert.equal(type,'members');members[members.findIndex(m=>m.id===next.id)]=next;},
+  tp5RefreshMemberDirectory_(){},tp5Bump_:()=>7,tp5Now_:()=>new Date().toISOString(),tp5Safe_:x=>x,tp5Reply_:x=>x,tp5Audit_:(...args)=>audits.push(args)};
+ vm.createContext(ctx);vm.runInContext(source('backend-patch/MemberMetadata.gs'),ctx);return {ctx,members,audits,events};
+}
+test('Metadata-only backend saves member details and schedules with revision checks',()=>{
+ const {ctx,members,audits}=metadataBackend(),before=members[0].template;
+ const schedule={enabled:true,days:[1,2,3,4,5],start:'08:00',end:'17:00',grace:0};
+ const response=ctx.tp5UserMemberTransferUpdateV2_(actor,{memberId:'metadata-1',baseRev:2,changes:{memberNumber:'000123',name:'Synthetic Updated Member',coop:'Asiapro',platform:'IMG',siteIds:['site-1'],workSchedule:schedule}});
+ assert.equal(response.member.name,'Synthetic Updated Member');assert.equal(members[0].rev,3);assert.equal(members[0].memberNumber,'000123');assert.equal(members[0].template,before);
+ assert.equal(typeof ctx.tp5UserMemberFaceUpdateV2_,'undefined');
+ assert.throws(()=>ctx.tp5MemberWorkScheduleUpdateV2_(actor,{memberId:'metadata-1',baseRev:2,workSchedule:schedule}),e=>e.code==='CONFLICT');
+ assert.equal(audits.length,1);
+});
+test('Metadata-only backend rejects wrong scopes and blocks deleting open attendance',()=>{
+ const {ctx,members,events}=metadataBackend();
+ assert.throws(()=>ctx.tp5UserMemberDelete_({...actor,platform:'OCG'},{memberId:'metadata-1',baseRev:2}),e=>e.code==='FORBIDDEN');
+ events.push({...event('metadata-in','IN','2026-11-05T00:00:00Z'),memberId:'metadata-1'});
+ assert.throws(()=>ctx.tp5UserMemberDelete_(actor,{memberId:'metadata-1',baseRev:2}),e=>e.code==='OPEN_SESSION');
+ assert.equal(members[0].deleted,undefined);
+ events.push({...event('metadata-out','OUT','2026-11-05T09:00:00Z'),memberId:'metadata-1'});
+ const response=ctx.tp5UserMemberDelete_(actor,{memberId:'metadata-1',baseRev:2});
+ assert.equal(response.member.deleted,true);assert.equal(members[0].active,false);assert.equal(events.length,2);
+});
+test('Slow configuration fetch falls back to the cached shell after a bounded timeout',async()=>{
+ const handlers={},cached=new Response('window.TIPON_CONFIG={cached:true}'),delays=[];
+ const ctx={URL,Response,Request,AbortController,Uint8Array,Promise,
+  self:{location:{origin:'https://test.invalid',href:'https://test.invalid/'},addEventListener:(name,fn)=>handlers[name]=fn},
+  caches:{open:async()=>({match:async()=>cached,put:async()=>{}})},
+  fetch:(request,options)=>new Promise((resolve,reject)=>options.signal.addEventListener('abort',()=>reject(Error('Network timeout')))),
+  setTimeout:(fn,ms)=>{delays.push(ms);queueMicrotask(fn);return 1;},clearTimeout(){}};
+ vm.createContext(ctx);vm.runInContext(source('sw.js'),ctx);
+ let response;handlers.fetch({request:new Request('https://test.invalid/config.js'),respondWith:p=>response=p});
+ assert.equal(await (await response).text(),'window.TIPON_CONFIG={cached:true}');assert.deepEqual(delays,[2500]);
+});
+test('Unavailable optional capabilities do not add a failing request to every successful sync cycle',async()=>{
+ const src=source('sync.js'),start=src.indexOf('  async function runCycle(){'),end=src.indexOf('  // A concurrent timer/manual caller',start);
+ let capabilityCalls=0;const ctx={stopped:false,busy:false,document:{hidden:false},navigator:{onLine:true},state:{user:actor,orgId:'org-1',page:'members'},
+  Date,console:{warn(){}},attempt:0,recoveredCompatibleOperations:false,nextCapabilityCheckAt:0,siteFastRetry:0,
+  TIPONAuth:{ensureOnline:async()=>{}},TIPONAPI:{raw:async()=>{capabilityCalls++;throw Object.assign(Error('Unknown action'),{code:'ACTION'});}},
+  recoverUnsupportedMetadataEdits:async()=>{},loadCollections:async()=>{},reconcileLegacyAdminDeletes:async()=>{},flush:async()=>{},pull:async()=>{},reconcileConfirmedCorrections:async()=>{},
+  TIPONCore:{phStamp:x=>x},OrgDB:{rawSave:async()=>{}},syncStampId:()=> 'stamp',getAll:async()=>[],
+  localQueue:()=>({total:0,queued:0,needsReview:0,retrying:0}),render(){},schedule(){},renderMembers(){},TIPONPlatforms:{render(){}}};
+ vm.createContext(ctx);vm.runInContext(src.slice(start,end),ctx);
+ assert.equal((await ctx.runCycle()).readOk,true);assert.equal((await ctx.runCycle()).readOk,true);assert.equal(capabilityCalls,1);
+ ctx.nextCapabilityCheckAt=0;await ctx.runCycle();assert.equal(capabilityCalls,2);
+});
+
+test('New metadata capabilities retry only same-account unsupported metadata edits',async()=>{
+ const src=source('sync.js'),start=src.indexOf('  async function recoverUnsupportedMetadataEdits('),end=src.indexOf('  async function runCycle(){',start);
+ const base={orgId:'org-1',ownerId:actor.id,type:'memberEdits',everSent:true,errorCode:'NEEDS_REVIEW',error:'tp5UserMemberTransferUpdateV2_ is not defined'};
+ const ops=[{...base,id:'retry',value:{}},{...base,id:'other-account',ownerId:'someone-else'},
+  {...base,id:'denied',error:'Outside your approved scope'},{...base,id:'schedule',value:{mode:'weeklySchedule'}}];
+ const saved=[],ctx={state:{orgId:'org-1',user:actor},getAll:async()=>ops,OrgDB:{rawSave:async(type,op)=>saved.push(op.id)}};
+ vm.createContext(ctx);vm.runInContext(src.slice(start,end),ctx);
+ await ctx.recoverUnsupportedMetadataEdits({memberTransferUpdate:true,memberWorkScheduleUpdate:false});
+ assert.deepEqual(saved,['retry']);assert.equal(ops[0].everSent,false);assert.equal(ops[0].errorCode,undefined);
+ assert.equal(ops[1].errorCode,'NEEDS_REVIEW');assert.equal(ops[2].errorCode,'NEEDS_REVIEW');
+});
+
+test('Work Location deletion surfaces the server rejection and preserves the record',async()=>{
+ const site={id:'site-1',orgId:'org-1',name:'Synthetic site',coop:'Asiapro',platform:'IMG',deleted:true,_pendingOp:'delete-op'},
+  op={id:'delete-op',type:'siteDeletes',orgId:'org-1',ownerId:actor.id,baseRev:1,value:{siteId:'site-1',site:{...site},original:{...site,deleted:false}}};
+ const tables={sites:[site],outbox:[op],punches:[]};let calls=0;
+ const ctx={console,Date,Map,Set,setTimeout,clearTimeout,navigator:{onLine:true},state:{user:actor,orgId:'org-1',deviceId:'device',punches:[]},$:()=>null,setText(){},TIPONOrgCore:Org,TIPONAuth:{ensureOnline:async()=> 'token'},
+  TIPONGitHubBridge:{request:async()=>{calls++;return {ok:true,protocol:Org.PROTOCOL,ackOps:[],operationErrors:[{id:op.id,code:'FORBIDDEN',error:'Location still has assigned members'}]};}},
+  getAll:async type=>tables[type]||[],getOne:async(type,id)=>(tables[type]||[]).find(v=>v.id===id),
+  OrgDB:{rawSave:async(type,value)=>{const rows=tables[type],i=rows.findIndex(v=>v.id===value.id);if(i<0)rows.push(value);else rows[i]=value;},rawDelete:async()=>{throw Error('Rejected deletion must remain queued');}}};
+ ctx.window=ctx;vm.createContext(ctx);vm.runInContext(source('sync.js').replace('return {init,start,stop,kick','return {__flush:flush,init,start,stop,kick'),ctx);
+ await ctx.TIPONSync.__flush();assert.equal(calls,1);assert.equal(tables.sites[0].deleted,false);assert.equal(op.error,'Location still has assigned members');assert.equal(op.errorCode,'NEEDS_REVIEW');
+ op.errorCode='SERVER';op.nextRetryAt=Date.now()+60000;await ctx.TIPONSync.__flush();assert.equal(calls,1,'failed writes honor the retry deadline');
+});

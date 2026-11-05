@@ -189,6 +189,8 @@ function verifyTIPONRecordSync(){
     members:tp5Read_('members').filter(function(row){return !row.deleted;}).length,
     workLocations:tp5Read_('sites').filter(function(row){return !row.deleted;}).length,
     rawAttendanceEvents:raw.length,correctedAttendanceEvents:visible.length,
+    memberMetadataReady:typeof tp5MemberWorkScheduleUpdateV2_==='function'&&
+      typeof tp5AdminMemberUpdateV2_==='function'&&typeof tp5UserMemberTransferUpdateV2_==='function',
     missingDependencies:false};
   console.log(JSON.stringify(summary));
   return summary;

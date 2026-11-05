@@ -50,3 +50,11 @@ The live project inspected on November 5 contained Code.gs, OrgCore.gs, AdminBoo
 5. Save, then edit the existing Web App deployment to use a new version. Preserve its URL, execution identity and existing access settings. Frontend pushes alone do not update this private deployment.
 
 No setup/reset, credential changes, or production record deletion is required. Face matching and biometric enrollment are outside this patch. Confirm actual upload acknowledgments and scoped reads before claiming every device is synchronized.
+
+## v5.5.102 member metadata QA patch
+
+The live router referenced member metadata functions that were absent from the project. Add MemberMetadata.gs to the existing private Apps Script project **only if MemberLocationEdit.gs and its shared function names are absent**. These are alternative implementations, not files to install together. MemberMetadata.gs intentionally contains no biometric enrollment updater.
+
+The existing authenticated and locked routes must point to tp5MemberWorkScheduleUpdateV2_, tp5AdminMemberUpdateV2_, tp5UserMemberLocationUpdate_, tp5UserMemberTransferLocations_, tp5UserMemberTransferUpdateV2_ and tp5UserMemberDelete_. Preserve their scope, revision and open-session checks. Remove duplicate memberLocationCapabilities, memberUserDelete and attendanceCorrect branches. Capabilities must report actual function availability using typeof rather than claiming missing handlers are ready; allowUnassignedFace stays false. Deploy a new version on the existing Web App deployment.
+
+Frontend changes bound configuration-network startup to 2.5 seconds before a cached fallback, throttle optional capability probes, recover unsupported metadata edits only for the signed-in account, honor failed-write retry deadlines, and surface Work Location deletion rejections without deleting the local record.

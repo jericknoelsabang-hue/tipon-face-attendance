@@ -17,7 +17,7 @@ window.TIPONSync=(()=>{
   let busy=false,timer=null,attempt=0,priorityOperationId='',message='Sign in to enable organization sync.',lastSync='',stopped=true,activeRun=null,siteFastRetry=0,eventVersionSupported=null;
   // Only changes owned by the signed-in account and attendance recorded by this
   // device are actionable here. A central catalog may include other users' data.
-  let cachedOutbox=[],forceCatalogRefresh=false,rerunRequested=false;
+  let cachedOutbox=[],forceCatalogRefresh=false,rerunRequested=false,nextCapabilityCheckAt=0;
   function queueSummary(outbox,punches,orgId,ownerId,deviceId){
     const owners=(outbox||[]).filter(op=>op&&String(op.orgId)===String(orgId)&&String(op.ownerId)===String(ownerId));
     const local=(punches||[]).filter(p=>p&&String(p.orgId)===String(orgId)&&
@@ -63,7 +63,7 @@ window.TIPONSync=(()=>{
   }
   function syncStampId(){return 'tp5-last-sync:'+String(state.orgId||'')+':'+String(state.user?.id||'');}
   function start(){
-    stopped=false;lastSync='';cachedOutbox=[];attempt=0;rerunRequested=false;recoveredCompatibleOperations=false;
+    stopped=false;lastSync='';cachedOutbox=[];attempt=0;rerunRequested=false;recoveredCompatibleOperations=false;nextCapabilityCheckAt=0;
     getOne('meta',syncStampId()).then(saved=>{if(!lastSync&&saved?.value){lastSync=saved.value;render();}}).catch(()=>{});
     kick();
   }
@@ -239,6 +239,7 @@ window.TIPONSync=(()=>{
       p.orgId===state.orgId&&!p.cloudAck&&!p.reviewStatus&&p.deviceId===state.deviceId)
       .sort((a,b)=>Date.parse(a.timestamp)-Date.parse(b.timestamp)).slice(0,8):[];
     const special=outbox.filter(op=>specialTypes.includes(op.type)&&
+      (!op.nextRetryAt||Date.now()>=Number(op.nextRetryAt))&&
       !['NEEDS_REVIEW','CONFLICT','FORBIDDEN','NOT_FOUND'].includes(op.errorCode));
     if(!operations.length&&!events.length&&!special.length)return;
     const reportError=async(op,error)=>{
@@ -423,8 +424,11 @@ window.TIPONSync=(()=>{
         }else if(op.type==='siteDeletes'){
           const site=op.value.site;
           const reply=await TIPONAPI.call({action:'submit',operations:[{id:op.id,type:'sites',value:site,baseRev:Number(op.baseRev)||0}],events:[]});
+          const issue=(reply.operationErrors||[]).find(item=>String(item.id)===String(op.id));
+          if(issue)throw Object.assign(Error(issue.error||'Work Location deletion was rejected.'),{code:issue.code||'SERVER'});
           if(!(reply.ackOps||[]).includes(op.id))throw Error('Server did not confirm Work Location deletion.');
           const receipt=(reply.receipts||[]).find(x=>x.type==='sites'&&x.id===op.value.siteId);
+          if(!receipt||Number(receipt.rev)!==Number(op.baseRev||0)+1)throw Error('Server returned an incomplete Work Location deletion receipt.');
           const current=await getOne('sites',op.value.siteId);
           if(current){const deleted={...current,deleted:true,rev:Number(receipt?.rev)||Number(current.rev||0)+1};delete deleted._pendingOp;delete deleted.pendingDelete;delete deleted.syncIssue;await OrgDB.rawSave('sites',deleted);}
           await OrgDB.rawDelete('outbox',op.id);
@@ -650,6 +654,18 @@ window.TIPONSync=(()=>{
       if(!r.more||document.hidden||stopped)break;
     }
   }
+  async function recoverUnsupportedMetadataEdits(caps){
+    if(!caps.memberTransferUpdate&&!caps.memberWorkScheduleUpdate)return;
+    const queued=await getAll('outbox');
+    for(const op of queued){
+      if(op.orgId!==state.orgId||op.ownerId!==state.user.id||op.type!=='memberEdits')continue;
+      const scheduleOnly=op.value?.mode==='weeklySchedule';
+      if(scheduleOnly?!caps.memberWorkScheduleUpdate:!caps.memberTransferUpdate)continue;
+      if(!/unknown action|unsupported action|not implemented|tp5(?:AdminMemberUpdateV2_|MemberWorkScheduleUpdateV2_|UserMemberTransferUpdateV2_|UserMemberLocationUpdate_) is not defined/i.test(op.error||''))continue;
+      delete op.error;delete op.errorCode;delete op.nextRetryAt;op.everSent=false;
+      await OrgDB.rawSave('outbox',op);
+    }
+  }
   async function runCycle(){
     if(stopped||busy||!state.user||document.hidden){schedule();return {ok:false,error:'The app is busy, signed out, or in a hidden browser tab.'};}
     if(!navigator.onLine){message='Offline: saved locally. Automatic sync resumes when internet is available and this app is open.';render();schedule();return {ok:false,error:message};}
@@ -657,9 +673,11 @@ window.TIPONSync=(()=>{
     let result={ok:false,error:'Synchronization did not complete.'};
     try{
       await TIPONAuth.ensureOnline();
-      if(!recoveredCompatibleOperations){
+      if(!recoveredCompatibleOperations&&Date.now()>=nextCapabilityCheckAt){
+       nextCapabilityCheckAt=Date.now()+60000;
        try{
         const caps=await TIPONAPI.raw({action:'memberLocationCapabilities'});
+        await recoverUnsupportedMetadataEdits(caps);
         if(caps.memberFaceUpdate&&caps.memberTransferUpdate){
          const oldOps=await getAll('outbox');
          for(const op of oldOps.filter(o=>o.orgId===state.orgId&&o.ownerId===state.user.id&&['memberFaceUpdates','memberEdits'].includes(o.type)&&/unknown action|unsupported action|not implemented/i.test(o.error||''))){delete op.error;delete op.errorCode;op.everSent=false;await OrgDB.rawSave('outbox',op);}
