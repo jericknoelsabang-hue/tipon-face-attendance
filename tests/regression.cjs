@@ -452,7 +452,7 @@ test('Published assets share one release version and pagination controls cannot 
   assert.match(html,new RegExp(`core\\.js\\?v=${assetVersion}`));
   assert.match(html,new RegExp(`app\\.js\\?v=${assetVersion}`));
   assert.match(html,new RegExp(`liveness-guard\\.js\\?v=${assetVersion}`));
-  assert.match(source('app.js'),/const MATCH_LIMIT=\.47;/);
+  assert.match(source('app.js'),/const MATCH_LIMIT=\.40;/);
   assert.match(html,/id="captureEnrollmentSample"/);
   assert.match(html,/id="memberSiteSummary"[^>]+aria-required="true"/);
   assert.doesNotMatch(html,/Assigned Work Location <span class="field-optional">\(Optional\)/);
