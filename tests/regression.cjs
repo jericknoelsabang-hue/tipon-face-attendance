@@ -26,9 +26,9 @@ test('Authenticated new-organization login isolates IndexedDB and preserves the 
  const ctx={DB_NAME:'tipon-face-local-v1',TP5_ACTIVE_DB_KEY:'tp5-active-organization-database-v1',navigator:{onLine:true},
   crypto:require('node:crypto').webcrypto,TextEncoder,state,db:legacy,
   localStorage:{setItem:(k,v)=>prefs.set(k,v),getItem:k=>prefs.get(k)||null},
-  async getOne(store,id){return this.db?.meta?.[id]||null;},
-  async saveOne(store,record){this.db.meta[record.id]=record;},
-  async initializeLocal(){this.state.deviceId='device-test';},
+  async getOne(store,id){return ctx.db?.meta?.[id]||null;},
+  async saveOne(store,record){ctx.db.meta[record.id]=record;},
+  async initializeLocal(){ctx.state.deviceId='device-test';},
   async openDB(name){if(!names.has(name))names.set(name,{name,meta:{},outbox:[],close(){this.closed=true;}});return names.get(name);}
  };
  vm.createContext(ctx);
