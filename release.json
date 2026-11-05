@@ -1,5 +1,5 @@
 {
   "app": "TIPON Face Attendance",
-  "version": "5.5.97",
-  "label": "Three automatic no-blink face samples with identity consistency and duplicate checks."
+  "version": "5.5.98",
+  "label": "Protect attendance from wrong-member face matches using three frames and collision-free multiple templates."
 }

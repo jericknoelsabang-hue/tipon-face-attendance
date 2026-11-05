@@ -309,14 +309,15 @@ test('Fully closed eyes advance the blink challenge; a stationary face cannot pa
   const staticFace=ctx.TIPONLiveness.challenge();for(let i=1;i<=20;i++)ctx.TIPONLiveness.advance(staticFace,face(.25),staticFace.started+i*150);
   assert.equal(staticFace.passed,false);
 });
-test('Attendance capture stays unchanged while enrollment requires no blink',()=>{
+test('Attendance uses three-frame identity verification while enrollment requires no blink',()=>{
   const app=source('app.js'),liveness=source('liveness-guard.js'),html=source('index.html');
   assert.match(app,/const SCAN_DELAY_MS=320;/);
   const start=app.indexOf('async function scanTick(){'),end=app.indexOf('function canQueueUnresolvedTimeOut(');
   assert.ok(start>=0&&end>start);
   const scanner=app.slice(start,end);
-  assert.match(scanner,/if\(state\.scanCandidateCount>=2\)/);
-  assert.match(scanner,/await recordRecognizedFace\(member,found\.best\.distance\)/);
+  assert.match(scanner,/if\(state\.scanCandidateCount>=FACE_CONFIRM_FRAMES\)/);
+  assert.match(scanner,/await recordRecognizedFace\(member,verdict\.distance,evidence\)/);
+  assert.match(scanner,/verifiedFaceEvidence\(evidence,member\.id\)/);
   assert.doesNotMatch(scanner,/blinkChallenge|livenessProof/);
   assert.doesNotMatch(liveness,/scanTick=async function\(\)/);
   const captureFlow=liveness.slice(liveness.indexOf('const ENROLL_SAMPLE_INTERVAL_MS='),liveness.indexOf('window.TIPONLiveness='));
@@ -326,6 +327,50 @@ test('Attendance capture stays unchanged while enrollment requires no blink',()=
   assert.doesNotMatch(record,/Live Verification Required|const proof/);
   assert.match(html,/liveness-guard\.js\?v=\d+/);
 });
+test('Biometric matcher rejects ambiguous labels, overlapping templates, weak and inconsistent faces',()=>{
+ const app=source('app.js');
+ const constants=app.slice(app.indexOf('const MATCH_LIMIT='),app.indexOf('const SCAN_DELAY_MS='));
+ const functions=app.slice(app.indexOf('function euclidean('),app.indexOf('async function startScanner('));
+ const context={Array,ArrayBuffer,Number,String,Math,state:{members:[]}};
+ vm.createContext(context);
+ vm.runInContext(constants+'\n'+functions+'\nthis.match={nearestMember,faceMatchVerdict,faceTemplateCollision,verifiedFaceEvidence};',context);
+ const vec=n=>Array(128).fill(n);
+ const person=(id,center)=>({id,name:'Synthetic member '+id,active:true,
+  descriptors:[vec(center),vec(center+.002),vec(center+.004)]});
+ const jerick=person('J',0),unrelated=person('U',.1);
+ context.state.members=[jerick,unrelated];
+ const recognized=context.match.faceMatchVerdict(context.match.nearestMember(vec(.003)));
+ assert.equal(recognized.ok,true);
+ assert.equal(recognized.member.id,'J');
+ assert.equal(context.match.verifiedFaceEvidence([vec(.001),vec(.002),vec(.003)],'J'),true);
+ assert.equal(context.match.faceMatchVerdict(context.match.nearestMember(vec(.045))).ok,false,
+  'a single weak match must not count as confirmed identity');
+ // A different face copied into even ONE of a member's templates is not enough.
+ const corrupted={id:'C',active:true,descriptors:[vec(.002),vec(.1),vec(.11)]};
+ context.state.members=[jerick,corrupted];
+ assert.equal(context.match.faceMatchVerdict(context.match.nearestMember(vec(.001))).ok,false,
+  'one copied reference creates a cross-member ambiguity');
+ assert.equal(context.match.faceTemplateCollision(jerick),true);
+ const almaz=person('A',.03);
+ context.state.members=[jerick,almaz];
+ assert.equal(context.match.faceMatchVerdict(context.match.nearestMember(vec(.029))).ok,false,
+  'a similar candidate must not be announced as a verified member');
+ assert.equal(context.match.faceTemplateCollision(jerick),true);
+ assert.equal(context.match.verifiedFaceEvidence([vec(0),vec(.001),vec(.002)],'J'),false);
+ context.state.members=[jerick,unrelated];
+ assert.equal(context.match.verifiedFaceEvidence([vec(.001),vec(.002),vec(.101)],'J'),false,
+  'one camera frame matching a second person must block a punch');
+ assert.equal(context.match.verifiedFaceEvidence([vec(.001),vec(.002)],'J'),false,
+  'two frames are insufficient for attendance');
+ const scanner=app.slice(app.indexOf('async function scanTick(){'),app.indexOf('function canQueueUnresolvedTimeOut('));
+ assert.match(scanner,/if\(!verifiedFaceEvidence\(evidence,member\.id\)\)/);
+ assert.doesNotMatch(scanner,/Closest registered face:/);
+ assert.doesNotMatch(scanner,/Face detected: \$\{member\.name\}/);
+ const saver=app.slice(app.indexOf('async function recordRecognizedFace('),app.indexOf('function commitPunch('));
+ assert.match(saver,/await loadCollections\(\);\s*if\(!verifiedFaceEvidence\(faceEvidence,member\.id\)\)/);
+ assert.match(saver,/await commitPunch\(punch,mode\)/);
+});
+
 test('Fast Face Terminal combines GPS with one bounded central sync without weakening checks',async()=>{
  const app=source('app.js'),sync=source('sync.js');
  const helper=app.slice(app.indexOf('async function fastAttendanceLedgerRead('),app.indexOf('async function recordRecognizedFace('));
