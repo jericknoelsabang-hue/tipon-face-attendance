@@ -14,9 +14,9 @@ function tp5AssertUniqueWorkLocation_(record){
     normalized(site.name)===normalized(record.name);}),
     'This Work Location already exists for the selected Cooperative and Business Platform. Edit the existing record.','DUPLICATE');
 }
-function tp5MergeDuplicateWorkLocations_(actor,preview){
+function tp5MergeDuplicateWorkLocations_(actor,preview,locationName){
   tp5Admin_(actor);
-  var sites=tp5Read_('sites').filter(function(s){return !s.deleted;}),members=tp5Read_('members'),
+  var sites=tp5Read_('sites').filter(function(s){return !s.deleted&&(!locationName||String(s.name).normalize('NFKC').trim().replace(/\s+/g,' ').toLowerCase()===locationName.toLowerCase());}),members=tp5Read_('members'),
     users=tp5Read_('users'),tokens=tp5Read_('tokens');
   var sessions=TIPONOrgCore.project(tp5ApplyAttendanceCorrections_(tp5AllEvents_())),used=new Set(),groups=[];
   function ids(row){return (Array.isArray(row.siteIds)?row.siteIds:[row.siteId]).filter(Boolean).map(String);}
@@ -36,9 +36,8 @@ function tp5MergeDuplicateWorkLocations_(actor,preview){
     groups.forEach(function(group){
       var retired=new Set(group.duplicates.map(function(s){return String(s.id);}));
       var affected=members.filter(function(m){return !m.deleted&&ids(m).some(function(id){return retired.has(id);});});
-      var memberIds=new Set(affected.map(function(m){return String(m.id);}));
-      if(group.duplicates.some(function(s){return kioskReference(String(s.id));})||sessions.some(function(s){return s.timeIn&&!s.timeOut&&(retired.has(String(s.siteId))||memberIds.has(String(s.memberId)));})){
-        summary.blocked.push({name:group.primary.name,reason:'An active kiosk assignment or open attendance session requires review.'});return;
+      if(group.duplicates.some(function(s){return kioskReference(String(s.id));})){
+        summary.blocked.push({name:group.primary.name,reason:'An active kiosk assignment requires review.'});return;
       }
       if(preview)return;
       affected.forEach(function(old){
@@ -48,7 +47,7 @@ function tp5MergeDuplicateWorkLocations_(actor,preview){
         tp5Put_('members',next,old);changed=true;Object.assign(old,next);summary.reassigned++;
       });
       group.duplicates.forEach(function(old){
-        tp5Put_('sites',Object.assign({},old,{deleted:true,active:false,mergedIntoSiteId:group.primary.id,
+        tp5Put_('sites',Object.assign({},old,{deleted:true,active:false,mergedIntoSiteId:group.primary.id,mergedFromRev:Number(old.rev||0),
           updatedAt:tp5Now_(),rev:Number(old.rev||0)+1}),old);
         changed=true;old.deleted=true;summary.merged++;
         tp5Audit_(actor,'MERGE_DUPLICATE_SITE',old.id,'Retired duplicate into '+group.primary.id+'; historical attendance retained.');
@@ -74,5 +73,14 @@ function tp5AttendanceSite_(sites,id){
   var primary=sites.find(function(s){return !s.deleted&&String(s.id)===String(original.mergedIntoSiteId);});
   var alias=Object.assign({},original,{deleted:false});
   if(!primary||!tp5SameWorkLocation_(alias,primary))return null;
+  alias.rev=Number(original.mergedFromRev)||Math.max(0,Number(original.rev||0)-1);
   alias._canonicalSiteId=primary.id;return alias;
+}
+
+/** Targeted owner cleanup requested for Enderun only. */
+function previewTIPONEnderunWorkLocations(){
+  var result=tp5MergeDuplicateWorkLocations_({id:'project-owner',role:'admin'},true,'Enderun Coworking');console.log(JSON.stringify(result));return result;
+}
+function mergeTIPONEnderunWorkLocations(){
+  return tp5Lock_(function(){var result=tp5MergeDuplicateWorkLocations_({id:'project-owner',role:'admin'},false,'Enderun Coworking');console.log(JSON.stringify(result));return result;});
 }

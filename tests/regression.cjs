@@ -1872,14 +1872,19 @@ test('Reset Filters clears stale form values before propagating shared filters',
  const c={sharedAttendanceFilters:filters,$:id=>fields.get(id),applySharedAttendanceFilters:()=>{assert.ok([...fields.values()].every(f=>f.value===''));}};
  vm.createContext(c);vm.runInContext(app.slice(start,end),c);c.resetSharedAttendanceFilters();assert.ok(Object.values(filters).every(x=>x===''));
 });
-test('Member name/schedule edits work during an open shift while assignment changes remain blocked',()=>{
+test('Member assignment edits work during an open shift without changing attendance history',()=>{
  const {ctx,members,events}=metadataBackend();events.push({...event('open-meta','IN','2026-11-05T00:00:00Z'),memberId:'metadata-1'});
  const changes={memberNumber:'000123',name:'Corrected synthetic name',coop:'Asiapro',platform:'IMG',siteIds:['site-1']};
  const response=ctx.tp5AdminMemberUpdateV2_({role:'admin'},{memberId:'metadata-1',baseRev:2,changes});
  assert.equal(response.member.name,changes.name);assert.equal(members[0].rev,3);
  const second=metadataBackend();second.events.push({...event('open-other','IN','2026-11-05T00:00:00Z'),memberId:'metadata-1'});
  second.ctx.tp5LocationIds_=()=>['different-site'];
- assert.throws(()=>second.ctx.tp5AdminMemberUpdateV2_({role:'admin'},{memberId:'metadata-1',baseRev:2,changes:{...changes,siteIds:['different-site']}}),e=>e.code==='OPEN_SESSION');
+ const before=JSON.stringify(second.events);
+ const updated=second.ctx.tp5AdminMemberUpdateV2_({role:'admin'},{memberId:'metadata-1',baseRev:2,changes:{...changes,siteIds:['different-site']}});
+ assert.equal(updated.member.siteId,'different-site');assert.equal(JSON.stringify(second.events),before);
+ const user=metadataBackend();user.events.push({...event('open-user','IN','2026-11-05T00:00:00Z'),memberId:'metadata-1'});
+ user.ctx.tp5TransferLocationIds_=()=>['different-site'];
+ assert.equal(user.ctx.tp5UserMemberTransferUpdateV2_(actor,{memberId:'metadata-1',baseRev:2,changes:{...changes,siteIds:['different-site']}}).member.siteId,'different-site');
 });
 function duplicateSitesBackend(open=false){
  const sites=[{id:'primary',name:'Synthetic Coworking',coop:'Asiapro',platform:'IMG',lat:14.5754940,lng:121.0629207,radius:150,createdAt:'2026-01-01',rev:1},
@@ -1901,12 +1906,12 @@ test('Duplicate location merge preserves member assignments and historical event
  const resolved=f.ctx.tp5AttendanceSite_(f.sites,'duplicate');assert.equal(resolved.id,'duplicate');assert.equal(resolved._canonicalSiteId,'primary');
  assert.throws(()=>f.ctx.tp5AssertUniqueWorkLocation_({...f.sites[0],id:'new'}),e=>e.code==='DUPLICATE');
 });
-test('Duplicate cleanup skips open sessions and never groups other scopes or distant places',()=>{
+test('Duplicate cleanup preserves open sessions and never groups other scopes or distant places',()=>{
  const f=duplicateSitesBackend(true);f.members.push({id:'other',siteId:'primary',siteIds:['primary'],rev:1});
- const result=f.ctx.tp5MergeDuplicateWorkLocations_({role:'admin'},false);assert.equal(result.merged,0);assert.equal(result.blocked.length,1);
- assert.equal(f.ctx.tp5SameWorkLocation_(f.sites[0],{...f.sites[1],platform:'OCG'}),false);
+ const before=JSON.stringify(f.events),result=f.ctx.tp5MergeDuplicateWorkLocations_({role:'admin'},false);assert.equal(result.merged,1);assert.equal(result.blocked.length,0);assert.equal(JSON.stringify(f.events),before);
+ assert.equal(f.ctx.tp5SameWorkLocation_(f.sites[0],{...f.sites[1],deleted:false,platform:'OCG'}),false);
  assert.equal(f.ctx.tp5SameWorkLocation_(f.sites[0],{...f.sites[1],lat:15}),false);
- assert.equal(f.sites.some(s=>s.deleted),false);
+ assert.equal(f.sites[1].deleted,true);assert.equal(f.ctx.tp5AttendanceSite_(f.sites,'duplicate').rev,1);
 });
 
 test('Review CSV escapes spreadsheet formulas and preserves full review rows',()=>{

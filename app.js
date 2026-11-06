@@ -578,10 +578,6 @@ async function persistMemberForm(){
     JSON.stringify(workSchedule)!==JSON.stringify(normalizeMemberWorkSchedule(old.workSchedule));
   if(!changed){$('memberDialog').close();return;}
   if(old._pendingOp){showToast('This member already has a pending change. Sync before editing again.','error');return;}
-  const openSession=TIPONOrgCore.project(state.punches.filter(p=>!p.deleted&&!p.reviewStatus)).some(r=>String(r.memberId)===String(id)&&r.timeIn&&!r.timeOut);
-  const assignmentChanged=coop!==old.coop||
-   TIPONOrgCore.platformKey(platform)!==TIPONOrgCore.platformKey(old.platform)||!sameSites;
-  if(openSession&&assignmentChanged){showToast('Complete Time Out before changing the Cooperative, Business Platform or Assigned Work Location.','error');return;}
   const submit=$('memberForm').querySelector('[type="submit"]');if(submit)submit.disabled=true;
   try{
    const result=await saveMemberMetadata(old,{name,coop,platform,siteIds,memberNumber,workSchedule});
@@ -605,9 +601,6 @@ async function persistMemberForm(){
    }
    if(sameSites){$('memberDialog').close();showToast('No Assigned Work Location changes to save.','info');return;}
    if(!navigator.onLine){showToast('Internet access is required to update an existing member assignment.','error');return;}
-   const open=state.punches.some(p=>p.memberId===id&&p.type==='IN'&&
-     !state.punches.some(q=>q.sessionId===p.sessionId&&q.type==='OUT'));
-   if(open){showToast('Complete Time Out before changing the assigned GPS location.','error');return;}
    const submit=$('memberForm').querySelector('[type="submit"]');
    const fullFace=!!old.template&&old.active!==false;
    // Old Apps Script requires a face template for member writes. It can
@@ -1589,8 +1582,11 @@ async function recordRecognizedFace(member,faceDistance,faceEvidence){
   let assignedSites=sitesForMember(member);
   if(!assignedSites.length)throw Error('This member has no assigned work location.');
   if(tx.type==='OUT'&&tx.last){
-   if(!assignedSites.some(s=>s.id===tx.last.siteId))throw Error('Time Out must be recorded at the same assigned work location as Time In.');
-   assignedSites=assignedSites.filter(s=>s.id===tx.last.siteId);
+   // A metadata reassignment must not strand an existing shift at its original site.
+   const original=state.sites.find(s=>s.id===tx.last.siteId)||await getOne('sites',tx.last.siteId);
+   const canonical=original?.mergedIntoSiteId&&state.sites.find(s=>s.id===original.mergedIntoSiteId);
+   if(!original||(original.deleted&&!canonical))throw Error('The original Time In work location is unavailable. Refresh Work Locations.');
+   assignedSites=[original.deleted?{...original,deleted:false,rev:Number(original.mergedFromRev)||Math.max(0,Number(original.rev)-1)}:original];
   }
   assignedSites=assignedSites.filter(site=>TIPONOrgCore.inScope(state.user,site));
   if(!assignedSites.length)throw Error('No assigned work location is available to this attendance account.');

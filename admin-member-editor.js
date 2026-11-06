@@ -79,7 +79,7 @@ function readAdminWorkSchedule(){return {enabled:true,days:[...document.querySel
   const scheduleChanged=JSON.stringify(workSchedule)!==JSON.stringify(normalizeAdminWorkSchedule(member.workSchedule));
   if(memberNumber===(member.memberNumber||member.id)&&!scopeChanged&&!locationChanged&&!nameChanged&&!scheduleChanged){$('adminMemberDialog').close();return;}
   if(scopeChanged||locationChanged){
-   if(!await confirmAction('Confirm Member Assignment','Update '+member.name+'? Complete open Time Out first. Existing face data and attendance history remain unchanged.'))return;
+   if(!await confirmAction('Confirm Member Assignment','Update '+member.name+'? Existing attendance history will be retained.'))return;
   }
   const button=$('adminMemberSave');button.disabled=true;setText('adminMemberEditStatus','Saving member changes...');
   try{

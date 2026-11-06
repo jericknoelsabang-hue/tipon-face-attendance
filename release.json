@@ -1,5 +1,5 @@
 {
   "app": "TIPON Face Attendance",
-  "version": "5.5.107",
-  "label": "Show every cooperative in the Admin Attendance Logs MPC filter, including cooperatives without records."
+  "version": "5.5.108",
+  "label": "Allow member work-location changes during open shifts and prevent duplicate location names within each cooperative and business platform."
 }
