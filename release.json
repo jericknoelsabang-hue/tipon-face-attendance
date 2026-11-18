@@ -1,5 +1,5 @@
 {
   "app": "TIPON Face Attendance",
-  "version": "5.5.112",
-  "label": "Show Paygroup Operation Code buttons under GPS Verification, inherit the selected code on Time Out, and retain GPS Verification in fullscreen."
+  "version": "5.5.113",
+  "label": "Allow approved Users to add Paygroups within their Cooperative and Business Platform scope, and use the full viewport for Face Terminal fullscreen."
 }
