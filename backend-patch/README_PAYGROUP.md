@@ -4,7 +4,7 @@ This is a private Apps Script compatibility patch for the existing attendance We
 
 ## Backend file
 
-Add `Paygroups.gs` to the existing Apps Script project. It stores the Paygroup directory in Script Properties under `TP5_PAYGROUP_DIRECTORY`, protected by the existing document lock and Admin authorization.
+Add `Paygroups.gs` to the existing Apps Script project. It stores the Paygroup directory in Script Properties under `TP5_PAYGROUP_DIRECTORY`. The existing document lock protects writes; Admin accounts retain full management rights, while approved User (`registrar`) accounts may create Paygroups only inside their own Cooperative + Business Platform scope.
 
 ## Route integration
 
@@ -105,7 +105,9 @@ Update the existing `OrgCore.gs` report header/row writer and any Apps Script `s
 
 - The `paygroups` action returns `tp5PGCatalog_(actor)`, including the linked `siteIds` needed by scoped kiosk/User clients.
 - The catalog action must also return `paygroups: tp5PGCatalog_(actor)` and `paygroupDirectorySupported: true`.
-- Keep Admin-only add/edit/delete routes server-authorized. A User may only view and assign Paygroups within their approved Cooperative/BP. A kiosk may only receive Paygroups associated with its approved Work Locations.
+- Keep the `paygroupAdd` route available to Admin and approved User (`registrar`) accounts. `tp5PGAuthorizeAdd_` must enforce the User's exact Cooperative + Business Platform scope on the server; never trust the client dropdown as authorization.
+- Keep `paygroupUpdate` and `paygroupDelete` Admin-only. User accounts may create Paygroups in their own scope, then assign them to Work Locations and members in that same scope; they cannot edit or delete Paygroups.
+- A User may only view and assign Paygroups within their approved Cooperative/BP. A kiosk may only receive Paygroups associated with its approved Work Locations.
 
 ## Deployment and QA
 
@@ -114,7 +116,7 @@ Update the existing `OrgCore.gs` report header/row writer and any Apps Script `s
 3. Check the project's current runtime before using any syntax not supported by it. The linked project currently reports the legacy Apps Script runtime; keep backend helpers ES5-compatible unless the project is deliberately upgraded and regression-tested.
 4. Add the three routes from this guide and the site/member/event/report integration above.
 5. Deploy a new version of the existing Web App deployment, retaining its original URL, access settings and execution identity.
-6. Test with synthetic members, sites and paygroups. Verify that a User cannot read or assign another Cooperative/BP's Paygroups.
+6. Test with synthetic members, sites and paygroups. Verify that a User can add a Paygroup within their own Cooperative/BP, is rejected when attempting to add one outside that scope, and cannot edit/delete Paygroups. Verify that a User cannot read or assign another Cooperative/BP's Paygroups.
 7. Test Time In with multiple operation codes, a Paygroup with no codes, Time Out inheritance, offline queue/reconnect, duplicate prevention, Attendance Logs, sheet writes and a second authorized device.
 
 **Important:** GitHub Pages and the spreadsheet header updates do not deploy the private Apps Script receiver. Do not use this module for payroll until the private backend changes are saved, deployed and end-to-end tests pass.
