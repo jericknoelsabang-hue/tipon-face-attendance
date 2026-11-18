@@ -1,4 +1,4 @@
-/* TIPON 5.5.109 — Paygroup directory, assignment pickers and Time In operation selection. */
+/* TIPON 5.5.111 — Paygroup directory, assignment pickers and Time In operation selection. */
 'use strict';
 window.TIPONPaygroups = (() => {
   const $ = id => document.getElementById(id);
@@ -46,16 +46,16 @@ window.TIPONPaygroups = (() => {
     const count = root.querySelectorAll('[data-paygroup-option]:checked').length;
     summary.textContent = count ? count + ' Paygroup' + (count === 1 ? '' : 's') + ' selected' : 'Select Paygroup';
   }
-  function fillPicker(choicesId, summaryId, items, selectedIds, emptyMessage) {
+  function fillPicker(choicesId, summaryId, items, selectedIds, emptyMessage, unavailableIds = []) {
     const root = $(choicesId);
     if (!root) return;
-    const selected = new Set(ids(selectedIds));
+    const selected = new Set(ids(selectedIds)), unavailable = new Set(ids(unavailableIds));
     root.innerHTML = items.length ? items.map(pg => {
-      const opCount = codes(pg).length;
-      return '<label class="multi-select-option"><input type="checkbox" data-paygroup-option="' + esc(pg.id) + '"' +
+      const opCount = codes(pg).length, isUnavailable = unavailable.has(String(pg.id));
+      return '<label class="multi-select-option' + (isUnavailable ? ' paygroup-unavailable-option' : '') + '"><input type="checkbox" data-paygroup-option="' + esc(pg.id) + '"' +
         (selected.has(String(pg.id)) ? ' checked' : '') + '/><span>' + esc(pg.name) +
         '<small>' + esc(pg.coop) + ' · ' + esc(pg.platform) + ' · ' +
-        (opCount ? opCount + ' operation code' + (opCount === 1 ? '' : 's') : 'No operation code') +
+        (isUnavailable ? 'Not assigned to selected Work Location' : opCount ? opCount + ' operation code' + (opCount === 1 ? '' : 's') : 'No operation code') +
         '</small></span></label>';
     }).join('') : '<p class="mini-info">' + esc(emptyMessage || 'No matching Paygroups are available.') + '</p>';
     updatePickerSummary(choicesId, summaryId);
@@ -81,10 +81,14 @@ window.TIPONPaygroups = (() => {
     const coop = $(admin ? 'adminMemberCoop' : 'memberCoop')?.value || '';
     const platform = $(admin ? 'adminMemberPlatform' : 'memberPlatform')?.value || '';
     const sites = selectedMemberSites(variant).map(id => state.sites.find(site => site.id === id && !site.deleted)).filter(Boolean);
-    const available = groupsForScope(coop, platform).filter(pg => sites.some(site => ids(site.paygroupIds).includes(String(pg.id))));
+    const scoped = groupsForScope(coop, platform);
+    const available = sites.length ? scoped.filter(pg => sites.some(site => ids(site.paygroupIds).includes(String(pg.id)))) : scoped;
+    const availableIds = new Set(available.map(pg => String(pg.id)));
+    const unavailableSelected = ids(selectedIds).map(byId).filter(pg => pg && !availableIds.has(String(pg.id)));
+    const displayItems = [...available, ...unavailableSelected.filter(pg => !availableIds.has(String(pg.id)))];
     fillPicker(admin ? 'adminMemberPaygroupChoices' : 'memberPaygroupChoices',
-      admin ? 'adminMemberPaygroupSummary' : 'memberPaygroupSummary', available, selectedIds,
-      'Assign Paygroups to the selected Work Location(s) first.');
+      admin ? 'adminMemberPaygroupSummary' : 'memberPaygroupSummary', displayItems, selectedIds,
+      'Assign Paygroups to the selected Work Location(s) first.', unavailableSelected.map(pg => pg.id));
   }
   function refreshMemberPicker(variant = 'user') {
     const id = variant === 'admin' ? 'adminMemberPaygroupChoices' : 'memberPaygroupChoices';
@@ -106,6 +110,18 @@ window.TIPONPaygroups = (() => {
     return selected;
   }
 
+  function openOperationCodeView(id) {
+    const pg = byId(id);
+    const operationCodes = codes(pg);
+    if (!pg || !operationCodes.length) return;
+    setText('paygroupCodesViewTitle', 'Operation Codes — ' + (pg.name || 'Paygroup'));
+    const root = $('paygroupCodesViewList');
+    if (root) root.innerHTML = operationCodes.map((code,index) =>
+      '<li class="paygroup-code-view-item"><span>' + (index + 1) + '</span><b>' + esc(code) + '</b></li>'
+    ).join('');
+    $('paygroupCodesViewDialog')?.showModal();
+  }
+
   function renderDirectory() {
     const groups = all().slice().sort((a,b) =>
       String(a.coop || '').localeCompare(String(b.coop || '')) ||
@@ -119,9 +135,12 @@ window.TIPONPaygroups = (() => {
       const action = withActions ? '<td><div class="row-inline"><button type="button" class="tiny-button" data-paygroup-edit="' +
         esc(pg.id) + '">Edit</button><button type="button" class="tiny-button delete" data-paygroup-delete="' +
         esc(pg.id) + '">Delete</button></div></td>' : '';
+      const operationCodeView = operationCodes.length
+        ? '<button type="button" class="tiny-button" data-paygroup-view-codes="' + esc(pg.id) + '">View</button>'
+        : '—';
       return '<tr><td>' + esc(pg.coop || '—') + '</td><td>' + esc(pg.platform || '—') + '</td><td>' +
         esc(locationsForPaygroup(pg)) + '</td><td><b>' + esc(pg.name || '—') + '</b></td><td>' +
-        esc(operationCodes.length ? operationCodes.join(', ') : '—') + '</td>' + action + '</tr>';
+        operationCodeView + '</td>' + action + '</tr>';
     }).join('') : '<tr><td colspan="' + (withActions ? '6' : '5') + '"><div class="empty-state">' +
       (!state.paygroupBackendReady ? 'Paygroup backend update is required. Install backend-patch/README_PAYGROUP.md and redeploy the existing Apps Script Web App.' :
         'No Paygroups have been configured for this account scope.') + '</div></td></tr>';
@@ -348,9 +367,17 @@ window.TIPONPaygroups = (() => {
     $('adminPaygroupRows')?.addEventListener('click', event => {
       const edit = event.target.closest('[data-paygroup-edit]');
       const remove = event.target.closest('[data-paygroup-delete]');
+      const view = event.target.closest('[data-paygroup-view-codes]');
       if (edit) openDialog(byId(edit.dataset.paygroupEdit));
       if (remove) void deletePaygroup(remove.dataset.paygroupDelete);
+      if (view) openOperationCodeView(view.dataset.paygroupViewCodes);
     });
+    $('userPaygroupRows')?.addEventListener('click', event => {
+      const view = event.target.closest('[data-paygroup-view-codes]');
+      if (view) openOperationCodeView(view.dataset.paygroupViewCodes);
+    });
+    $('paygroupCodesViewClose')?.addEventListener('click', () => $('paygroupCodesViewDialog')?.close());
+    $('paygroupCodesViewDone')?.addEventListener('click', () => $('paygroupCodesViewDialog')?.close());
     $('paygroupForm')?.addEventListener('submit', savePaygroup);
     $('paygroupHasOperationCodes')?.addEventListener('change', toggleOperationCodeFields);
     $('paygroupAddOperationCode')?.addEventListener('click', addOperationCode);
@@ -393,7 +420,7 @@ window.TIPONPaygroups = (() => {
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', bind, { once: true });
   else bind();
   return {
-    bind, renderDirectory, namesForSite, namesForMember, locationsForPaygroup, groupsForScope,
+    bind, renderDirectory, openOperationCodeView, namesForSite, namesForMember, locationsForPaygroup, groupsForScope,
     fillSitePicker, refreshSitePicker: () => fillSitePicker(), fillMemberPicker, refreshMemberPicker,
     readPicker, validateSiteAssignment, validateMemberAssignment, chooseForTimeIn, hideOperationPanel,
     cancelPendingSelection, forMemberAtSite

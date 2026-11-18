@@ -39,12 +39,18 @@
       const key = JSON.stringify([p.sessionId]);
       const loc = p.location ?? p.siteName ?? '';
       const row = groups.get(key) || {key, deviceId:p.deviceId, memberId:p.memberId, platform:p.platform || '',
-        location:loc, siteId:p.siteId || '', timeIn:'', timeOut:'', eventIds:[]};
+        location:loc, siteId:p.siteId || '', paygroupId:'', paygroup:'', operationCode:'', timeIn:'', timeOut:'', eventIds:[]};
       if (row.memberId !== p.memberId || row.location !== loc)
         throw Error('A session has conflicting member or work location data. Review local records.');
       const col = p.type === 'IN' ? 'timeIn' : 'timeOut';
       if (row[col]) throw Error('Duplicate time ' + p.type.toLowerCase() + ' in a session. Review records.');
-      row[col] = p.timestamp; row.eventIds.push(p.id); groups.set(key, row);
+      row[col] = p.timestamp;
+      if (p.type === 'IN' || (!row.paygroupId && !row.paygroup && !row.operationCode)) {
+        row.paygroupId = String(p.paygroupId || '');
+        row.paygroup = String(p.paygroup || '');
+        row.operationCode = String(p.operationCode || '');
+      }
+      row.eventIds.push(p.id); groups.set(key, row);
     }
     const result = [...groups.values()];
     for (const r of result) if (r.timeIn && r.timeOut && epoch(r.timeOut) < epoch(r.timeIn)) throw Error('Time Out precedes Time In.');

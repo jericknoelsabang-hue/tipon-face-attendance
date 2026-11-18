@@ -756,7 +756,7 @@ window.addEventListener('DOMContentLoaded',()=>{
 },{once:true});
 
 /* Registry CSV uploads: validate the complete file before enqueueing rows. */
-const TIPON_MEMBER_CSV_HEADERS=['Member ID','Full name','Cooperative','Business platform','Work Days','Work Start','Work End'];
+const TIPON_MEMBER_CSV_HEADERS=['Member ID','Full name','Cooperative','Business platform','Paygroup','Work Days','Work Start','Work End'];
 function memberImportWorkSchedule(daysValue,startValue,endValue,row){
  const names={sun:0,sunday:0,mon:1,monday:1,tue:2,tuesday:2,wed:3,wednesday:3,thu:4,thursday:4,fri:5,friday:5,sat:6,saturday:6};
  const tokens=String(daysValue||'').trim().toLowerCase().split(/[;,|\s]+/).filter(Boolean);
@@ -775,17 +775,31 @@ function memberImportWorkSchedule(daysValue,startValue,endValue,row){
  if(start===end)throw Error('Row '+row+': Work Start and Work End must differ.');
  return {enabled:true,days:days.sort((a,b)=>a-b),start,end,grace:0};
 }
-function prepareMemberImport(rows,existing){
- if(JSON.stringify(rows[0])!==JSON.stringify(TIPON_MEMBER_CSV_HEADERS))throw Error('Download the latest seven-column member template, including Work Days, Work Start and Work End.');
+function memberImportPaygroupIds(value,coop,platform,paygroups,row){
+ const names=String(value||'').split(';').map(v=>v.trim().replace(/\s+/g,' ')).filter(Boolean);
+ const scoped=(paygroups||[]).filter(pg=>pg&&pg.coop===coop&&TIPONOrgCore.platformKey(pg.platform)===TIPONOrgCore.platformKey(platform));
+ const selected=[],seen=new Set();
+ for(const name of names){
+  const matches=scoped.filter(pg=>String(pg.name||'').trim().replace(/\s+/g,' ').toLowerCase()===name.toLowerCase());
+  if(matches.length!==1)throw Error('Row '+row+': Paygroup "'+name+'" is not uniquely registered for '+coop+' / '+platform+'. Refresh the Paygroup directory or check the name.');
+  const id=String(matches[0].id||'');
+  if(!id||seen.has(id))throw Error('Row '+row+': duplicate or invalid Paygroup "'+name+'".');
+  seen.add(id);selected.push(id);
+ }
+ return selected;
+}
+function prepareMemberImport(rows,existing,paygroups=[]){
+ if(JSON.stringify(rows[0])!==JSON.stringify(TIPON_MEMBER_CSV_HEADERS))throw Error('Download the latest eight-column member template, including Paygroup and Weekly Work Schedule fields.');
  if(rows.length<2||rows.length>501)throw Error('Upload 1–500 members per file.');
  const ids=new Set(existing.filter(m=>!m.deleted).map(m=>String(m.id).trim().toLowerCase()));
  return rows.slice(1).map((r,i)=>{
-  const row=i+2;if(r.length!==7)throw Error('Row '+row+' must contain the seven columns from the latest member template.');
-  const [id,name,coop,platform,workDays,workStart,workEnd]=r.map(v=>String(v||'').trim());
+  const row=i+2;if(r.length!==8)throw Error('Row '+row+' must contain the eight columns from the latest member template.');
+  const [id,name,coop,platform,paygroupText,workDays,workStart,workEnd]=r.map(v=>String(v||'').trim());
   if(!id||!name||!platform||id.length>80||name.length>120||!TIPONOrgCore.COOPS.includes(coop))throw Error('Row '+row+': invalid member ID/name/cooperative/platform.');
   if(ids.has(id.toLowerCase()))throw Error('Row '+row+': duplicate Member ID '+id+'. Use Edit.');
+  const paygroupIds=memberImportPaygroupIds(paygroupText,coop,platform,paygroups,row);
   const workSchedule=memberImportWorkSchedule(workDays,workStart,workEnd,row);
-  ids.add(id.toLowerCase());return {id,name,coop,platform,workSchedule};
+  ids.add(id.toLowerCase());return {id,name,coop,platform,paygroupIds,workSchedule};
  });
 }
 async function importMemberCSV(event){
@@ -802,7 +816,13 @@ async function importMemberCSV(event){
   if(!/^5\.5\./.test(backendVersion)||health.memberImportWorkSchedule!==true){
    throw Error('Apps Script backend '+backendVersion+' is outdated. Weekly Work Schedule imports require the updated Apps Script import handler. No members were uploaded.');
   }
-  const members=prepareMemberImport(parseMemberCSV((await file.text()).replace(/^\uFEFF/,'')),await getAll('members'));
+  if(health.memberImportPaygroup!==true){
+   throw Error('The live Apps Script backend does not yet confirm Paygroup-aware member CSV imports. Deploy the matching MemberCSVImport.gs and Paygroups.gs changes first. No members were uploaded.');
+  }
+  const directory=await TIPONAPI.raw({action:'paygroups'});
+  if(directory.paygroupDirectorySupported!==true||!Array.isArray(directory.paygroups))
+   throw Error('The central Paygroup directory is not available. Refresh the Paygroup directory or update the Apps Script backend. No members were uploaded.');
+  const members=prepareMemberImport(parseMemberCSV((await file.text()).replace(/^\uFEFF/,'')),await getAll('members'),directory.paygroups);
   const response=await TIPONAPI.raw({action:'platforms'});
   const listed=(Array.isArray(response.businessPlatforms)?response.businessPlatforms:[]).map(p=>String(p).trim()).filter(Boolean);
   const known=new Set(listed.map(p=>TIPONOrgCore.platformKey(p)));
@@ -812,14 +832,14 @@ async function importMemberCSV(event){
     throw Error('CSV row '+(i+2)+': Business Platform "'+platform+'" is not registered in the live backend. Choose a listed platform in the CSV or have the Admin add it first. No members were uploaded.');
    }
   }
-  if(!await confirmAction('Upload '+members.length+' members?', 'Weekly Work Schedule will be saved with each member. Work Days use Mon;Tue;Wed;Thu;Fri and times use 24-hour HH:mm. An authorized User assigns the location during enrollment.'))return;
+  if(!await confirmAction('Upload '+members.length+' members?', 'Paygroup is optional. Use exact Paygroup names separated by semicolons (example: Daily;Night Shift). Each name must match the member Cooperative and Business Platform. Work Days use Mon;Tue;Wed;Thu;Fri and times use 24-hour HH:mm. An authorized User assigns a Work Location after import.'))return;
   for(let n=0;n<members.length;n+=20){
    const result=await TIPONAPI.call({action:'adminMemberImportWithSchedule',rows:members.slice(n,n+20)});
-   if(typeof result.added!=='number'||result.memberImportWorkSchedule!==true)throw Error('Server did not acknowledge the member import with Weekly Work Schedule.');
+   if(typeof result.added!=='number'||result.memberImportWorkSchedule!==true||result.memberImportPaygroup!==true)throw Error('Server did not acknowledge the member import with Paygroup and Weekly Work Schedule.');
    total+=result.added;setText('memberUploadStatus',total+' members accepted by the central database. Syncing...');
   }
   await TIPONSync.run();TIPONSync.kick();await loadCollections();renderMembers();renderDashboard();
-  setText('memberUploadStatus',total+' uploaded with Weekly Work Schedule. NOT ENROLLED; the User assigns a work location.');
+  setText('memberUploadStatus',total+' uploaded with Paygroup and Weekly Work Schedule. NOT ENROLLED; the User assigns a work location.');
   showToast(total+' members uploaded.','success');
  }catch(error){
   const message=/Unknown action|office required|work location not found/i.test(error.message||'')

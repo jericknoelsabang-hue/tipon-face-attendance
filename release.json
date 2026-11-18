@@ -1,5 +1,5 @@
 {
   "app": "TIPON Face Attendance",
-  "version": "5.5.110",
-  "label": "Move Paygroup List to a dedicated sidebar page and align Operation Code Add control."
+  "version": "5.5.111",
+  "label": "Add Paygroup and Operation Code to Attendance exports, add Paygroup to Member CSV imports, and provide Operation Code view popup."
 }

@@ -1,4 +1,4 @@
-/* TIPON export v4.1.0. Five-column, styled XLSX written on-device.
+/* TIPON export v4.2.0. Seven-column, styled XLSX written on-device.
  * No CDN, network request, login or changes to stored attendance/sync data.
  * XLSX is an Open XML package in a standards-compliant, uncompressed ZIP.
  */
@@ -8,8 +8,8 @@
   else root.TIPONExport=api;
 })(typeof globalThis!=='undefined'?globalThis:this,function(){
   'use strict';
-  const VERSION='4.1.0';
-  const HEADERS=Object.freeze(['MemberId','Date','Time In','Time Out','Date Time Out']);
+  const VERSION='4.2.0';
+  const HEADERS=Object.freeze(['MemberId','Date','Time In','Time Out','Date Time Out','Paygroup','Operation Code']);
   const MIME='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
   const DAY_MS=86400000, PH_OFFSET_MS=28800000;
   const encoder=new TextEncoder();
@@ -32,7 +32,7 @@
       if(row.memberId===null||row.memberId===undefined||String(row.memberId)==='')throw Error('A record has no MemberId. Review it before exporting.');
       const p=parts(row.timeIn), q=parts(row.timeOut);
       return [String(row.memberId),p?(numeric?p.dateSerial:p.date):'',p?(numeric?p.timeSerial:p.time):'',
-        q?(numeric?q.timeSerial:q.time):'',q?(numeric?q.dateSerial:q.date):''];
+        q?(numeric?q.timeSerial:q.time):'',q?(numeric?q.dateSerial:q.date):'',String(row.paygroup||''),String(row.operationCode||'')];
     })];
   }
   const crcTable=Uint32Array.from({length:256},(_,n)=>{
@@ -69,10 +69,10 @@
   }
   function xlsx(data){
     if(data.length>1048575)throw Error('Too many rows for Excel. Export a smaller date range.');
-    const values=table(data,true), count=values.length, columns=['A','B','C','D','E'];
-    const body=values.map((row,i)=>`<row r="${i+1}" ht="${i===0?30:18}" customHeight="1">${row.map((v,c)=>cell(columns[c]+(i+1),v,i===0?1:([2,3,4,4,3][c]))).join('')}</row>`).join('');
+    const values=table(data,true), count=values.length, columns=['A','B','C','D','E','F','G'];
+    const body=values.map((row,i)=>`<row r="${i+1}" ht="${i===0?30:18}" customHeight="1">${row.map((v,c)=>cell(columns[c]+(i+1),v,i===0?1:([2,3,4,4,3,2,2][c]))).join('')}</row>`).join('');
     const declaration='<?xml version="1.0" encoding="UTF-8" standalone="yes"?>';
-    const sheet=declaration+`<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><dimension ref="A1:E${count}"/><sheetViews><sheetView workbookViewId="0" showGridLines="1"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/><selection pane="bottomLeft" activeCell="A2" sqref="A2"/></sheetView></sheetViews><sheetFormatPr defaultRowHeight="18"/><cols><col min="1" max="4" width="20" customWidth="1"/><col min="5" max="5" width="22" customWidth="1"/></cols><sheetData>${body}</sheetData><pageMargins left="0.3" right="0.3" top="0.5" bottom="0.5" header="0.2" footer="0.2"/></worksheet>`;
+    const sheet=declaration+`<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><dimension ref="A1:G${count}"/><sheetViews><sheetView workbookViewId="0" showGridLines="1"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/><selection pane="bottomLeft" activeCell="A2" sqref="A2"/></sheetView></sheetViews><sheetFormatPr defaultRowHeight="18"/><cols><col min="1" max="4" width="20" customWidth="1"/><col min="5" max="5" width="22" customWidth="1"/><col min="6" max="7" width="24" customWidth="1"/></cols><sheetData>${body}</sheetData><pageMargins left="0.3" right="0.3" top="0.5" bottom="0.5" header="0.2" footer="0.2"/></worksheet>`;
     const styles=declaration+'<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'+
       '<numFmts count="2"><numFmt numFmtId="164" formatCode="mm/dd/yyyy"/><numFmt numFmtId="165" formatCode="hh:mm:ss"/></numFmts>'+
       '<fonts count="2"><font><sz val="11"/><color rgb="FF000000"/><name val="Arial"/></font><font><b/><sz val="12"/><color rgb="FFFFFFFF"/><name val="Arial"/></font></fonts>'+

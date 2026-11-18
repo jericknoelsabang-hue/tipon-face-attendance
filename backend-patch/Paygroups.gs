@@ -48,9 +48,14 @@ function tp5PaygroupIds_(value,scope){
   var unique=[],seen={};
   ids.forEach(function(value){var id=TIPONOrgCore.clean(value,120);tp5Must_(id&&!seen[id],'Paygroup assignments must be unique.','VALIDATION');seen[id]=true;tp5Must_(available[id],'Paygroup must match the member Cooperative and Business Platform.','DEPENDENCY');unique.push(id);});
   if(unique.length){
-    var assigned={},sites=tp5Read_('sites').filter(function(site){return !site.deleted&&siteIds.map(String).indexOf(String(site.id))>=0;});
+    var assigned={},allowUnassigned=scope&&scope.allowUnassigned===true;
+    var sites=tp5Read_('sites').filter(function(site){
+      if(site.deleted)return false;
+      if(siteIds.length)return siteIds.map(String).indexOf(String(site.id))>=0;
+      return allowUnassigned&&site.coop===coop&&tp5PGKey_(site.platform)===tp5PGKey_(platform);
+    });
     sites.forEach(function(site){(site.paygroupIds||[]).forEach(function(id){assigned[String(id)]=true;});});
-    unique.forEach(function(id){tp5Must_(assigned[id]===true,'Paygroup must be assigned to at least one of the member selected Work Locations.','DEPENDENCY');});
+    unique.forEach(function(id){tp5Must_(assigned[id]===true,'Paygroup must be assigned to at least one matching Work Location.','DEPENDENCY');});
   }
   return unique;
 }
