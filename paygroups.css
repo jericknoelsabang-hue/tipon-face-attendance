@@ -1,0 +1,25 @@
+/* TIPON Paygroup module */
+.paygroup-directory-panel{margin-top:16px}
+.paygroup-directory-head{display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap}
+.paygroup-directory-head .page-head-actions,.paygroup-directory-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.paygroup-directory-panel .table-wrap{overflow-x:auto}
+.paygroup-directory-panel table{min-width:760px}
+.paygroup-directory-panel .table-toolbar{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.paygroup-picker-field{margin-top:14px}
+.paygroup-picker-field .field-label{margin-bottom:7px}
+.paygroup-code-entry{display:flex;align-items:end;gap:8px}
+.paygroup-code-entry label{flex:1;min-width:0}
+.paygroup-code-list{display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-top:10px}
+.paygroup-code-chip{display:inline-flex;align-items:center;gap:8px;border:1px solid #d5e2ef;border-radius:999px;background:#f4f8fc;padding:5px 8px 5px 11px;font-size:12px;color:#183c60}
+.paygroup-code-chip button{border:0;background:transparent;color:#a12c3b;font-size:17px;line-height:1;padding:0 2px;cursor:pointer}
+.paygroup-status{min-height:20px;color:#a12c3b;font-size:13px}
+.terminal-operation-panel{border:1px solid #d8e5f2}
+.terminal-operation-panel[hidden]{display:none}
+.terminal-operation-choices{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px;margin-top:12px}
+.terminal-operation-button{display:flex;flex-direction:column;align-items:flex-start;justify-content:center;gap:4px;min-height:62px;border:1px solid #bcd5ec;border-radius:12px;background:#f1f7fd;color:#123c63;padding:11px 13px;text-align:left;cursor:pointer}
+.terminal-operation-button:hover,.terminal-operation-button:focus-visible{border-color:#1673bd;background:#e5f2ff;outline:2px solid #9ccaf0;outline-offset:1px}
+.terminal-operation-button strong{font-size:15px;line-height:1.3;overflow-wrap:anywhere}
+.terminal-operation-button small{font-size:11px;color:#5b7187;overflow-wrap:anywhere}
+.terminal-operation-actions{display:flex;justify-content:flex-end;margin-top:10px}
+.terminal-activity-under{margin-top:12px}
+@media(max-width:700px){.terminal-operation-choices{grid-template-columns:1fr}.paygroup-code-entry{align-items:stretch;flex-direction:column}}
