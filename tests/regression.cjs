@@ -2235,3 +2235,19 @@ test('Face Terminal fullscreen retains GPS Verification and the Operation Code p
  assert.match(css,/\.terminal-fullscreen \.scanner-side>\.terminal-operation-panel:not\(\[hidden\]\)/);
  assert.doesNotMatch(css,/\.terminal-fullscreen \.gps-panel,\.terminal-fullscreen \.footnote-card\{display:none!important\}/);
 });
+
+test('Server preserves the selected Operation Code when Time In and Time Out arrive in one offline sync batch',()=>{
+ const ctx={TIPONOrgCore:{clean:(v,n)=>String(v||'').trim().slice(0,n),platformKey:v=>String(v||'').trim().toLowerCase()},
+  tp5PGRead_:()=>[{id:'pg-1',name:'Daily',coop:'Asiapro',platform:'IMG',operationCodes:['CUT']}],
+  tp5AllEvents_:()=>[],
+  tp5Must_:(ok,message,code)=>{if(!ok)throw Object.assign(Error(message),{code});}};
+ vm.createContext(ctx);vm.runInContext(source('backend-patch/Paygroups.gs'),ctx);
+ const member={id:'M-1',coop:'Asiapro',platform:'IMG',paygroupIds:['pg-1']};
+ const site={id:'site-1',coop:'Asiapro',platform:'IMG',paygroupIds:['pg-1']};
+ const timeIn={id:'in-1',sessionId:'session-1',memberId:'M-1',type:'IN',paygroupId:'pg-1',operationCode:'CUT'};
+ ctx.tp5ApplyAttendancePaygroup_(timeIn,member,site,[]);
+ const timeOut={id:'out-1',sessionId:'',memberId:'M-1',type:'OUT'};
+ ctx.tp5ApplyAttendancePaygroup_(timeOut,member,site,[timeIn]);
+ assert.equal(timeOut.sessionId,'session-1');assert.equal(timeOut.paygroupId,'pg-1');
+ assert.equal(timeOut.paygroup,'Daily');assert.equal(timeOut.operationCode,'CUT');
+});
