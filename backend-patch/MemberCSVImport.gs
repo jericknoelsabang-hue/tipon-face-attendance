@@ -1,9 +1,9 @@
-/** Member CSV import with required weekly schedule. Private Apps Script helper.
+/** Member CSV import with Paygroup and required weekly schedule. Private Apps Script helper.
  * Code.gs routes adminMemberImportWithSchedule here under its existing lock.
  * Add after authentication:
  * if(action==='adminMemberImportWithSchedule')return tp5Lock_(function(){actor=tp5Auth_(q);return tp5ImportMembersWithSchedule_(actor,q.rows);});
- * The health reply advertises memberImportWorkSchedule=true only when this
- * handler and the MemberMetadata.gs schedule validation/column helpers exist.
+ * The health reply advertises memberImportWorkSchedule and memberImportPaygroup
+ * only when the schedule and Paygroup validation helpers are available.
  * Preserve the legacy adminMemberImport route for older clients.
  */
 function tp5ImportMembersWithSchedule_(actor,rows){
