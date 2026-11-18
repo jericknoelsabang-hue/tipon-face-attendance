@@ -81,12 +81,13 @@ The existing health response must expose both import capabilities. Include the r
 At the existing server-side event-ingestion point, after resolving the authenticated member and the GPS-matched Work Location, apply the helper to each event before it is written to the attendance ledger:
 
 ```js
-event = tp5ApplyAttendancePaygroup_(event, member, site);
+event = tp5ApplyAttendancePaygroup_(event, member, site, acceptedEarlierEvents);
 ```
 
 - For `IN`, this validates that the selected Paygroup belongs to the member and GPS-matched Work Location, then validates the selected Operation Code against that Paygroup's configured list. The Face Terminal displays the codes as buttons under GPS Verification and does not save Time In until one is selected.
 - If the member has no assigned Paygroup, or the assigned Paygroup(s) have no Operation Codes, Time In proceeds automatically with a blank Operation Code. Attendance Logs display `—` for the Operation Code.
 - For `OUT`, the helper ignores any new client-supplied Operation Code and inherits the Paygroup and Operation Code from the original Time In session. If an offline/cross-device Time Out has no session ID, it resolves only when exactly one open Time In exists for that member; otherwise the server rejects the ambiguous event.
+- When processing multiple events in one sync request, pass the already validated earlier events in that request as `acceptedEarlierEvents` (or persist each event before processing the next one). This lets an offline batch containing both Time In and Time Out preserve the original selection without trusting the Time Out payload.
 - Store `paygroupId`, `paygroup`, and `operationCode` on both the accepted Time In and Time Out event rows. Preserve these fields in event polling, attendance correction overlays and session projection.
 
 Do not call only the client-side helper. The call above must run in the existing authenticated Apps Script submit/ingestion path after the server has resolved the member and GPS site, and before the event is persisted or acknowledged.
