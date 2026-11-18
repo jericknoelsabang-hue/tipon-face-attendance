@@ -46,16 +46,16 @@ window.TIPONPaygroups = (() => {
     const count = root.querySelectorAll('[data-paygroup-option]:checked').length;
     summary.textContent = count ? count + ' Paygroup' + (count === 1 ? '' : 's') + ' selected' : 'Select Paygroup';
   }
-  function fillPicker(choicesId, summaryId, items, selectedIds, emptyMessage) {
+  function fillPicker(choicesId, summaryId, items, selectedIds, emptyMessage, unavailableIds = []) {
     const root = $(choicesId);
     if (!root) return;
-    const selected = new Set(ids(selectedIds));
+    const selected = new Set(ids(selectedIds)), unavailable = new Set(ids(unavailableIds));
     root.innerHTML = items.length ? items.map(pg => {
-      const opCount = codes(pg).length;
-      return '<label class="multi-select-option"><input type="checkbox" data-paygroup-option="' + esc(pg.id) + '"' +
+      const opCount = codes(pg).length, isUnavailable = unavailable.has(String(pg.id));
+      return '<label class="multi-select-option' + (isUnavailable ? ' paygroup-unavailable-option' : '') + '"><input type="checkbox" data-paygroup-option="' + esc(pg.id) + '"' +
         (selected.has(String(pg.id)) ? ' checked' : '') + '/><span>' + esc(pg.name) +
         '<small>' + esc(pg.coop) + ' · ' + esc(pg.platform) + ' · ' +
-        (opCount ? opCount + ' operation code' + (opCount === 1 ? '' : 's') : 'No operation code') +
+        (isUnavailable ? 'Not assigned to selected Work Location' : opCount ? opCount + ' operation code' + (opCount === 1 ? '' : 's') : 'No operation code') +
         '</small></span></label>';
     }).join('') : '<p class="mini-info">' + esc(emptyMessage || 'No matching Paygroups are available.') + '</p>';
     updatePickerSummary(choicesId, summaryId);
@@ -81,10 +81,14 @@ window.TIPONPaygroups = (() => {
     const coop = $(admin ? 'adminMemberCoop' : 'memberCoop')?.value || '';
     const platform = $(admin ? 'adminMemberPlatform' : 'memberPlatform')?.value || '';
     const sites = selectedMemberSites(variant).map(id => state.sites.find(site => site.id === id && !site.deleted)).filter(Boolean);
-    const available = groupsForScope(coop, platform).filter(pg => sites.some(site => ids(site.paygroupIds).includes(String(pg.id))));
+    const scoped = groupsForScope(coop, platform);
+    const available = sites.length ? scoped.filter(pg => sites.some(site => ids(site.paygroupIds).includes(String(pg.id)))) : scoped;
+    const availableIds = new Set(available.map(pg => String(pg.id)));
+    const unavailableSelected = ids(selectedIds).map(byId).filter(pg => pg && !availableIds.has(String(pg.id)));
+    const displayItems = [...available, ...unavailableSelected.filter(pg => !availableIds.has(String(pg.id)))];
     fillPicker(admin ? 'adminMemberPaygroupChoices' : 'memberPaygroupChoices',
-      admin ? 'adminMemberPaygroupSummary' : 'memberPaygroupSummary', available, selectedIds,
-      'Assign Paygroups to the selected Work Location(s) first.');
+      admin ? 'adminMemberPaygroupSummary' : 'memberPaygroupSummary', displayItems, selectedIds,
+      'Assign Paygroups to the selected Work Location(s) first.', unavailableSelected.map(pg => pg.id));
   }
   function refreshMemberPicker(variant = 'user') {
     const id = variant === 'admin' ? 'adminMemberPaygroupChoices' : 'memberPaygroupChoices';
