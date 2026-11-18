@@ -78,13 +78,18 @@ The existing health response must expose both import capabilities. Include the r
 
 ### 4. Attendance event validation
 
-At the existing server-side event-ingestion point, after resolving the authenticated member and the GPS-matched Work Location:
+At the existing server-side event-ingestion point, after resolving the authenticated member and the GPS-matched Work Location, apply the helper to each event before it is written to the attendance ledger:
 
-- For `IN`, replace the client values with the result of `tp5ValidateTimeInPaygroup_(member, site, event)`. This checks the member/site assignment and verifies the Operation Code against the Paygroup's configured list.
-- For `OUT`, call `tp5InheritTimeOutPaygroup_(event)` using the original Time In session. Never trust a new client-supplied Operation Code for Time Out.
-- Store `paygroupId`, `paygroup`, and `operationCode` on the event row. Preserve these fields in event polling, attendance correction overlays and session projection.
+```js
+event = tp5ApplyAttendancePaygroup_(event, member, site);
+```
 
-A member without a Paygroup may continue without one (blank fields). A Paygroup with no Operation Codes accepts Time In with a blank Operation Code. A Paygroup with configured codes requires one valid code.
+- For `IN`, this validates that the selected Paygroup belongs to the member and GPS-matched Work Location, then validates the selected Operation Code against that Paygroup's configured list. The Face Terminal displays the codes as buttons under GPS Verification and does not save Time In until one is selected.
+- If the member has no assigned Paygroup, or the assigned Paygroup(s) have no Operation Codes, Time In proceeds automatically with a blank Operation Code. Attendance Logs display `—` for the Operation Code.
+- For `OUT`, the helper ignores any new client-supplied Operation Code and inherits the Paygroup and Operation Code from the original Time In session. If an offline/cross-device Time Out has no session ID, it resolves only when exactly one open Time In exists for that member; otherwise the server rejects the ambiguous event.
+- Store `paygroupId`, `paygroup`, and `operationCode` on both the accepted Time In and Time Out event rows. Preserve these fields in event polling, attendance correction overlays and session projection.
+
+Do not call only the client-side helper. The call above must run in the existing authenticated Apps Script submit/ingestion path after the server has resolved the member and GPS site, and before the event is persisted or acknowledged.
 
 ### 5. Attendance and member sheet columns
 
