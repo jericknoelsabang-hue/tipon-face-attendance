@@ -105,7 +105,17 @@ window.TIPONSync=(()=>{
       }
     }
   }
-  const wire=p=>p.uploadPayload||{id:p.id,deviceId:p.deviceId,sessionId:p.sessionId,memberId:String(p.memberId),siteId:p.siteId,siteRev:p.siteRev||0,type:p.type,timestamp:p.timestamp,lat:p.lat,lng:p.lng,accuracy:p.accuracy,faceDistance:p.faceDistance};
+  const wire=p=>{
+    const base=p.uploadPayload||{id:p.id,deviceId:p.deviceId,sessionId:p.sessionId,memberId:String(p.memberId),
+      siteId:p.siteId,siteRev:p.siteRev||0,type:p.type,timestamp:p.timestamp,lat:p.lat,lng:p.lng,
+      accuracy:p.accuracy,faceDistance:p.faceDistance};
+    // Preserve the Time In Paygroup/Operation Code in every durable upload,
+    // including records whose uploadPayload was created by an older app shell.
+    return {...base,sessionId:String(p.sessionId||base.sessionId||''),
+      paygroupId:String(p.paygroupId??base.paygroupId??''),
+      paygroup:String(p.paygroup??base.paygroup??''),
+      operationCode:String(p.operationCode??base.operationCode??'')};
+  };
   // Recover Admin member deletions queued by older app versions. Earlier
   // submit() rules rejected these operations after hiding the record locally.
   // Never infer deletions merely from missing local members: require an actual
