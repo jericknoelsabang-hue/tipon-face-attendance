@@ -2114,7 +2114,7 @@ test('Paygroup List shows Operation Code View buttons and keeps the Member List 
 });
 
 test('Member CSV Paygroup staging validates same-scope Work Location assignment before location enrollment',()=>{
- const ctx={TIPONOrgCore:{clean:v=>String(v||'').trim(),platformKey:v=>String(v||'').trim().toLowerCase().replace(/\\s+/g,' ')},
+ const ctx={TIPONOrgCore:{clean:v=>String(v||'').trim(),platformKey:v=>String(v||'').trim().toLowerCase().replace(/\s+/g,' ')},
   tp5Must_:(ok,message)=>{if(!ok)throw Error(message);},
   tp5Read_:type=>type==='sites'?[
    {id:'site-1',coop:'Asiapro',platform:'IMG',paygroupIds:['pg-day']},
