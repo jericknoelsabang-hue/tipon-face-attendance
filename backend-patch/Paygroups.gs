@@ -26,12 +26,15 @@ function tp5PGValidate_(q){
     'Operation Codes must be unique, non-empty values (maximum 30).','VALIDATION');
   return {id:id,coop:coop,platform:platform,name:name,operationCodes:codes,updatedAt:tp5Now_(),rev:Number(p.rev)||0};
 }
-function tp5PGList_(actor){
-  var sites=tp5Read_('sites').filter(function(s){return !s.deleted;}),rows=tp5PGRead_().filter(function(pg){return actor.role==='admin'||
+function tp5PGCatalog_(actor){
+  var sites=tp5Read_('sites').filter(function(s){return !s.deleted;});
+  var rows=tp5PGRead_().filter(function(pg){return actor.role==='admin'||
     (actor.coop===pg.coop&&tp5PGKey_(actor.platform)===tp5PGKey_(pg.platform));});
-  rows=rows.map(function(pg){var copy=Object.assign({},pg);copy.siteIds=sites.filter(function(site){return (site.paygroupIds||[]).map(String).indexOf(String(pg.id))>=0;}).map(function(site){return site.id;});return copy;});
-  return tp5Reply_({paygroups:rows,paygroupDirectorySupported:true});
+  return rows.map(function(pg){var copy=Object.assign({},pg);copy.siteIds=sites.filter(function(site){
+    return (site.paygroupIds||[]).map(String).indexOf(String(pg.id))>=0;
+  }).map(function(site){return site.id;});return copy;});
 }
+function tp5PGList_(actor){return tp5Reply_({paygroups:tp5PGCatalog_(actor),paygroupDirectorySupported:true});}
 function tp5SamePaygroupIds_(a,b){
   a=Array.isArray(a)?a.map(String).sort():[];b=Array.isArray(b)?b.map(String).sort():[];
   return a.length===b.length&&a.every(function(id,i){return id===b[i];});
