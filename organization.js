@@ -181,7 +181,7 @@ applyRoles=function(){
   if($('backupPermissionNote'))$('backupPermissionNote').hidden=isAdmin();
 };
 const originalShowPage=showPage;
-Object.assign(pageNames,{accounts:'Accounts & Devices',members:'Member List',adminSites:'Work Locations List',settings:'Settings & Offline',dashboard:'Dashboard',scanner:'Face Terminal',terminalLogs:'Attendance Logs',sites:'Work Locations',records:'Attendance Logs'});
+Object.assign(pageNames,{accounts:'Accounts & Devices',members:'Member List',adminSites:'Work Locations List',paygroups:'Paygroup List',settings:'Settings & Offline',dashboard:'Dashboard',scanner:'Face Terminal',terminalLogs:'Attendance Logs',sites:'Work Locations',records:'Attendance Logs'});
 function refreshWorkspaceViews(){
  if(!state.user)return;
  if(state.page==='terminalLogs'||state.page==='records')renderTerminalLogs();
