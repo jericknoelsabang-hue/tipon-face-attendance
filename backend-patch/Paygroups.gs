@@ -28,11 +28,12 @@ function tp5PGValidate_(q){
 }
 function tp5PGCatalog_(actor){
   var sites=tp5Read_('sites').filter(function(s){return !s.deleted;});
-  var rows=tp5PGRead_().filter(function(pg){return actor.role==='admin'||
-    (actor.coop===pg.coop&&tp5PGKey_(actor.platform)===tp5PGKey_(pg.platform));});
-  return rows.map(function(pg){var copy=Object.assign({},pg);copy.siteIds=sites.filter(function(site){
+  var rows=tp5PGRead_().map(function(pg){var copy=Object.assign({},pg);copy.siteIds=sites.filter(function(site){
     return (site.paygroupIds||[]).map(String).indexOf(String(pg.id))>=0;
   }).map(function(site){return site.id;});return copy;});
+  return rows.filter(function(pg){return actor.role==='admin'||
+    (actor.role==='registrar'&&actor.coop===pg.coop&&tp5PGKey_(actor.platform)===tp5PGKey_(pg.platform))||
+    (actor.role==='kiosk'&&(actor.siteIds||[]).some(function(id){return pg.siteIds.indexOf(String(id))>=0;}));});
 }
 function tp5PGList_(actor){return tp5Reply_({paygroups:tp5PGCatalog_(actor),paygroupDirectorySupported:true});}
 function tp5SamePaygroupIds_(a,b){
@@ -91,6 +92,8 @@ function tp5PGUpdate_(actor,q){
   tp5Must_(!!old,'Paygroup not found. Refresh and retry.','NOT_FOUND');
   tp5Must_(old.coop===p.coop&&tp5PGKey_(old.platform)===tp5PGKey_(p.platform),
     'Cooperative and Business Platform cannot be changed after assignments exist.','CONFLICT');
+  tp5Must_(!rows.some(function(x){return String(x.id)!==p.id&&x.coop===p.coop&&tp5PGKey_(x.platform)===tp5PGKey_(p.platform)&&tp5PGKey_(x.name)===tp5PGKey_(p.name);}),
+    'Another Paygroup already uses this name in the selected Cooperative / Business Platform.','CONFLICT');
   p.rev=Number(old.rev||0)+1;
   rows=rows.map(function(x){return String(x.id)===p.id?p:x;});
   tp5PGWrite_(rows);tp5Bump_();tp5Audit_(actor,'PAYGROUP_UPDATE',p.id,'Paygroup and operation codes updated.');return tp5PGList_(actor);
