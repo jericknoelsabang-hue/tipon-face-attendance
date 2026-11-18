@@ -847,7 +847,7 @@ function renderSites(){
  $('siteCards').innerHTML=rows.length?rows.map(site=>'<tr><td><b>'+esc(site.name)+'</b></td><td>'+esc(site.coop)+'</td><td>'+esc(site.platform||'—')+'</td><td>'+esc(window.TIPONPaygroups?.namesForSite(site)||'—')+'</td><td><div class="site-actions"><button class="tiny-button" data-site-edit="'+esc(site.id)+'">Edit</button><button class="tiny-button delete" data-site-delete="'+esc(site.id)+'">Delete</button></div></td></tr>').join(''):'<tr><td colspan="5"><div class="empty-state">'+pageIcon('pin')+'No Work Locations are available for your approved Cooperative / Business Platform. Select “Add Work Location” to register an authorized GPS site.</div></td></tr>';
 }
 function openSiteForm(site){
- state.editSite=site||null;$('siteForm').reset();setText('siteFormTitle',site?'Edit Work Location':'Add Work Location');$('siteRadius').value='150';
+ state.editSite=site||null;$('siteForm').reset();window.TIPONSiteScopes?.reset(site,isAdmin());setText('siteFormTitle',site?'Edit Work Location':'Add Work Location');$('siteRadius').value='150';
  const addressSection=$('siteAddressSection'),addressField=$('siteAddress');
  const addressRequired=isAdmin()||!!site;
  if(addressSection)addressSection.hidden=!addressRequired;
