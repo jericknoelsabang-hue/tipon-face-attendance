@@ -117,7 +117,7 @@ function tp5UserMemberTransferLocations_(actor,q){
   var sites=tp5Read_('sites').filter(function(site){return site&&!site.deleted;}).map(function(site){
     return {id:site.id,name:site.name,coop:site.coop,platform:site.platform,
       address:site.address||'',lat:Number(site.lat),lng:Number(site.lng),
-      radius:Number(site.radius)||150,rev:Number(site.rev)||0};
+      radius:Number(site.radius)||150,rev:Number(site.rev)||0,paygroupIds:site.paygroupIds||[]};
   });
   return tp5Reply_({sites:sites,catalogVersion:Number(tp5Props_().getProperty('TP5_CATALOG_VERSION')||0)});
 }
