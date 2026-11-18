@@ -533,11 +533,12 @@ window.TIPONSync=(()=>{
   }
   async function pullCatalog(version){
     const scope=encodeURIComponent(String(state.user.coop||''))+':'+encodeURIComponent(TIPONOrgCore.platformKey(state.user.platform));
-    const cfgId='tp5-catalog:'+state.orgId+':'+state.user.id+':'+state.user.role+':v5.5.96-scope:'+String(state.user.version||1)+':'+scope+':'+(state.user.siteIds||[]).join(',');
+    const cfgId='tp5-catalog:'+state.orgId+':'+state.user.id+':'+state.user.role+':v5.5.109-paygroups:'+String(state.user.version||1)+':'+scope+':'+(state.user.siteIds||[]).join(',');
     const known=await getOne('meta',cfgId);
-    const [localMembers,localSites,outbox]=await Promise.all([getAll('members'),getAll('sites'),getAll('outbox')]);
+    const [localMembers,localSites,outbox,localMeta]=await Promise.all([getAll('members'),getAll('sites'),getAll('outbox'),getAll('meta')]);
     const scoped=localMembers.filter(m=>m.orgId===state.orgId&&TIPONOrgCore.inScope(state.user,m));
     const scopedSites=localSites.filter(s=>s.orgId===state.orgId&&TIPONOrgCore.inScope(state.user,s));
+    const scopedPaygroups=localMeta.filter(x=>String(x.id||'').indexOf('tp5-paygroup:')===0&&x.orgId===state.orgId);
     const faceCount=scoped.filter(m=>!m.deleted&&m.active!==false&&m.template).length;
     const pendingSites=outbox.some(op=>op.orgId===state.orgId&&op.ownerId===state.user.id&&op.type==='sites'&&!['NEEDS_REVIEW','FORBIDDEN','CONFLICT'].includes(op.errorCode));
     const lastFull=Number(known?.refreshedAt)||0;
@@ -550,12 +551,15 @@ window.TIPONSync=(()=>{
        known.version===version&&Number.isInteger(known.memberCount)&&
        known.memberCount===scoped.length&&
        Number.isInteger(known.siteCount)&&known.siteCount===scopedSites.length&&
-       faceCount>=Number(known.enrolledCount||0)&&stillFresh)return;
+       faceCount>=Number(known.enrolledCount||0)&&Number.isInteger(known.paygroupCount)&&known.paygroupCount===scopedPaygroups.length&&stillFresh)return;
     let cursor=0,startVersion=null,pages=0,memberCount=0,enrolledCount=0;
-    const seen={members:new Set(),sites:new Set()};
+    const seen={members:new Set(),sites:new Set(),paygroups:new Set()};
+    const receivedPaygroups=[];let hasPaygroupSnapshot=false,backendPaygroupSupport=false;
     do{
       const response=await TIPONAPI.call({action:'catalog',cursor});if(startVersion===null)startVersion=response.catalogVersion;
       if(response.catalogVersion!==startVersion)throw Error('Directory changed during download. Retrying a consistent snapshot.');
+      if(Array.isArray(response.paygroups)){hasPaygroupSnapshot=true;receivedPaygroups.push(...response.paygroups);}
+      if(response.paygroupDirectorySupported===true)backendPaygroupSupport=true;
       if(response.businessPlatforms?.length)await TIPONPlatforms.accept(response.businessPlatforms,
         response.businessPlatformRecords||response.businessPlatformDetails||response.platformRecords||null);
       for(const type of ['sites','members','schedules'])for(const entity of response[type]||[]){
@@ -606,6 +610,26 @@ window.TIPONSync=(()=>{
       if(stopped||document.hidden)throw Error('Directory download paused. Keep the app open to finish.');
     }while(cursor!==null&&pages<500);
     if(cursor!==null)throw Error('Directory is too large for one download; contact the system owner.');
+    if(!hasPaygroupSnapshot){
+      try{const directory=await TIPONAPI.call({action:'paygroups'});if(Array.isArray(directory.paygroups)){hasPaygroupSnapshot=true;receivedPaygroups.push(...directory.paygroups);backendPaygroupSupport=directory.paygroupDirectorySupported!==false;}}
+      catch(error){console.warn('Paygroup directory is not available from the central backend:',error?.message||error);}
+    }
+    if(hasPaygroupSnapshot){
+      for(const pg of receivedPaygroups){
+        const inScope=state.user.role==='admin'||(state.user.role==='registrar'&&TIPONOrgCore.inScope(state.user,pg))||
+          (state.user.role==='kiosk'&&(pg.siteIds||[]).some(id=>(state.user.siteIds||[]).map(String).includes(String(id))));
+        if(!inScope)continue;
+        const id=String(pg.id||'');if(!id)continue;seen.paygroups.add(id);
+        await OrgDB.rawSave('meta',{...pg,id:'tp5-paygroup:'+id,orgId:state.orgId});
+      }
+      const metaRows=await getAll('meta');
+      for(const item of metaRows){
+        if(item.orgId===state.orgId&&String(item.id||'').indexOf('tp5-paygroup:')===0&&!seen.paygroups.has(String(item.id).slice('tp5-paygroup:'.length)))
+          await OrgDB.rawDelete('meta',item.id);
+      }
+      await OrgDB.rawSave('meta',{id:'tp5-paygroup-directory-status',orgId:state.orgId,supported:backendPaygroupSupport||receivedPaygroups.length>=0,refreshedAt:Date.now()});
+      state.paygroupBackendReady=backendPaygroupSupport||receivedPaygroups.length>=0;
+    }
     // A full successful server snapshot is authoritative. Purge locally cached
     // records that were deleted or moved outside this account's new MPC/BP/GPS
     // scope, except unsynced local operations. Never modify attendance punches.
@@ -617,7 +641,7 @@ window.TIPONSync=(()=>{
       }
     }
     await OrgDB.rawSave('meta',{id:cfgId,version:startVersion,memberCount,enrolledCount,
-      siteCount:seen.sites.size,refreshedAt:Date.now(),complete:true,orgId:state.orgId});
+      siteCount:seen.sites.size,paygroupCount:seen.paygroups.size,refreshedAt:Date.now(),complete:true,orgId:state.orgId});
     forceCatalogRefresh=false;
   }
   function cursorId(){
