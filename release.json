@@ -1,5 +1,5 @@
 {
   "app": "TIPON Face Attendance",
-  "version": "5.5.108",
-  "label": "Allow member work-location changes during open shifts and prevent duplicate location names within each cooperative and business platform."
+  "version": "5.5.109",
+  "label": "Add Paygroup directory and Operation Code workflow (frontend and private backend integration patch)."
 }

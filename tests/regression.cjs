@@ -200,7 +200,7 @@ function backend(){
   const members=[{id:'TEST-1',name:'Synthetic Member',coop:'Asiapro',platform:'IMG',rev:2,template:{alg:'AES-GCM',iv:'existing',data:'encrypted'},active:true,siteIds:['site-1']}];
   const sites=[{id:'site-1',coop:'Asiapro',platform:'IMG'},{id:'site-2',coop:'Worklife',platform:'OCG'}];
   const writes=[],audits=[];
-  const ctx={Date,Map,Set,Number,TIPONOrgCore:Org,tp5Must_:(ok,message,code)=>{if(!ok)throw Object.assign(Error(message),{code});},tp5Find_:(type,id)=>(type==='members'?members:sites).find(x=>x.id===id),tp5Read_:type=>type==='sites'?sites:members,tp5ResolvePlatform_:x=>x,tp5SameLocations_:(a,b)=>JSON.stringify(a)===JSON.stringify(b),tp5OldLocations_:x=>x.siteIds,tp5MemberOpenSession_:()=>false,tp5Now_:()=>new Date().toISOString(),tp5Safe_:x=>x,tp5Reply_:x=>x,tp5Put_:(...args)=>writes.push(args),tp5Bump_:()=>3,tp5RefreshMemberDirectory_:()=>{},tp5Audit_:(...args)=>audits.push(args),tp5MemberLocationResult_:(actor,old,next,action)=>{writes.push(next);audits.push(action);return {member:next};},tp5LocationIds_:(actor,coop,platform,ids)=>{assert.ok(ids.length);return ids;},tp5Admin_:actor=>{if(actor.role!=='admin')throw Object.assign(Error('Administrator required.'),{code:'FORBIDDEN'});},tp5AllEvents_:()=>[]};
+  const ctx={Date,Map,Set,Number,TIPONOrgCore:Org,tp5Must_:(ok,message,code)=>{if(!ok)throw Object.assign(Error(message),{code});},tp5Find_:(type,id)=>(type==='members'?members:sites).find(x=>x.id===id),tp5Read_:type=>type==='sites'?sites:members,tp5ResolvePlatform_:x=>x,tp5SameLocations_:(a,b)=>JSON.stringify(a)===JSON.stringify(b),tp5OldLocations_:x=>x.siteIds,tp5MemberOpenSession_:()=>false,tp5Now_:()=>new Date().toISOString(),tp5Safe_:x=>x,tp5Reply_:x=>x,tp5Put_:(...args)=>writes.push(args),tp5Bump_:()=>3,tp5RefreshMemberDirectory_:()=>{},tp5Audit_:(...args)=>audits.push(args),tp5MemberLocationResult_:(actor,old,next,action)=>{writes.push(next);audits.push(action);return {member:next};},tp5LocationIds_:(actor,coop,platform,ids)=>{assert.ok(ids.length);return ids;},tp5PaygroupIds_:(ids)=>Array.isArray(ids)?ids:[],tp5SamePaygroupIds_:(a,b)=>JSON.stringify(a||[])===JSON.stringify(b||[]),tp5Admin_:actor=>{if(actor.role!=='admin')throw Object.assign(Error('Administrator required.'),{code:'FORBIDDEN'});},tp5AllEvents_:()=>[]};
   vm.createContext(ctx);vm.runInContext(source('backend-patch/MemberFaceTransfer.gs'),ctx);vm.runInContext(source('backend-patch/MemberLocationEdit.gs'),ctx);return {ctx,members,writes,audits};
 }
 function attendanceCorrectionBackend(rawEvents){
@@ -579,7 +579,7 @@ test('Unified Attendance Logs nav and read-only timesheet estimates retain safe 
  assert.doesNotMatch(html,/id="timesheetRound"/);
  assert.doesNotMatch(html,/id="timesheetOT"/);
  assert.doesNotMatch(source('auth.js'),/await showPage\('dashboard'\)/);
- assert.match(html,/<th>Work Location<\/th><th>Actions<\/th>/);
+ assert.match(html,/<th>Work Location<\/th><th>Paygroup<\/th><th>Operation Code<\/th><th>Actions<\/th>/);
  assert.match(org,/if\(page==='records'\)page='terminalLogs'/);
  assert.match(sync,/async function recoverAttendance\(\)/);
  const segment=sync.slice(sync.indexOf('async function recoverAttendance()'),sync.indexOf('return {init,start,stop,kick',sync.indexOf('async function recoverAttendance()')));
@@ -1242,7 +1242,7 @@ test('Enrollment cannot capture multiple faces or mix identities',async()=>{
 });
 test('Scoped Work Locations reconcile across devices despite unchanged catalog version and member count',async()=>{
  const src=source('sync.js'),app=source('app.js'),html=source('index.html');
- assert.match(src,/siteCount:seen\.sites\.size,refreshedAt:Date\.now\(\)/);
+ assert.match(src,/siteCount:seen\.sites\.size,paygroupCount:seen\.paygroups\.size,refreshedAt:Date\.now\(\)/);
  assert.match(src,/forceCatalogRefresh/);
  assert.match(src,/async function refreshDirectory\(\)/);
  assert.match(src,/const ttl=\(state\.page==='sites'\|\|state\.page==='adminSites'\)\?12000:30000/);
@@ -1303,11 +1303,11 @@ test('Member List shows Weekly Work Schedule after Assigned Location with saved 
  const html=source('index.html'),app=source('app.js'),css=source('style.css');
  const page=html.slice(html.indexOf('id="page-members"'),html.indexOf('id="page-sites"'));
  const headers=[...page.matchAll(/<th(?: [^>]*)?>([^<]+)<\/th>/g)].map(x=>x[1]);
- assert.deepEqual(headers.slice(0,7),['Member','Cooperative','Business Platform','Assigned Location','Weekly Work Schedule','Face Enrollment Status','Actions']);
+ assert.deepEqual(headers.slice(0,8),['Member','Cooperative','Business Platform','Assigned Location','Paygroup','Weekly Work Schedule','Face Enrollment Status','Actions']);
  const render=app.slice(app.indexOf('function renderMembers('),app.indexOf('let lastUserAddressSearch=',app.indexOf('function renderMembers(')));
  assert.match(render,/renderMemberWorkScheduleCell\(m\)/);
- assert.match(render,/colspan="7"/);
- assert.match(css,/#page-members \.table-wrap>table\{min-width:1220px\}/);
+ assert.match(render,/colspan="8"/);
+ assert.match(css,/#page-members \.table-wrap>table\{min-width:1400px\}/);
  assert.match(css,/#page-members \.member-schedule-days\{display:grid;grid-template-columns:repeat\(7,minmax\(0,1fr\)\)/);
  const start=app.indexOf('const MEMBER_WORK_DAYS='),end=app.indexOf('function fillMemberWorkSchedule(',start);
  assert.ok(start>0&&end>start);
@@ -1763,7 +1763,7 @@ function metadataBackend(){
   tp5Find_:(type,id)=>(type==='members'?members:sites).find(r=>r.id===id),tp5Read_:type=>type==='members'?members:sites,
   tp5Admin_:u=>{if(u.role!=='admin')throw Error('Administrator required');},tp5ResolvePlatform_:x=>x,
   tp5AllEvents_:()=>events,tp5ApplyAttendanceCorrections_:x=>x,
-  tp5Put_:(type,next)=>{assert.equal(type,'members');members[members.findIndex(m=>m.id===next.id)]=next;},
+  tp5Put_:(type,next)=>{assert.equal(type,'members');members[members.findIndex(m=>m.id===next.id)]=next;},tp5PaygroupIds_:(ids)=>Array.isArray(ids)?ids:[],tp5SamePaygroupIds_:(a,b)=>JSON.stringify(a||[])===JSON.stringify(b||[]),
   tp5RefreshMemberDirectory_(){},tp5Bump_:()=>7,tp5Now_:()=>new Date().toISOString(),tp5Safe_:x=>x,tp5Reply_:x=>x,tp5Audit_:(...args)=>audits.push(args)};
  vm.createContext(ctx);vm.runInContext(source('backend-patch/MemberMetadata.gs'),ctx);return {ctx,members,audits,events};
 }
@@ -1964,7 +1964,7 @@ test('Admin metadata Edit opens from saved data without waiting for server synch
  const src=source('admin-member-editor.js'),start=src.indexOf(' async function openAdmin('),end=src.indexOf(' async function save(',start);
  const fields=new Map();let opened=false,kicks=0;
  const field=id=>{if(!fields.has(id))fields.set(id,{value:'',innerHTML:'',hidden:false,reset(){},showModal(){opened=true;}});return fields.get(id);};
- const c={current:null,state:{orgId:'org-1',user:{id:'admin-1'}},navigator:{onLine:true},$:field,TIPONOrgCore:Org,esc:x=>x,
+ const c={current:null,state:{orgId:'org-1',user:{id:'admin-1'}},navigator:{onLine:true},$:field,TIPONOrgCore:Org,window:{TIPONPaygroups:{fillMemberPicker(){}}},esc:x=>x,
   TIPONPlatforms:{fillScoped(){}},fillAdminWorkSchedule(){},choices(){},ids:m=>m.siteIds||[],setText(){},
   TIPONSync:{submitPendingNow:()=>new Promise(()=>{}),kick:()=>kicks++}};
  vm.createContext(c);vm.runInContext(src.slice(start,end),c);
@@ -2023,7 +2023,7 @@ test('Backend member import saves weekly schedule fields and rejects changed sch
 test('Admin Add shows required Address below scope and enables the map-search button',()=>{
  const src=source('app.js'),start=src.indexOf('function openSiteForm(site){'),end=src.indexOf('function updateSiteMap(){',start),fields=new Map();
  const field=id=>{if(!fields.has(id))fields.set(id,{value:'',hidden:true,required:false,attributes:{},setAttribute(k,v){this.attributes[k]=v;},reset(){},showModal(){this.open=true;}});return fields.get(id);};
- const ctx={state:{},$:field,isAdmin:()=>true,setText:(id,value)=>field(id).textContent=value,updateSiteMap(){}};
+ const ctx={state:{},$:field,isAdmin:()=>true,window:{TIPONSiteScopes:{reset(){}},TIPONPaygroups:{fillSitePicker(){}}},setText:(id,value)=>field(id).textContent=value,updateSiteMap(){}};
  vm.createContext(ctx);vm.runInContext(src.slice(start,end),ctx);ctx.openSiteForm(null);
  assert.equal(field('siteAddressSection').hidden,false);assert.equal(field('siteAddress').required,true);
  assert.equal(field('siteAddress').attributes['aria-required'],'true');assert.equal(field('adminSitePlaceFind').textContent,'Find Location on Map');

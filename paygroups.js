@@ -1,0 +1,399 @@
+/* TIPON 5.5.109 — Paygroup directory, assignment pickers and Time In operation selection. */
+'use strict';
+window.TIPONPaygroups = (() => {
+  const $ = id => document.getElementById(id);
+  const norm = value => TIPONOrgCore.platformKey(value || '');
+  const ids = value => [...new Set((Array.isArray(value) ? value : []).map(String).filter(Boolean))];
+  const all = () => Array.isArray(state.paygroups) ? state.paygroups.filter(x => !x.deleted) : [];
+  const byId = id => all().find(x => String(x.id) === String(id)) || null;
+  const codes = pg => Array.isArray(pg?.operationCodes) ? pg.operationCodes.map(x => String(x || '').trim()).filter(Boolean) : [];
+  const sameIds = (a,b) => ids(a).sort().join('|') === ids(b).sort().join('|');
+  let editing = null;
+  let dialogCodes = [];
+  let pendingSelection = null;
+
+  function groupsForScope(coop, platform) {
+    if (!coop || !platform) return [];
+    return all().filter(pg => pg.coop === coop && norm(pg.platform) === norm(platform))
+      .sort((a,b) => String(a.name || '').localeCompare(String(b.name || '')));
+  }
+  function groupsForSite(site) {
+    return ids(site?.paygroupIds).map(byId).filter(Boolean);
+  }
+  function groupsForMember(member) {
+    return ids(member?.paygroupIds).map(byId).filter(Boolean);
+  }
+  function namesForSite(site) {
+    return groupsForSite(site).map(pg => pg.name).join(', ') || '—';
+  }
+  function namesForMember(member) {
+    return groupsForMember(member).map(pg => pg.name).join(', ') || '—';
+  }
+  function locationsForPaygroup(pg) {
+    return (state.sites || []).filter(site => !site.deleted && ids(site.paygroupIds).includes(String(pg.id)))
+      .map(site => site.name).filter(Boolean).join(', ') || 'Not assigned';
+  }
+  function forMemberAtSite(member, site) {
+    const assigned = ids(member?.paygroupIds);
+    const onSite = new Set(ids(site?.paygroupIds));
+    return assigned.map(byId).filter(pg => pg && onSite.has(String(pg.id)) &&
+      pg.coop === member.coop && norm(pg.platform) === norm(site?.platform));
+  }
+
+  function updatePickerSummary(choicesId, summaryId) {
+    const root = $(choicesId), summary = $(summaryId);
+    if (!root || !summary) return;
+    const count = root.querySelectorAll('[data-paygroup-option]:checked').length;
+    summary.textContent = count ? count + ' Paygroup' + (count === 1 ? '' : 's') + ' selected' : 'Select Paygroup';
+  }
+  function fillPicker(choicesId, summaryId, items, selectedIds, emptyMessage) {
+    const root = $(choicesId);
+    if (!root) return;
+    const selected = new Set(ids(selectedIds));
+    root.innerHTML = items.length ? items.map(pg => {
+      const opCount = codes(pg).length;
+      return '<label class="multi-select-option"><input type="checkbox" data-paygroup-option="' + esc(pg.id) + '"' +
+        (selected.has(String(pg.id)) ? ' checked' : '') + '/><span>' + esc(pg.name) +
+        '<small>' + esc(pg.coop) + ' · ' + esc(pg.platform) + ' · ' +
+        (opCount ? opCount + ' operation code' + (opCount === 1 ? '' : 's') : 'No operation code') +
+        '</small></span></label>';
+    }).join('') : '<p class="mini-info">' + esc(emptyMessage || 'No matching Paygroups are available.') + '</p>';
+    updatePickerSummary(choicesId, summaryId);
+  }
+  function readPicker(choicesId) {
+    const root = $(choicesId);
+    return root ? [...root.querySelectorAll('[data-paygroup-option]:checked')].map(el => String(el.dataset.paygroupOption)) : [];
+  }
+  function fillSitePicker(selectedIds = readPicker('sitePaygroupChoices')) {
+    const coop = $('siteCoop')?.value || state.user?.coop || '';
+    const platform = $('sitePlatform')?.value || state.user?.platform || '';
+    fillPicker('sitePaygroupChoices', 'sitePaygroupSummary', groupsForScope(coop, platform), selectedIds,
+      'No Paygroups are available for this Cooperative / Business Platform.');
+  }
+  function selectedMemberSites(variant) {
+    if (variant === 'admin') {
+      return [...document.querySelectorAll('#adminMemberSiteChoices input[data-admin-member-site]:checked')].map(el => String(el.dataset.adminMemberSite));
+    }
+    return [...($('memberSite')?.selectedOptions || [])].map(option => String(option.value));
+  }
+  function fillMemberPicker(variant = 'user', selectedIds = []) {
+    const admin = variant === 'admin';
+    const coop = $(admin ? 'adminMemberCoop' : 'memberCoop')?.value || '';
+    const platform = $(admin ? 'adminMemberPlatform' : 'memberPlatform')?.value || '';
+    const sites = selectedMemberSites(variant).map(id => state.sites.find(site => site.id === id && !site.deleted)).filter(Boolean);
+    const available = groupsForScope(coop, platform).filter(pg => sites.some(site => ids(site.paygroupIds).includes(String(pg.id))));
+    fillPicker(admin ? 'adminMemberPaygroupChoices' : 'memberPaygroupChoices',
+      admin ? 'adminMemberPaygroupSummary' : 'memberPaygroupSummary', available, selectedIds,
+      'Assign Paygroups to the selected Work Location(s) first.');
+  }
+  function refreshMemberPicker(variant = 'user') {
+    const id = variant === 'admin' ? 'adminMemberPaygroupChoices' : 'memberPaygroupChoices';
+    fillMemberPicker(variant, readPicker(id));
+  }
+  function validateSiteAssignment(coop, platform, selectedIds) {
+    const selected = ids(selectedIds);
+    const available = new Set(groupsForScope(coop, platform).map(pg => String(pg.id)));
+    if (selected.some(id => !available.has(id))) throw Error('Choose only Paygroups matching the Work Location Cooperative and Business Platform.');
+    return selected;
+  }
+  function validateMemberAssignment(coop, platform, siteIds, selectedIds) {
+    const selected = ids(selectedIds);
+    const sites = ids(siteIds).map(id => state.sites.find(site => site.id === id && !site.deleted)).filter(Boolean);
+    const available = new Set(groupsForScope(coop, platform)
+      .filter(pg => sites.some(site => ids(site.paygroupIds).includes(String(pg.id))))
+      .map(pg => String(pg.id)));
+    if (selected.some(id => !available.has(id))) throw Error('Choose only Paygroups assigned to at least one of the member\'s selected Work Locations.');
+    return selected;
+  }
+
+  function renderDirectory() {
+    const groups = all().slice().sort((a,b) =>
+      String(a.coop || '').localeCompare(String(b.coop || '')) ||
+      String(a.platform || '').localeCompare(String(b.platform || '')) ||
+      String(a.name || '').localeCompare(String(b.name || '')));
+    const admin = isAdmin();
+    const renderRows = (items, withActions) => items.length ? items.map(pg => {
+      const operationCodes = codes(pg);
+      const action = withActions ? '<td><div class="row-inline"><button type="button" class="tiny-button" data-paygroup-edit="' +
+        esc(pg.id) + '">Edit</button><button type="button" class="tiny-button delete" data-paygroup-delete="' +
+        esc(pg.id) + '">Delete</button></div></td>' : '';
+      return '<tr><td>' + esc(pg.coop || '—') + '</td><td>' + esc(pg.platform || '—') + '</td><td>' +
+        esc(locationsForPaygroup(pg)) + '</td><td><b>' + esc(pg.name || '—') + '</b></td><td>' +
+        esc(operationCodes.length ? operationCodes.join(', ') : '—') + '</td>' + action + '</tr>';
+    }).join('') : '<tr><td colspan="' + (withActions ? '6' : '5') + '"><div class="empty-state">' +
+      (!state.paygroupBackendReady ? 'Paygroup backend update is required. Install backend-patch/README_PAYGROUP.md and redeploy the existing Apps Script Web App.' :
+        'No Paygroups have been configured for this account scope.') + '</div></td></tr>';
+    if ($('adminPaygroupRows')) {
+      $('adminPaygroupRows').innerHTML = renderRows(groups, true);
+      setText('adminPaygroupCount', groups.length + ' paygroup' + (groups.length === 1 ? '' : 's'));
+    }
+    if ($('userPaygroupRows')) {
+      $('userPaygroupRows').innerHTML = renderRows(groups, false);
+      setText('userPaygroupCount', groups.length + ' paygroup' + (groups.length === 1 ? '' : 's'));
+    }
+    if ($('paygroupBackendStatus')) {
+      $('paygroupBackendStatus').textContent = state.paygroupBackendReady
+        ? 'Central Paygroup directory connected.'
+        : 'Central Paygroup endpoints are not yet confirmed. Install the Apps Script backend patch before using this module.';
+    }
+  }
+
+  function fillPaygroupScope(pg) {
+    const coop = $('paygroupCoop');
+    if (!coop) return;
+    coop.innerHTML = '<option value="">Select cooperative</option>' +
+      TIPONOrgCore.COOPS.map(value => '<option value="' + esc(value) + '">' + esc(value) + '</option>').join('');
+    coop.value = pg?.coop || '';
+    TIPONPlatforms.fillScoped('paygroupCoop', 'paygroupPlatform', pg?.platform || '');
+    const referenced = !!(pg && ((pg.siteIds || []).length ||
+      (state.sites || []).some(site => ids(site.paygroupIds).includes(String(pg.id))) ||
+      (state.members || []).some(member => ids(member.paygroupIds).includes(String(pg.id)))));
+    $('paygroupCoop').disabled = referenced;
+    $('paygroupPlatform').disabled = referenced;
+  }
+  function renderOperationCodeChips() {
+    const root = $('paygroupOperationCodes');
+    if (!root) return;
+    root.innerHTML = dialogCodes.length ? dialogCodes.map((code,index) =>
+      '<span class="paygroup-code-chip"><b>' + esc(code) + '</b><button type="button" data-remove-operation-code="' +
+      index + '" aria-label="Remove ' + esc(code) + '">×</button></span>').join('') :
+      '<span class="mini-info">No operation codes added.</span>';
+  }
+  function toggleOperationCodeFields() {
+    const enabled = $('paygroupHasOperationCodes')?.value === 'yes';
+    if ($('paygroupOperationCodeSection')) $('paygroupOperationCodeSection').hidden = !enabled;
+  }
+  function openDialog(pg = null) {
+    if (!isAdmin()) return;
+    editing = pg ? { ...pg } : null;
+    dialogCodes = codes(pg);
+    $('paygroupForm')?.reset();
+    fillPaygroupScope(pg);
+    $('paygroupName').value = pg?.name || '';
+    $('paygroupHasOperationCodes').value = dialogCodes.length ? 'yes' : 'no';
+    toggleOperationCodeFields();
+    renderOperationCodeChips();
+    setText('paygroupFormTitle', pg ? 'Edit Paygroup' : 'Add Paygroup');
+    setText('paygroupStatus', '');
+    $('paygroupDialog')?.showModal();
+  }
+  function addOperationCode() {
+    if (!isAdmin()) return;
+    const input = $('paygroupOperationCodeInput');
+    const value = String(input?.value || '').trim().normalize('NFKC').replace(/\s+/g, ' ');
+    if (!value) return;
+    if (value.length > 60) return setText('paygroupStatus', 'Operation Code must be 60 characters or fewer.');
+    if (dialogCodes.some(code => code.toLowerCase() === value.toLowerCase()))
+      return setText('paygroupStatus', 'This Operation Code is already listed.');
+    if (dialogCodes.length >= 30) return setText('paygroupStatus', 'Maximum 30 Operation Codes per Paygroup.');
+    dialogCodes.push(value);
+    if (input) input.value = '';
+    setText('paygroupStatus', '');
+    renderOperationCodeChips();
+    input?.focus();
+  }
+  async function savePaygroup(event) {
+    event.preventDefault();
+    if (!isAdmin()) return;
+    const button = $('paygroupSave');
+    if (button) button.disabled = true;
+    try {
+      if (!navigator.onLine) throw Error('Internet is required to save a Paygroup to the central directory.');
+      const coop = $('paygroupCoop').value;
+      const platform = $('paygroupPlatform').value;
+      const name = String($('paygroupName').value || '').trim().normalize('NFKC').replace(/\s+/g, ' ');
+      const hasCodes = $('paygroupHasOperationCodes').value === 'yes';
+      const operationCodes = hasCodes ? [...dialogCodes] : [];
+      if (!TIPONOrgCore.COOPS.includes(coop) ||
+          !TIPONPlatforms.optionsForCoop(coop).some(value => norm(value) === norm(platform)))
+        throw Error('Select a valid Cooperative and its Business Platform.');
+      if (name.length < 2 || name.length > 80) throw Error('Paygroup must be between 2 and 80 characters.');
+      if (hasCodes && !operationCodes.length) throw Error('Add at least one Operation Code or select No.');
+      const payload = { id: editing?.id || uuid(), coop, platform, name, operationCodes };
+      await TIPONAPI.call({ action: editing ? 'paygroupUpdate' : 'paygroupAdd', paygroup: payload });
+      const refreshed = await TIPONSync.refreshDirectory();
+      if (refreshed?.ok === false && refreshed?.readOk !== true)
+        throw Error(refreshed.error || 'The Paygroup was saved but the central directory refresh did not complete.');
+      await loadCollections();
+      renderDirectory();
+      $('paygroupDialog').close();
+      showToast(editing ? 'Paygroup changes confirmed centrally.' : 'Paygroup added to the central directory.', 'success', 7500);
+    } catch (error) {
+      const message = error?.code === 'ACTION' || /unknown action|unsupported action|not implemented/i.test(String(error?.message || ''))
+        ? 'Paygroup endpoints are not installed in the private Apps Script backend. Install backend-patch/README_PAYGROUP.md and redeploy; no central change was confirmed.'
+        : String(error?.message || 'Paygroup save failed.');
+      setText('paygroupStatus', message);
+      showToast(message, 'error', 9500);
+    } finally {
+      if (button) button.disabled = false;
+    }
+  }
+  async function deletePaygroup(id) {
+    if (!isAdmin()) return;
+    const pg = byId(id);
+    if (!pg) return;
+    if (!await confirmAction('Delete Paygroup?', 'Delete ' + pg.name + '? The central server will prevent deletion while a Work Location or member still uses this Paygroup.')) return;
+    try {
+      if (!navigator.onLine) throw Error('Internet is required to delete a Paygroup.');
+      await TIPONAPI.call({ action: 'paygroupDelete', id: pg.id });
+      const refreshed = await TIPONSync.refreshDirectory();
+      if (refreshed?.ok === false && refreshed?.readOk !== true)
+        throw Error(refreshed.error || 'The Paygroup deletion was sent but the central directory refresh did not complete.');
+      await loadCollections();
+      renderDirectory();
+      showToast('Paygroup deletion confirmed centrally.', 'success', 7500);
+    } catch (error) {
+      const message = error?.code === 'ACTION' || /unknown action|unsupported action|not implemented/i.test(String(error?.message || ''))
+        ? 'Paygroup delete endpoint is not installed in the private Apps Script backend. No central deletion was confirmed.'
+        : String(error?.message || 'Paygroup deletion failed.');
+      showToast(message, 'error', 9500);
+    }
+  }
+
+  function hideOperationPanel() {
+    const panel = $('terminalOperationPanel');
+    if (panel) panel.hidden = true;
+    if ($('terminalOperationChoices')) $('terminalOperationChoices').replaceChildren();
+  }
+  function resolveSelection(value) {
+    const resolve = pendingSelection;
+    pendingSelection = null;
+    hideOperationPanel();
+    if (resolve) resolve(value || null);
+  }
+  function cancelPendingSelection() {
+    if (pendingSelection) resolveSelection(null);
+    else hideOperationPanel();
+  }
+  function chooseForTimeIn(member, site) {
+    const assignedIds = ids(member?.paygroupIds);
+    if (!assignedIds.length) {
+      hideOperationPanel();
+      return Promise.resolve({ paygroupId: '', paygroup: '', operationCode: '' });
+    }
+    const groups = forMemberAtSite(member, site);
+    if (!groups.length)
+      return Promise.reject(Error('Assigned Paygroup is not synchronized to this Work Location. Refresh the directory before Time In.'));
+    const choices = [];
+    groups.forEach(pg => {
+      const list = codes(pg);
+      if (list.length) list.forEach(code => choices.push({
+        paygroupId: String(pg.id), paygroup: pg.name, operationCode: code,
+        label: code, detail: pg.name, kind: 'operation'
+      }));
+      else choices.push({
+        paygroupId: String(pg.id), paygroup: pg.name, operationCode: '',
+        label: groups.length > 1 ? pg.name : 'Continue without Operation Code',
+        detail: 'No Operation Code required', kind: 'paygroup'
+      });
+    });
+    if (groups.length === 1 && choices.length === 1 && !choices[0].operationCode) {
+      hideOperationPanel();
+      return Promise.resolve(choices[0]);
+    }
+    const title = groups.every(pg => !codes(pg).length) ? 'Select Paygroup' :
+      groups.length > 1 ? 'Select Operation Code / Paygroup' : 'Select Operation Code';
+    setText('terminalOperationTitle', title);
+    setText('terminalOperationHelp', 'Select before recording Time In. Time Out does not require an Operation Code.');
+    const root = $('terminalOperationChoices');
+    if (!root) return Promise.reject(Error('Operation Code selection panel is unavailable. Refresh the attendance app.'));
+    root.innerHTML = choices.map(choice =>
+      '<button type="button" class="terminal-operation-button" data-paygroup-choice="1" data-paygroup-id="' +
+      esc(choice.paygroupId) + '" data-operation-code="' + esc(choice.operationCode) + '">' +
+      '<strong>' + esc(choice.label) + '</strong><small>' + esc(choice.detail) +
+      (choice.kind === 'operation' ? ' · Operation Code' : ' · Paygroup') + '</small></button>').join('');
+    const panel = $('terminalOperationPanel');
+    if (panel) panel.hidden = false;
+    return new Promise(resolve => { pendingSelection = resolve; });
+  }
+
+  async function refreshDirectory(kind = 'refresh') {
+    if (!navigator.onLine) {
+      renderDirectory();
+      showToast('Offline: showing the last synchronized Paygroup directory.', 'info');
+      return;
+    }
+    const buttonIds = kind === 'sync' ? ['adminPaygroupSync','userPaygroupSync'] : ['adminPaygroupRefresh','userPaygroupRefresh'];
+    buttonIds.forEach(id => { if ($(id)) $(id).disabled = true; });
+    try {
+      if (kind === 'sync') {
+        const result = await TIPONSync.submitPendingNow();
+        if (result?.ok === false && result?.readOk !== true) throw Error(result.error || 'Organization synchronization did not complete.');
+      }
+      const result = await TIPONSync.refreshDirectory();
+      if (result?.ok === false && result?.readOk !== true) throw Error(result.error || 'Paygroup directory refresh did not complete.');
+      await loadCollections();
+      renderDirectory();
+      if (window.TIPONAdminSites?.render) window.TIPONAdminSites.render();
+      renderMembers();
+      renderSites();
+      showToast(kind === 'sync' ? 'Paygroup directory synchronized.' : 'Paygroup directory refreshed.', 'success', 6500);
+    } catch (error) {
+      showToast(error.message || 'Paygroup directory refresh failed.', 'error', 8500);
+    } finally {
+      buttonIds.forEach(id => { if ($(id)) $(id).disabled = false; });
+    }
+  }
+
+  function bind() {
+    if (window.__tiponPaygroupsBound) return;
+    window.__tiponPaygroupsBound = true;
+    $('adminPaygroupAdd')?.addEventListener('click', () => openDialog());
+    $('adminPaygroupRefresh')?.addEventListener('click', () => refreshDirectory('refresh'));
+    $('userPaygroupRefresh')?.addEventListener('click', () => refreshDirectory('refresh'));
+    $('adminPaygroupSync')?.addEventListener('click', () => refreshDirectory('sync'));
+    $('userPaygroupSync')?.addEventListener('click', () => refreshDirectory('sync'));
+    $('adminPaygroupRows')?.addEventListener('click', event => {
+      const edit = event.target.closest('[data-paygroup-edit]');
+      const remove = event.target.closest('[data-paygroup-delete]');
+      if (edit) openDialog(byId(edit.dataset.paygroupEdit));
+      if (remove) void deletePaygroup(remove.dataset.paygroupDelete);
+    });
+    $('paygroupForm')?.addEventListener('submit', savePaygroup);
+    $('paygroupHasOperationCodes')?.addEventListener('change', toggleOperationCodeFields);
+    $('paygroupAddOperationCode')?.addEventListener('click', addOperationCode);
+    $('paygroupOperationCodeInput')?.addEventListener('keydown', event => {
+      if (event.key === 'Enter') { event.preventDefault(); addOperationCode(); }
+    });
+    $('paygroupOperationCodes')?.addEventListener('click', event => {
+      const remove = event.target.closest('[data-remove-operation-code]');
+      if (!remove) return;
+      dialogCodes.splice(Number(remove.dataset.removeOperationCode), 1);
+      renderOperationCodeChips();
+    });
+    $('paygroupCoop')?.addEventListener('change', () => TIPONPlatforms.fillScoped('paygroupCoop','paygroupPlatform',''));
+    $('siteCoop')?.addEventListener('change', () => fillSitePicker());
+    $('sitePlatform')?.addEventListener('change', () => fillSitePicker());
+    $('sitePaygroupChoices')?.addEventListener('change', () => updatePickerSummary('sitePaygroupChoices','sitePaygroupSummary'));
+    $('memberCoop')?.addEventListener('change', () => fillMemberPicker('user', readPicker('memberPaygroupChoices')));
+    $('memberPlatform')?.addEventListener('change', () => refreshMemberPicker('user'));
+    $('memberSiteChoices')?.addEventListener('change', () => refreshMemberPicker('user'));
+    $('memberPaygroupChoices')?.addEventListener('change', () => updatePickerSummary('memberPaygroupChoices','memberPaygroupSummary'));
+    $('adminMemberCoop')?.addEventListener('change', () => fillMemberPicker('admin', readPicker('adminMemberPaygroupChoices')));
+    $('adminMemberPlatform')?.addEventListener('change', () => refreshMemberPicker('admin'));
+    $('adminMemberSiteChoices')?.addEventListener('change', () => refreshMemberPicker('admin'));
+    $('adminMemberPaygroupChoices')?.addEventListener('change', () => updatePickerSummary('adminMemberPaygroupChoices','adminMemberPaygroupSummary'));
+    $('terminalOperationChoices')?.addEventListener('click', event => {
+      const button = event.target.closest('[data-paygroup-choice]');
+      if (!button) return;
+      resolveSelection({
+        paygroupId: String(button.dataset.paygroupId || ''),
+        paygroup: byId(button.dataset.paygroupId)?.name || '',
+        operationCode: String(button.dataset.operationCode || '')
+      });
+    });
+    $('terminalOperationCancel')?.addEventListener('click', () => resolveSelection(null));
+    $('terminalOperationPanel')?.addEventListener('close', cancelPendingSelection);
+    document.addEventListener('visibilitychange', () => { if (document.hidden) cancelPendingSelection(); });
+    renderDirectory();
+  }
+
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', bind, { once: true });
+  else bind();
+  return {
+    bind, renderDirectory, namesForSite, namesForMember, locationsForPaygroup, groupsForScope,
+    fillSitePicker, refreshSitePicker: () => fillSitePicker(), fillMemberPicker, refreshMemberPicker,
+    readPicker, validateSiteAssignment, validateMemberAssignment, chooseForTimeIn, hideOperationPanel,
+    cancelPendingSelection, forMemberAtSite
+  };
+})();

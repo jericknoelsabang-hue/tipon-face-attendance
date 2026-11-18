@@ -316,14 +316,14 @@ window.TIPONSync=(()=>{
       }else if(op.type==='memberEdits'){
         const id=op.value.memberId,current=await getOne('members',id),original=op.value.original;
         if(current&&original){
-          Object.assign(current,{memberNumber:original.memberNumber||current.memberNumber||current.id,name:original.name,coop:original.coop,platform:original.platform,siteId:original.siteIds?.[0]||'',siteIds:original.siteIds||[],workSchedule:original.workSchedule||null});
+          Object.assign(current,{memberNumber:original.memberNumber||current.memberNumber||current.id,name:original.name,coop:original.coop,platform:original.platform,siteId:original.siteIds?.[0]||'',siteIds:original.siteIds||[],paygroupIds:original.paygroupIds||[],workSchedule:original.workSchedule||null});
           delete current._pendingOp;delete current.pendingEdit;current.syncIssue=latest.error;await OrgDB.rawSave('members',current);
         }
       }else if(op.type==='memberFaceUpdates'){
         const current=await getOne('members',op.value.memberId),original=op.value.original;
         if(current&&original){
           Object.assign(current,{memberNumber:original.memberNumber||current.memberNumber||current.id,name:original.name,coop:original.coop,platform:original.platform,
-            siteId:original.siteId||original.siteIds?.[0]||'',siteIds:original.siteIds||[],
+            siteId:original.siteId||original.siteIds?.[0]||'',siteIds:original.siteIds||[],paygroupIds:original.paygroupIds||[],
             template:original.template||null,consentAt:original.consentAt||null,
             enrolledBy:original.enrolledBy||'',enrolledByUsername:original.enrolledByUsername||'',
             active:original.active!==false,faceEnrollmentStatus:original.faceEnrollmentStatus||'not-enrolled'});
@@ -394,11 +394,14 @@ window.TIPONSync=(()=>{
           const expectedCoop=String(changes.coop??op.value.original?.coop??reply.member.coop);
           const expectedPlatform=String(changes.platform??op.value.original?.platform??reply.member.platform);
           const expectedSites=(Array.isArray(changes.siteIds)?changes.siteIds:op.value.original?.siteIds||[]).map(String);
+          const expectedPaygroups=(Array.isArray(changes.paygroupIds)?changes.paygroupIds:op.value.original?.paygroupIds||[]).map(String).sort();
+          const returnedPaygroups=(reply.member.paygroupIds||[]).map(String).sort();
           const returnedSites=(Array.isArray(reply.member.siteIds)&&reply.member.siteIds.length?reply.member.siteIds:[reply.member.siteId].filter(Boolean)).map(String);
           if(String(reply.member.memberNumber||reply.member.id).trim()!==expectedNumber||
              String(reply.member.name||'').trim()!==expectedName||String(reply.member.coop||'')!==expectedCoop||
              TIPONOrgCore.platformKey(reply.member.platform)!==TIPONOrgCore.platformKey(expectedPlatform)||
-             returnedSites.length!==expectedSites.length||!returnedSites.every(id=>expectedSites.includes(id)))
+             returnedSites.length!==expectedSites.length||!returnedSites.every(id=>expectedSites.includes(id))||
+             JSON.stringify(returnedPaygroups)!==JSON.stringify(expectedPaygroups))
             throw Error('The central organization did not confirm all member fields. Refresh the Member List before retrying.');
           if(changes.workSchedule&&(!reply.member.workSchedule||
             JSON.stringify(reply.member.workSchedule)!==JSON.stringify(changes.workSchedule)))
@@ -533,11 +536,12 @@ window.TIPONSync=(()=>{
   }
   async function pullCatalog(version){
     const scope=encodeURIComponent(String(state.user.coop||''))+':'+encodeURIComponent(TIPONOrgCore.platformKey(state.user.platform));
-    const cfgId='tp5-catalog:'+state.orgId+':'+state.user.id+':'+state.user.role+':v5.5.96-scope:'+String(state.user.version||1)+':'+scope+':'+(state.user.siteIds||[]).join(',');
+    const cfgId='tp5-catalog:'+state.orgId+':'+state.user.id+':'+state.user.role+':v5.5.109-paygroups:'+String(state.user.version||1)+':'+scope+':'+(state.user.siteIds||[]).join(',');
     const known=await getOne('meta',cfgId);
-    const [localMembers,localSites,outbox]=await Promise.all([getAll('members'),getAll('sites'),getAll('outbox')]);
+    const [localMembers,localSites,outbox,localMeta]=await Promise.all([getAll('members'),getAll('sites'),getAll('outbox'),getAll('meta')]);
     const scoped=localMembers.filter(m=>m.orgId===state.orgId&&TIPONOrgCore.inScope(state.user,m));
     const scopedSites=localSites.filter(s=>s.orgId===state.orgId&&TIPONOrgCore.inScope(state.user,s));
+    const scopedPaygroups=localMeta.filter(x=>String(x.id||'').indexOf('tp5-paygroup:')===0&&x.orgId===state.orgId);
     const faceCount=scoped.filter(m=>!m.deleted&&m.active!==false&&m.template).length;
     const pendingSites=outbox.some(op=>op.orgId===state.orgId&&op.ownerId===state.user.id&&op.type==='sites'&&!['NEEDS_REVIEW','FORBIDDEN','CONFLICT'].includes(op.errorCode));
     const lastFull=Number(known?.refreshedAt)||0;
@@ -550,12 +554,15 @@ window.TIPONSync=(()=>{
        known.version===version&&Number.isInteger(known.memberCount)&&
        known.memberCount===scoped.length&&
        Number.isInteger(known.siteCount)&&known.siteCount===scopedSites.length&&
-       faceCount>=Number(known.enrolledCount||0)&&stillFresh)return;
+       faceCount>=Number(known.enrolledCount||0)&&Number.isInteger(known.paygroupCount)&&known.paygroupCount===scopedPaygroups.length&&stillFresh)return;
     let cursor=0,startVersion=null,pages=0,memberCount=0,enrolledCount=0;
-    const seen={members:new Set(),sites:new Set()};
+    const seen={members:new Set(),sites:new Set(),paygroups:new Set()};
+    const receivedPaygroups=[];let hasPaygroupSnapshot=false,backendPaygroupSupport=false;
     do{
       const response=await TIPONAPI.call({action:'catalog',cursor});if(startVersion===null)startVersion=response.catalogVersion;
       if(response.catalogVersion!==startVersion)throw Error('Directory changed during download. Retrying a consistent snapshot.');
+      if(Array.isArray(response.paygroups)){hasPaygroupSnapshot=true;receivedPaygroups.push(...response.paygroups);}
+      if(response.paygroupDirectorySupported===true)backendPaygroupSupport=true;
       if(response.businessPlatforms?.length)await TIPONPlatforms.accept(response.businessPlatforms,
         response.businessPlatformRecords||response.businessPlatformDetails||response.platformRecords||null);
       for(const type of ['sites','members','schedules'])for(const entity of response[type]||[]){
@@ -575,7 +582,8 @@ window.TIPONSync=(()=>{
           if(type==='members'){
             const op=await getOne('outbox',old._pendingOp);
             const expected=op?.type==='members'?op.value:null;
-            const sameFields=expected&&['name','memberNumber','coop','platform','consentAt'].every(k=>String(entity[k]||'')===String(expected[k]||''));
+            const sameFields=expected&&['name','memberNumber','coop','platform','consentAt'].every(k=>String(entity[k]||'')===String(expected[k]||''))&&
+              JSON.stringify((entity.paygroupIds||[]).map(String).sort())===JSON.stringify((expected.paygroupIds||[]).map(String).sort());
             const sites=m=>(m.siteIds||[m.siteId].filter(Boolean)).map(String).sort().join('|');
             if(op?.everSent&&sameFields&&Number(entity.rev)>Number(op.baseRev||0)&&
                sites(entity)===sites(expected)&&entity.template?.data===expected.template?.data&&
@@ -591,7 +599,8 @@ window.TIPONSync=(()=>{
             const sameFields=fields.every(k=>same(entity[k],op?.value?.[k]));
             const sameCoords=['lat','lng'].every(k=>Math.abs(Number(entity[k])-Number(op?.value?.[k]))<.0000001);
             const sameRadius=Number(entity.radius||150)===Number(op?.value?.radius||150);
-            if(op?.everSent&&Number(entity.rev)>Number(op.baseRev||0)&&sameFields&&sameCoords&&sameRadius){
+            const samePaygroups=JSON.stringify((entity.paygroupIds||[]).map(String).sort())===JSON.stringify((op?.value?.paygroupIds||[]).map(String).sort());
+            if(op?.everSent&&Number(entity.rev)>Number(op.baseRev||0)&&sameFields&&sameCoords&&sameRadius&&samePaygroups){
               await OrgDB.rawSave('sites',{...entity,orgId:state.orgId});
               await OrgDB.rawDelete('outbox',op.id);
             }
@@ -606,6 +615,26 @@ window.TIPONSync=(()=>{
       if(stopped||document.hidden)throw Error('Directory download paused. Keep the app open to finish.');
     }while(cursor!==null&&pages<500);
     if(cursor!==null)throw Error('Directory is too large for one download; contact the system owner.');
+    if(!hasPaygroupSnapshot){
+      try{const directory=await TIPONAPI.call({action:'paygroups'});if(Array.isArray(directory.paygroups)){hasPaygroupSnapshot=true;receivedPaygroups.push(...directory.paygroups);backendPaygroupSupport=directory.paygroupDirectorySupported!==false;}}
+      catch(error){console.warn('Paygroup directory is not available from the central backend:',error?.message||error);}
+    }
+    if(hasPaygroupSnapshot){
+      for(const pg of receivedPaygroups){
+        const inScope=state.user.role==='admin'||(state.user.role==='registrar'&&TIPONOrgCore.inScope(state.user,pg))||
+          (state.user.role==='kiosk'&&(pg.siteIds||[]).some(id=>(state.user.siteIds||[]).map(String).includes(String(id))));
+        if(!inScope)continue;
+        const id=String(pg.id||'');if(!id)continue;seen.paygroups.add(id);
+        await OrgDB.rawSave('meta',{...pg,id:'tp5-paygroup:'+id,orgId:state.orgId});
+      }
+      const metaRows=await getAll('meta');
+      for(const item of metaRows){
+        if(item.orgId===state.orgId&&String(item.id||'').indexOf('tp5-paygroup:')===0&&!seen.paygroups.has(String(item.id).slice('tp5-paygroup:'.length)))
+          await OrgDB.rawDelete('meta',item.id);
+      }
+      await OrgDB.rawSave('meta',{id:'tp5-paygroup-directory-status',orgId:state.orgId,supported:backendPaygroupSupport||receivedPaygroups.length>=0,refreshedAt:Date.now()});
+      state.paygroupBackendReady=backendPaygroupSupport||receivedPaygroups.length>=0;
+    }
     // A full successful server snapshot is authoritative. Purge locally cached
     // records that were deleted or moved outside this account's new MPC/BP/GPS
     // scope, except unsynced local operations. Never modify attendance punches.
@@ -617,7 +646,7 @@ window.TIPONSync=(()=>{
       }
     }
     await OrgDB.rawSave('meta',{id:cfgId,version:startVersion,memberCount,enrolledCount,
-      siteCount:seen.sites.size,refreshedAt:Date.now(),complete:true,orgId:state.orgId});
+      siteCount:seen.sites.size,paygroupCount:seen.paygroups.size,refreshedAt:Date.now(),complete:true,orgId:state.orgId});
     forceCatalogRefresh=false;
   }
   function cursorId(){
