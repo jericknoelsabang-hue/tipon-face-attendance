@@ -27,7 +27,7 @@ if(action==='paygroupDelete')return tp5Lock_(function(){actor=tp5Auth_(q);return
 
 The catalog action must include the scope-filtered directory:
 ```js
-paygroups: tp5PGRead_().filter(function(pg){return actor.role==='admin'||(actor.coop===pg.coop&&TIPONOrgCore.platformKey(actor.platform)===TIPONOrgCore.platformKey(pg.platform));}),
+paygroups: tp5PGCatalog_(actor),
 paygroupDirectorySupported: true,
 ```
 
@@ -35,22 +35,68 @@ Do not expose all paygroups to User accounts. The authenticated User receives on
 
 ## Required record integration before payroll use
 
-The new directory endpoints alone are not enough to make attendance payroll-ready. The live receiver must also be updated to:
+The directory handlers are only one part of the change. Integrate these helpers into the existing authenticated write paths; do not bypass the existing authorization, revision checks, open-session checks or audit trail.
 
-1. Persist `paygroupIds` on member and Work Location records, include them in the catalog, and validate that each member assignment is a subset of Paygroups assigned to the member's selected Work Locations.
-2. Persist `paygroupId`, `paygroup`, and `operationCode` on each Time In event. Time Out must inherit the Time In session's Paygroup and must not request an Operation Code.
-3. Validate Time In operation codes server-side against the selected Paygroup's configured `operationCodes`. A blank operation code is valid only when that Paygroup has no operation codes.
-4. Preserve the three fields when events are projected into attendance sessions and when Attendance Logs are corrected or exported.
-5. Add columns to the existing report writer: Paygroup and Operation Code. Do not reorder or remove the existing first eight columns in `TIPON Attendance v5`. Append the new columns after BP. Add Paygroup to `TIPON Members` and include the field in the member import/export mapping.
-6. Keep Admin-only directory mutations server-authorized. User may view and assign Paygroups only within their own MPC/BP and cannot add, edit, or delete the directory.
+### 1. Work Location writes
+
+In the existing server-side site create/update validator, normalize the incoming field before saving:
+
+```js
+value.paygroupIds = tp5SitePaygroupIds_(value.paygroupIds || [], {
+  coop: value.coop,
+  platform: value.platform
+});
+```
+
+Keep `paygroupIds` in the saved site record and return it in the catalog. This validates that each Paygroup belongs to the same Cooperative and Business Platform as the Work Location.
+
+### 2. Member writes
+
+The updated repository patches `MemberMetadata.gs` and `MemberFaceTransfer.gs` accept `paygroupIds` in Admin/User metadata edits and face updates. They call:
+
+```js
+tp5PaygroupIds_(c.paygroupIds === undefined ? old.paygroupIds : c.paygroupIds, {
+  coop: coop,
+  platform: platform,
+  siteIds: siteIds
+});
+```
+
+This checks that each selected Paygroup belongs to the member's Cooperative/BP and is assigned to at least one of the member's selected Work Locations. Preserve the field in the saved member object and the catalog. When a location-only update moves a member, validate the existing Paygroup assignment against the new location set; do not silently discard it.
+
+### 3. Attendance event validation
+
+At the existing server-side event-ingestion point, after resolving the authenticated member and the GPS-matched Work Location:
+
+- For `IN`, replace the client values with the result of `tp5ValidateTimeInPaygroup_(member, site, event)`. This checks the member/site assignment and verifies the Operation Code against the Paygroup's configured list.
+- For `OUT`, call `tp5InheritTimeOutPaygroup_(event)` using the original Time In session. Never trust a new client-supplied Operation Code for Time Out.
+- Store `paygroupId`, `paygroup`, and `operationCode` on the event row. Preserve these fields in event polling, attendance correction overlays and session projection.
+
+A member without a Paygroup may continue without one (blank fields). A Paygroup with no Operation Codes accepts Time In with a blank Operation Code. A Paygroup with configured codes requires one valid code.
+
+### 4. Attendance and member sheet columns
+
+The linked spreadsheet now has these additional headers appended without moving the existing columns:
+
+- `TIPON Attendance v5`: I = Paygroup, J = Operation Code
+- `TIPON Members`: L = Paygroup
+
+Update the existing `OrgCore.gs` report header/row writer and any Apps Script `setValues` mapping to append these values after the current BP column. Keep the first eight attendance columns unchanged. Update member directory write/read mapping so column L is populated from the member's assigned Paygroup names.
+
+### 5. Catalog and routes
+
+- The `paygroups` action returns `tp5PGCatalog_(actor)`, including the linked `siteIds` needed by scoped kiosk/User clients.
+- The catalog action must also return `paygroups: tp5PGCatalog_(actor)` and `paygroupDirectorySupported: true`.
+- Keep Admin-only add/edit/delete routes server-authorized. A User may only view and assign Paygroups within their approved Cooperative/BP. A kiosk may only receive Paygroups associated with its approved Work Locations.
 
 ## Deployment and QA
 
 1. Back up current Code.gs, OrgCore.gs, manifest and Script Properties.
-2. Integrate the route and record changes into the current deployed source; do not paste an older full Code.gs backup.
-3. Deploy a new version of the existing Web App deployment, retaining its original URL, access settings and execution identity.
-4. Test with synthetic members, sites and paygroups. Confirm a User cannot read or assign another Cooperative/BP's Paygroups.
-5. Test Time In with a Paygroup having multiple operation codes, a Paygroup with no operation codes, Time Out inheritance, offline queue/reconnect, duplicate prevention, and attendance report output.
-6. Verify central receipts and a second authorized device before using the data for payroll.
+2. Add `Paygroups.gs` and merge the repository changes into the existing live files. Do not replace the entire Code.gs with a stale backup.
+3. Check the project's current runtime before using any syntax not supported by it. The linked project currently reports the legacy Apps Script runtime; keep backend helpers ES5-compatible unless the project is deliberately upgraded and regression-tested.
+4. Add the three routes from this guide and the site/member/event/report integration above.
+5. Deploy a new version of the existing Web App deployment, retaining its original URL, access settings and execution identity.
+6. Test with synthetic members, sites and paygroups. Verify that a User cannot read or assign another Cooperative/BP's Paygroups.
+7. Test Time In with multiple operation codes, a Paygroup with no codes, Time Out inheritance, offline queue/reconnect, duplicate prevention, Attendance Logs, sheet writes and a second authorized device.
 
-**Important:** This patch file supplies directory handlers and deletion safeguards. It is not a replacement for integrating the record-level validation and event/report fields above. Do not use for production payroll until all tests pass.
+**Important:** GitHub Pages and the spreadsheet header updates do not deploy the private Apps Script receiver. Do not use this module for payroll until the private backend changes are saved, deployed and end-to-end tests pass.
