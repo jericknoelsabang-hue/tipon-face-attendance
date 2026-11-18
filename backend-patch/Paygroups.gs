@@ -124,8 +124,17 @@ function tp5ApplyAttendancePaygroup_(event,member,site,pendingEvents){
   return event;
 }
 
+function tp5PGAuthorizeAdd_(actor,p){
+  tp5Must_(!!actor&&(actor.role==='admin'||actor.role==='registrar'),
+    'Only an Administrator or approved User can add a Paygroup.','FORBIDDEN');
+  if(actor.role==='registrar'){
+    tp5Must_(actor.coop===p.coop&&tp5PGKey_(actor.platform)===tp5PGKey_(p.platform),
+      'You may add Paygroups only within your approved Cooperative and Business Platform.','FORBIDDEN');
+  }
+}
 function tp5PGAdd_(actor,q){
-  tp5Admin_(actor);var p=tp5PGValidate_(q);
+  var p=tp5PGValidate_(q);
+  tp5PGAuthorizeAdd_(actor,p);
   var rows=tp5PGRead_();
   tp5Must_(!rows.some(function(x){return tp5PGKey_(x.id)===tp5PGKey_(p.id)||
     (x.coop===p.coop&&tp5PGKey_(x.platform)===tp5PGKey_(p.platform)&&tp5PGKey_(x.name)===tp5PGKey_(p.name));}),
