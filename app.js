@@ -413,6 +413,7 @@ function openMemberForm(member){
  $('memberId').disabled=false;
  if(member){$('memberId').value=member.memberNumber||member.id;$('memberName').value=member.name;$('memberCoop').value=member.coop;}
  fillMemberSites(member?.siteIds||member?.siteId);
+ window.TIPONPaygroups?.fillMemberPicker('user',member?.paygroupIds||[]);
  const enrolled=!!member&&member.active!==false&&!!(member.template||state.pendingDescriptors.length>=3);
  const mayReplace=!enrolled||TIPONOrgCore.inScope(state.user,member)||member.workLocationReassignmentRequired===true;
  setText('enrollFaceLabel',enrolled?(mayReplace?'Enrolled · Face can be replaced.':'Enrolled · Original enrollment account required.'):'Not Enrolled · Complete Face Verification.');
