@@ -79,7 +79,8 @@ function tp5ValidateTimeInPaygroup_(member,site,event){
 }
 function tp5InheritTimeOutPaygroup_(event){
   tp5Must_(event&&event.type==='OUT'&&event.memberId,'A valid Time Out event is required.','VALIDATION');
-  var rows=tp5AllEvents_().filter(function(row){
+  var allEvents=tp5AllEvents_();
+  var rows=allEvents.filter(function(row){
     return row&&row.type==='IN'&&String(row.memberId)===String(event.memberId);
   });
   var source=null,sessionId=String(event.sessionId||'');
@@ -93,7 +94,7 @@ function tp5InheritTimeOutPaygroup_(event){
     // when the server can identify exactly one still-open Time In for the member.
     var open=rows.filter(function(candidate){
       var key=String(candidate.sessionId||candidate.id);
-      return !tp5AllEvents_().some(function(row){
+      return !allEvents.some(function(row){
         return row&&row.type==='OUT'&&String(row.memberId)===String(event.memberId)&&
           String(row.sessionId||row.id)===key;
       });
