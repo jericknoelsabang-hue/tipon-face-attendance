@@ -62,7 +62,7 @@ function tp5SitePaygroupIds_(value,scope){
 }
 function tp5ValidateTimeInPaygroup_(member,site,event){
   var id=TIPONOrgCore.clean(event.paygroupId,120),code=TIPONOrgCore.clean(event.operationCode,60),pg=null;
-  if(!id){tp5Must_(!code,'An Operation Code requires a Paygroup.','VALIDATION');return {paygroupId:'',paygroup:'',operationCode:''};}
+  if(!id){tp5Must_(!(member.paygroupIds||[]).length,'Select an assigned Paygroup before Time In.','VALIDATION');tp5Must_(!code,'An Operation Code requires a Paygroup.','VALIDATION');return {paygroupId:'',paygroup:'',operationCode:''};}
   pg=tp5PGRead_().filter(function(x){return String(x.id)===id;})[0];
   tp5Must_(!!pg&&member.coop===pg.coop&&tp5PGKey_(member.platform)===tp5PGKey_(pg.platform),'Paygroup is outside the member Cooperative / Business Platform.','FORBIDDEN');
   tp5Must_((member.paygroupIds||[]).map(String).indexOf(id)>=0&&(site.paygroupIds||[]).map(String).indexOf(id)>=0,
