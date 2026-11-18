@@ -776,11 +776,11 @@ function memberImportWorkSchedule(daysValue,startValue,endValue,row){
  return {enabled:true,days:days.sort((a,b)=>a-b),start,end,grace:0};
 }
 function memberImportPaygroupIds(value,coop,platform,paygroups,row){
- const names=String(value||'').split(';').map(v=>v.trim().replace(/\\s+/g,' ')).filter(Boolean);
+ const names=String(value||'').split(';').map(v=>v.trim().replace(/\s+/g,' ')).filter(Boolean);
  const scoped=(paygroups||[]).filter(pg=>pg&&pg.coop===coop&&TIPONOrgCore.platformKey(pg.platform)===TIPONOrgCore.platformKey(platform));
  const selected=[],seen=new Set();
  for(const name of names){
-  const matches=scoped.filter(pg=>String(pg.name||'').trim().replace(/\\s+/g,' ').toLowerCase()===name.toLowerCase());
+  const matches=scoped.filter(pg=>String(pg.name||'').trim().replace(/\s+/g,' ').toLowerCase()===name.toLowerCase());
   if(matches.length!==1)throw Error('Row '+row+': Paygroup "'+name+'" is not uniquely registered for '+coop+' / '+platform+'. Refresh the Paygroup directory or check the name.');
   const id=String(matches[0].id||'');
   if(!id||seen.has(id))throw Error('Row '+row+': duplicate or invalid Paygroup "'+name+'".');
