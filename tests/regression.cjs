@@ -2112,3 +2112,26 @@ test('Paygroup List shows Operation Code View buttons and keeps the Member List 
  const page=html.slice(html.indexOf('id="page-paygroups"'),html.indexOf('id="page-accounts"'));
  assert.doesNotMatch(page,/<h2>Paygroup List<\/h2>/);
 });
+
+test('Member CSV Paygroup staging validates same-scope Work Location assignment before location enrollment',()=>{
+ const ctx={TIPONOrgCore:{clean:v=>String(v||'').trim(),platformKey:v=>String(v||'').trim().toLowerCase().replace(/\\s+/g,' ')},
+  tp5Must_:(ok,message)=>{if(!ok)throw Error(message);},
+  tp5Read_:type=>type==='sites'?[
+   {id:'site-1',coop:'Asiapro',platform:'IMG',paygroupIds:['pg-day']},
+   {id:'site-2',coop:'Worklife',platform:'OCG',paygroupIds:['pg-other']}
+  ]:[]};
+ vm.createContext(ctx);vm.runInContext(source('backend-patch/Paygroups.gs'),ctx);
+ ctx.tp5PGRead_=()=>[
+  {id:'pg-day',name:'Daily',coop:'Asiapro',platform:'IMG'},
+  {id:'pg-other',name:'Other',coop:'Worklife',platform:'OCG'}
+ ];
+ assert.deepEqual(Array.from(ctx.tp5PaygroupIds_(['pg-day'],{coop:'Asiapro',platform:'IMG',siteIds:[],allowUnassigned:true})),['pg-day']);
+ assert.throws(()=>ctx.tp5PaygroupIds_(['pg-day'],{coop:'Asiapro',platform:'IMG',siteIds:[],allowUnassigned:false}),/matching Work Location/);
+ assert.throws(()=>ctx.tp5PaygroupIds_(['pg-other'],{coop:'Asiapro',platform:'IMG',siteIds:[],allowUnassigned:true}),/same Cooperative/);
+});
+test('Member CSV upload requires server confirmation of Paygroup-aware import before sending rows',()=>{
+ const org=source('organization.js');
+ assert.match(org,/health\.memberImportPaygroup!==true/);
+ assert.match(org,/TIPONAPI\.raw\(\{action:'paygroups'\}\)/);
+ assert.match(org,/paygroupIds,workSchedule/);
+});
