@@ -7,7 +7,7 @@ function tp5TransferLocations_(actor,q){
   var old=tp5Find_('members',TIPONOrgCore.clean(q.memberId,120));
   tp5Must_(old&&!old.deleted&&TIPONOrgCore.inScope(actor,old),'Member is outside your approved scope.','FORBIDDEN');
   var sites=tp5Read_('sites').filter(function(s){return !s.deleted;}).map(function(s){
-    return {id:s.id,name:s.name,coop:s.coop,platform:s.platform,lat:s.lat,lng:s.lng,radius:s.radius,rev:s.rev};
+    return {id:s.id,name:s.name,coop:s.coop,platform:s.platform,lat:s.lat,lng:s.lng,radius:s.radius,rev:s.rev,paygroupIds:s.paygroupIds||[]};
   });
   return tp5Reply_({sites:sites});
 }
