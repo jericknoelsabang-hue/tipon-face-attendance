@@ -2065,12 +2065,12 @@ test('Paygroup List is a separate Admin/User sidebar page and Operation Code Add
  const adminSites=html.slice(html.indexOf('id="page-adminSites"'),html.indexOf('id="page-paygroups"'));
  assert.doesNotMatch(sites,/paygroup-directory-panel|id="userPaygroupRows"/);
  assert.doesNotMatch(adminSites,/paygroup-directory-panel|id="adminPaygroupRows"/);
- assert.match(org,/admin:\[[^\\]]*'paygroups'/);
- assert.match(org,/registrar:\[[^\\]]*'paygroups'/);
+  assert.ok(org.includes("admin:['dashboard','members','records','accounts','settings','terminalLogs','adminSites','paygroups']"));
+  assert.ok(org.includes("registrar:['scanner','members','sites','settings','terminalLogs','paygroups']"));
  assert.match(app,/paygroups:'Paygroup List'/);
  assert.match(workspace,/if\(page==='paygroups'\)window\.TIPONPaygroups\?\.renderDirectory\(\)/);
  const row=html.slice(html.indexOf('class="paygroup-code-entry"'),html.indexOf('id="paygroupOperationCodes"'));
- assert.match(row,/id="paygroupOperationCodeInput"[\\s\\S]*id="paygroupAddOperationCode"/);
- assert.match(css,/\\.paygroup-code-entry\\{display:grid;grid-template-columns:minmax\\(0,1fr\\) auto/);
- assert.doesNotMatch(css,/paygroup-code-entry\\{[^}]*flex-direction:column/);
+  assert.ok(row.indexOf('id="paygroupOperationCodeInput"')<row.indexOf('id="paygroupAddOperationCode"'));
+  assert.ok(css.includes(".paygroup-code-entry{display:grid;grid-template-columns:minmax(0,1fr) auto"));
+  assert.doesNotMatch(css,/flex-direction:column/);
 });
