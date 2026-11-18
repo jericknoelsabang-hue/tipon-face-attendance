@@ -2127,7 +2127,7 @@ test('Member CSV Paygroup staging validates same-scope Work Location assignment 
  ];
  assert.deepEqual(Array.from(ctx.tp5PaygroupIds_(['pg-day'],{coop:'Asiapro',platform:'IMG',siteIds:[],allowUnassigned:true})),['pg-day']);
  assert.throws(()=>ctx.tp5PaygroupIds_(['pg-day'],{coop:'Asiapro',platform:'IMG',siteIds:[],allowUnassigned:false}),/matching Work Location/);
- assert.throws(()=>ctx.tp5PaygroupIds_(['pg-other'],{coop:'Asiapro',platform:'IMG',siteIds:[],allowUnassigned:true}),/same Cooperative/);
+ assert.throws(()=>ctx.tp5PaygroupIds_(['pg-other'],{coop:'Asiapro',platform:'IMG',siteIds:[],allowUnassigned:true}),/member Cooperative and Business Platform/);
 });
 test('Member CSV upload requires server confirmation of Paygroup-aware import before sending rows',()=>{
  const org=source('organization.js');
