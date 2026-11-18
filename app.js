@@ -1613,14 +1613,25 @@ async function recordRecognizedFace(member,faceDistance,faceEvidence){
   const candidates=assignedSites.map(site=>({site,distance:distanceM(site.lat,site.lng,gps.latitude,gps.longitude)})).sort((x,y)=>x.distance-y.distance);
   const match=candidates.find(x=>x.distance<=150);
   if(!match){const closest=candidates[0];throw Error(`Face recognized: ${member.name}. Nearest assigned work location is ${Math.round(closest.distance)} m away; maximum allowed is 150 m.`);}
-  const {site,distance}=match,stamp=new Date();
+  const {site,distance}=match;
   let paygroupSelection={paygroupId:'',paygroup:'',operationCode:''};
-  if(tx.type==='IN'&&window.TIPONPaygroups){
-   paygroupSelection=await window.TIPONPaygroups.chooseForTimeIn(member,site);
-   if(!paygroupSelection)throw Error('Time In cancelled. Select an Operation Code before recording attendance.');
+  if(tx.type==='IN'){
+   if(window.TIPONPaygroups){
+    if((member.paygroupIds||[]).length){
+     updateScanResult('Select Operation Code',member.name+' · Choose an Operation Code button below GPS Verification to complete Time In.','neutral');
+    }
+    paygroupSelection=await window.TIPONPaygroups.chooseForTimeIn(member,site);
+    if(!paygroupSelection)throw Error('Time In cancelled. Select an Operation Code before recording attendance.');
+   }else if((member.paygroupIds||[]).length){
+    throw Error('Paygroup selection is unavailable. Refresh the Face Terminal before recording Time In.');
+   }
   }else if(tx.type==='OUT'&&tx.last){
+   // Time Out inherits the exact Paygroup and Operation Code selected at Time In.
+   // No Operation Code selection is requested again.
    paygroupSelection={paygroupId:String(tx.last.paygroupId||''),paygroup:String(tx.last.paygroup||''),operationCode:String(tx.last.operationCode||'')};
   }
+  // Timestamp the punch only after any required Operation Code button is clicked.
+  const stamp=new Date();
   // One bounded preflight was already attempted; a second full sync would
   // delay every punch. The server still checks queued records for duplicates.
   const punch={id:uuid(),orgId:state.orgId,siteRev:site.rev||0,deviceId:state.deviceId,timestamp:stamp.toISOString(),day:todayPH(stamp),type:tx.type,

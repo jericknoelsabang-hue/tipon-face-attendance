@@ -2135,3 +2135,123 @@ test('Member CSV upload requires server confirmation of Paygroup-aware import be
  assert.match(org,/TIPONAPI\.raw\(\{action:'paygroups'\}\)/);
  assert.match(org,/paygroupIds,workSchedule/);
 });
+
+function paygroupTerminalContext(paygroups,sitePaygroupIds){
+ const nodes={};
+ const node=id=>nodes[id]||(nodes[id]={id,hidden:true,innerHTML:'',textContent:'',handlers:{},
+  addEventListener(type,fn){this.handlers[type]=fn;},setAttribute(){},scrollIntoView(){},
+  replaceChildren(){this.innerHTML='';}});
+ const site={id:'site-1',name:'Test Work Location',coop:'Asiapro',platform:'IMG',paygroupIds:sitePaygroupIds};
+ const ctx={state:{paygroups,sites:[site]},TIPONOrgCore:{platformKey:v=>String(v||'').trim().toLowerCase()},
+  $:id=>nodes[id]||null,esc:v=>String(v??''),setText:(id,value)=>{node(id).textContent=String(value);},
+  isAdmin:()=>false,showToast:()=>{},navigator:{onLine:true},console,
+  document:{readyState:'loading',getElementById:id=>nodes[id]||null,addEventListener:()=>{},querySelectorAll:()=>[]}};
+ ['terminalOperationPanel','terminalOperationChoices','terminalOperationTitle','terminalOperationHelp','terminalOperationCancel'].forEach(node);
+ ctx.window=ctx;vm.createContext(ctx);vm.runInContext(source('paygroups.js'),ctx);
+ ctx.TIPONPaygroups.bind();
+ return {ctx,nodes,node};
+}
+test('Face Terminal displays every assigned Operation Code as an inline button and waits for selection before Time In',async()=>{
+ const groups=[
+  {id:'pg-day',name:'Daily',coop:'Asiapro',platform:'IMG',operationCodes:['CUT','TRIM']},
+  {id:'pg-night',name:'Night Shift',coop:'Asiapro',platform:'IMG',operationCodes:['PACK']}
+ ];
+ const {ctx,nodes}=paygroupTerminalContext(groups,['pg-day','pg-night']);
+ const member={id:'M-1',coop:'Asiapro',platform:'IMG',paygroupIds:['pg-day','pg-night']};
+ const pending=ctx.TIPONPaygroups.chooseForTimeIn(member,ctx.state.sites[0]);
+ assert.equal(nodes.terminalOperationPanel.hidden,false);
+ assert.match(nodes.terminalOperationTitle.textContent,/Select Operation Code/);
+ const buttons=[...nodes.terminalOperationChoices.innerHTML.matchAll(/data-operation-code="([^"]+)"/g)].map(x=>x[1]);
+ assert.deepEqual(buttons,['CUT','TRIM','PACK']);
+ assert.doesNotMatch(nodes.terminalOperationChoices.innerHTML,/Continue without Operation Code|Select Paygroup/);
+ nodes.terminalOperationChoices.handlers.click({target:{closest:()=>({dataset:{paygroupId:'pg-night',operationCode:'PACK'}})}});
+ const selected=await pending;
+ assert.deepEqual(JSON.parse(JSON.stringify(selected)),{paygroupId:'pg-night',paygroup:'Night Shift',operationCode:'PACK'});
+ assert.equal(nodes.terminalOperationPanel.hidden,true);
+});
+test('Face Terminal automatically proceeds when assigned Paygroups have no Operation Codes',async()=>{
+ const groups=[
+  {id:'pg-a',name:'Daily',coop:'Asiapro',platform:'IMG',operationCodes:[]},
+  {id:'pg-b',name:'Night',coop:'Asiapro',platform:'IMG',operationCodes:[]}
+ ];
+ const {ctx,nodes}=paygroupTerminalContext(groups,['pg-a','pg-b']);
+ const selected=await ctx.TIPONPaygroups.chooseForTimeIn({id:'M-1',coop:'Asiapro',platform:'IMG',paygroupIds:['pg-b','pg-a']},ctx.state.sites[0]);
+ assert.deepEqual(JSON.parse(JSON.stringify(selected)),{paygroupId:'pg-a',paygroup:'Daily',operationCode:''});
+ assert.equal(nodes.terminalOperationPanel.hidden,true);
+ assert.equal(nodes.terminalOperationChoices.innerHTML,'');
+});
+test('Server validates the selected Time In Operation Code and inherits it unchanged on Time Out',()=>{
+ const groups=[
+  {id:'pg-code',name:'Daily',coop:'Asiapro',platform:'IMG',operationCodes:['CUT','PACK']},
+  {id:'pg-none',name:'No Code',coop:'Asiapro',platform:'IMG',operationCodes:[]}
+ ];
+ let events=[{id:'in-1',sessionId:'session-1',memberId:'M-1',type:'IN',timestamp:'2026-11-19T01:00:00.000Z',
+  paygroupId:'pg-code',paygroup:'Daily',operationCode:'PACK'}];
+ const ctx={TIPONOrgCore:{clean:(v,n)=>String(v||'').trim().slice(0,n),platformKey:v=>String(v||'').trim().toLowerCase()},
+  tp5PGRead_:()=>groups,tp5AllEvents_:()=>events,
+  tp5Must_:(ok,message,code)=>{if(!ok)throw Object.assign(Error(message),{code});}};
+ vm.createContext(ctx);vm.runInContext(source('backend-patch/Paygroups.gs'),ctx);
+ ctx.tp5PGRead_=()=>groups;ctx.tp5AllEvents_=()=>events;
+ const member={id:'M-1',coop:'Asiapro',platform:'IMG',paygroupIds:['pg-code','pg-none']};
+ const site={id:'site-1',coop:'Asiapro',platform:'IMG',paygroupIds:['pg-code','pg-none']};
+ const timeIn={type:'IN',memberId:'M-1',paygroupId:'pg-code',operationCode:'CUT'};
+ ctx.tp5ApplyAttendancePaygroup_(timeIn,member,site);
+ assert.equal(timeIn.paygroup,'Daily');assert.equal(timeIn.operationCode,'CUT');
+ assert.throws(()=>ctx.tp5ApplyAttendancePaygroup_({type:'IN',memberId:'M-1',paygroupId:'pg-code',operationCode:'BAD'},member,site),/valid Operation Code/);
+ const noCode={type:'IN',memberId:'M-1',paygroupId:'pg-none',operationCode:''};
+ ctx.tp5ApplyAttendancePaygroup_(noCode,member,site);assert.equal(noCode.operationCode,'');
+ const timeOut={type:'OUT',memberId:'M-1',sessionId:'session-1',paygroupId:'pg-none',paygroup:'No Code',operationCode:'SHOULD-NOT-BE-TRUSTED'};
+ ctx.tp5ApplyAttendancePaygroup_(timeOut,member,site);
+ assert.equal(timeOut.paygroupId,'pg-code');assert.equal(timeOut.paygroup,'Daily');assert.equal(timeOut.operationCode,'PACK');
+});
+test('Server resolves a cross-device Time Out only when exactly one open Time In exists',()=>{
+ let events=[{id:'in-1',sessionId:'session-1',memberId:'M-1',type:'IN',timestamp:'2026-11-19T01:00:00.000Z',
+  paygroupId:'pg-1',paygroup:'Daily',operationCode:'CUT'}];
+ const ctx={TIPONOrgCore:{clean:v=>String(v||'').trim()},tp5PGRead_:()=>[],tp5AllEvents_:()=>events,
+  tp5Must_:(ok,message,code)=>{if(!ok)throw Object.assign(Error(message),{code});}};
+ vm.createContext(ctx);vm.runInContext(source('backend-patch/Paygroups.gs'),ctx);
+ const event={type:'OUT',memberId:'M-1',sessionId:''};
+ ctx.tp5InheritTimeOutPaygroup_(event);
+ assert.equal(event.sessionId,'session-1');assert.equal(event.operationCode,'CUT');
+ events=[...events,{id:'in-2',sessionId:'session-2',memberId:'M-1',type:'IN',timestamp:'2026-11-19T02:00:00.000Z'}];
+ assert.throws(()=>ctx.tp5InheritTimeOutPaygroup_({type:'OUT',memberId:'M-1',sessionId:''}),/could not be uniquely identified/);
+});
+test('Attendance sync uploads the Time In Paygroup and Operation Code even for older saved uploadPayload records',()=>{
+ const sync=source('sync.js');
+ assert.match(sync,/paygroupId:String\(p\.paygroupId\?\?base\.paygroupId\?\?''\)/);
+ assert.match(sync,/paygroup:String\(p\.paygroup\?\?base\.paygroup\?\?''\)/);
+ assert.match(sync,/operationCode:String\(p\.operationCode\?\?base\.operationCode\?\?''\)/);
+});
+test('Face Terminal timestamps Time In after Operation Code selection and Time Out reuses the saved Time In selection',()=>{
+ const app=source('app.js'),start=app.indexOf('async function recordRecognizedFace('),end=app.indexOf('function commitPunch(',start);
+ const flow=app.slice(start,end);
+ assert.ok(flow.indexOf('await window.TIPONPaygroups.chooseForTimeIn(member,site)')<flow.indexOf('const stamp=new Date()'));
+ assert.match(flow,/paygroupSelection=\{paygroupId:String\(tx\.last\.paygroupId\|\|''\),paygroup:String\(tx\.last\.paygroup\|\|''\),operationCode:String\(tx\.last\.operationCode\|\|''\)\}/);
+ assert.match(flow,/if\(tx\.type==='OUT'&&tx\.last\)/);
+});
+
+// TIPON 5.5.112: the Face Terminal must wait for Operation Code selection before Time In.
+test('Face Terminal fullscreen retains GPS Verification and the Operation Code panel',()=>{
+ const css=source('organization.css'),html=source('index.html');
+ assert.match(html,/id="gpsStatusBadge"/);assert.match(html,/id="terminalOperationPanel"/);
+ assert.match(css,/\.terminal-fullscreen \.scanner-side>\.gps-panel\{\s*display:block!important/);
+ assert.match(css,/\.terminal-fullscreen \.scanner-side>\.terminal-operation-panel:not\(\[hidden\]\)/);
+ assert.doesNotMatch(css,/\.terminal-fullscreen \.gps-panel,\.terminal-fullscreen \.footnote-card\{display:none!important\}/);
+});
+
+test('Server preserves the selected Operation Code when Time In and Time Out arrive in one offline sync batch',()=>{
+ const ctx={TIPONOrgCore:{clean:(v,n)=>String(v||'').trim().slice(0,n),platformKey:v=>String(v||'').trim().toLowerCase()},
+  tp5PGRead_:()=>[{id:'pg-1',name:'Daily',coop:'Asiapro',platform:'IMG',operationCodes:['CUT']}],
+  tp5AllEvents_:()=>[],
+  tp5Must_:(ok,message,code)=>{if(!ok)throw Object.assign(Error(message),{code});}};
+ vm.createContext(ctx);vm.runInContext(source('backend-patch/Paygroups.gs'),ctx);
+ ctx.tp5PGRead_=()=>[{id:'pg-1',name:'Daily',coop:'Asiapro',platform:'IMG',operationCodes:['CUT']}];
+ const member={id:'M-1',coop:'Asiapro',platform:'IMG',paygroupIds:['pg-1']};
+ const site={id:'site-1',coop:'Asiapro',platform:'IMG',paygroupIds:['pg-1']};
+ const timeIn={id:'in-1',sessionId:'session-1',memberId:'M-1',type:'IN',paygroupId:'pg-1',operationCode:'CUT'};
+ ctx.tp5ApplyAttendancePaygroup_(timeIn,member,site,[]);
+ const timeOut={id:'out-1',sessionId:'',memberId:'M-1',type:'OUT'};
+ ctx.tp5ApplyAttendancePaygroup_(timeOut,member,site,[timeIn]);
+ assert.equal(timeOut.sessionId,'session-1');assert.equal(timeOut.paygroupId,'pg-1');
+ assert.equal(timeOut.paygroup,'Daily');assert.equal(timeOut.operationCode,'CUT');
+});

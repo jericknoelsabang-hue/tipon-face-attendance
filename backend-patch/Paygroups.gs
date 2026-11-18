@@ -77,13 +77,53 @@ function tp5ValidateTimeInPaygroup_(member,site,event){
   else tp5Must_(!code,'This Paygroup does not use an Operation Code.','VALIDATION');
   return {paygroupId:id,paygroup:pg.name,operationCode:code};
 }
-function tp5InheritTimeOutPaygroup_(event){
-  var source=tp5AllEvents_().filter(function(row){return row.type==='IN'&&row.memberId===event.memberId&&
-    (event.sessionId&&row.sessionId===event.sessionId||row.id===event.sessionId);})[0];
+function tp5InheritTimeOutPaygroup_(event,pendingEvents){
+  tp5Must_(event&&event.type==='OUT'&&event.memberId,'A valid Time Out event is required.','VALIDATION');
+  var allEvents=tp5AllEvents_().concat(Array.isArray(pendingEvents)?pendingEvents:[]);
+  var rows=allEvents.filter(function(row){
+    return row&&row.type==='IN'&&String(row.memberId)===String(event.memberId);
+  });
+  var source=null,sessionId=String(event.sessionId||'');
+  if(sessionId){
+    source=rows.filter(function(row){
+      return String(row.sessionId||row.id)===sessionId||String(row.id)===sessionId;
+    })[0]||null;
+  }
+  if(!source){
+    // Cross-device Time Out may arrive without a local sessionId. Resolve only
+    // when the server can identify exactly one still-open Time In for the member.
+    var open=rows.filter(function(candidate){
+      var key=String(candidate.sessionId||candidate.id);
+      return !allEvents.some(function(row){
+        return row&&row.type==='OUT'&&String(row.memberId)===String(event.memberId)&&
+          String(row.sessionId||row.id)===key;
+      });
+    }).sort(function(a,b){return Date.parse(b.timestamp)-Date.parse(a.timestamp);});
+    tp5Must_(open.length===1,'The original Time In session could not be uniquely identified. Refresh attendance and retry Time Out.','SESSION');
+    source=open[0];
+    event.sessionId=String(source.sessionId||source.id);
+  }
   tp5Must_(!!source,'Original Time In session is unavailable. Cannot validate Time Out Paygroup.','SESSION');
-  event.paygroupId=source.paygroupId||'';event.paygroup=source.paygroup||'';event.operationCode=source.operationCode||'';
+  event.paygroupId=source.paygroupId||'';
+  event.paygroup=source.paygroup||'';
+  event.operationCode=source.operationCode||'';
   return event;
 }
+function tp5ApplyAttendancePaygroup_(event,member,site,pendingEvents){
+  tp5Must_(event&&member,'Attendance event and verified member are required.','VALIDATION');
+  if(event.type==='IN'){
+    var selected=tp5ValidateTimeInPaygroup_(member,site,event);
+    event.paygroupId=selected.paygroupId;
+    event.paygroup=selected.paygroup;
+    event.operationCode=selected.operationCode;
+  }else if(event.type==='OUT'){
+    tp5InheritTimeOutPaygroup_(event,pendingEvents);
+  }else{
+    tp5Must_(false,'Attendance type must be IN or OUT.','VALIDATION');
+  }
+  return event;
+}
+
 function tp5PGAdd_(actor,q){
   tp5Admin_(actor);var p=tp5PGValidate_(q);
   var rows=tp5PGRead_();

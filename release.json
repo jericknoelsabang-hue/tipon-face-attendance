@@ -1,5 +1,5 @@
 {
   "app": "TIPON Face Attendance",
-  "version": "5.5.111",
-  "label": "Add Paygroup and Operation Code to Attendance exports, add Paygroup to Member CSV imports, and provide Operation Code view popup."
+  "version": "5.5.112",
+  "label": "Show Paygroup Operation Code buttons under GPS Verification, inherit the selected code on Time Out, and retain GPS Verification in fullscreen."
 }
