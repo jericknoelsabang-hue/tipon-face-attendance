@@ -112,6 +112,8 @@ window.TIPONPaygroups = (() => {
       String(a.platform || '').localeCompare(String(b.platform || '')) ||
       String(a.name || '').localeCompare(String(b.name || '')));
     const admin = isAdmin();
+    if ($('adminPaygroupPanel')) $('adminPaygroupPanel').hidden = !admin;
+    if ($('userPaygroupPanel')) $('userPaygroupPanel').hidden = admin;
     const renderRows = (items, withActions) => items.length ? items.map(pg => {
       const operationCodes = codes(pg);
       const action = withActions ? '<td><div class="row-inline"><button type="button" class="tiny-button" data-paygroup-edit="' +
