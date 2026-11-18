@@ -64,7 +64,19 @@ tp5PaygroupIds_(c.paygroupIds === undefined ? old.paygroupIds : c.paygroupIds, {
 
 This checks that each selected Paygroup belongs to the member's Cooperative/BP and is assigned to at least one of the member's selected Work Locations. Preserve the field in the saved member object and the catalog. When a location-only update moves a member, validate the existing Paygroup assignment against the new location set; do not silently discard it.
 
-### 3. Attendance event validation
+### 3. Member CSV Paygroup import
+
+The updated `MemberCSVImport.gs` accepts `paygroupIds` alongside the required weekly work schedule. The eight-column CSV template is:
+
+`Member ID, Full name, Cooperative, Business platform, Paygroup, Work Days, Work Start, Work End`
+
+The Paygroup cell is optional. When a member has more than one Paygroup, enter the exact registered Paygroup names separated by semicolons (for example, `Daily;Night Shift`). Resolve each name only within the row's Cooperative and Business Platform; reject unknown or duplicate names before sending the batch.
+
+CSV-imported members do not yet have a Work Location. The import helper therefore calls `tp5PaygroupIds_(..., {coop, platform, siteIds: [], allowUnassigned: true})`. This still verifies that every Paygroup is assigned to at least one active Work Location in the same Cooperative/BP. When an authorized User later assigns a member's Work Location, the normal member update validator must verify that the selected Paygroups are also assigned to that exact Work Location.
+
+The existing health response must expose both import capabilities. Include the result of `verifyTIPONMemberCSVScheduleSupport()` and return `memberImportPaygroup: typeof tp5PaygroupIds_ === 'function' && typeof tp5SamePaygroupIds_ === 'function'`. The import response must return `memberImportWorkSchedule: true` and `memberImportPaygroup: true` only after the server has persisted the Paygroup IDs and schedule.
+
+### 4. Attendance event validation
 
 At the existing server-side event-ingestion point, after resolving the authenticated member and the GPS-matched Work Location:
 
@@ -74,7 +86,7 @@ At the existing server-side event-ingestion point, after resolving the authentic
 
 A member without a Paygroup may continue without one (blank fields). A Paygroup with no Operation Codes accepts Time In with a blank Operation Code. A Paygroup with configured codes requires one valid code.
 
-### 4. Attendance and member sheet columns
+### 5. Attendance and member sheet columns
 
 The linked spreadsheet now has these additional headers appended without moving the existing columns:
 
@@ -83,7 +95,7 @@ The linked spreadsheet now has these additional headers appended without moving 
 
 Update the existing `OrgCore.gs` report header/row writer and any Apps Script `setValues` mapping to append these values after the current BP column. Keep the first eight attendance columns unchanged. Update member directory write/read mapping so column L is populated from the member's assigned Paygroup names.
 
-### 5. Catalog and routes
+### 6. Catalog and routes
 
 - The `paygroups` action returns `tp5PGCatalog_(actor)`, including the linked `siteIds` needed by scoped kiosk/User clients.
 - The catalog action must also return `paygroups: tp5PGCatalog_(actor)` and `paygroupDirectorySupported: true`.
