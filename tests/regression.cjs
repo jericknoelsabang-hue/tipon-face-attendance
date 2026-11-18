@@ -579,7 +579,7 @@ test('Unified Attendance Logs nav and read-only timesheet estimates retain safe 
  assert.doesNotMatch(html,/id="timesheetRound"/);
  assert.doesNotMatch(html,/id="timesheetOT"/);
  assert.doesNotMatch(source('auth.js'),/await showPage\('dashboard'\)/);
- assert.match(html,/<th>Work Location<\/th><th>Actions<\/th>/);
+ assert.match(html,/<th>Work Location<\/th><th>Paygroup<\/th><th>Operation Code<\/th><th>Actions<\/th>/);
  assert.match(org,/if\(page==='records'\)page='terminalLogs'/);
  assert.match(sync,/async function recoverAttendance\(\)/);
  const segment=sync.slice(sync.indexOf('async function recoverAttendance()'),sync.indexOf('return {init,start,stop,kick',sync.indexOf('async function recoverAttendance()')));
@@ -1303,11 +1303,11 @@ test('Member List shows Weekly Work Schedule after Assigned Location with saved 
  const html=source('index.html'),app=source('app.js'),css=source('style.css');
  const page=html.slice(html.indexOf('id="page-members"'),html.indexOf('id="page-sites"'));
  const headers=[...page.matchAll(/<th(?: [^>]*)?>([^<]+)<\/th>/g)].map(x=>x[1]);
- assert.deepEqual(headers.slice(0,7),['Member','Cooperative','Business Platform','Assigned Location','Weekly Work Schedule','Face Enrollment Status','Actions']);
+ assert.deepEqual(headers.slice(0,8),['Member','Cooperative','Business Platform','Assigned Location','Paygroup','Weekly Work Schedule','Face Enrollment Status','Actions']);
  const render=app.slice(app.indexOf('function renderMembers('),app.indexOf('let lastUserAddressSearch=',app.indexOf('function renderMembers(')));
  assert.match(render,/renderMemberWorkScheduleCell\(m\)/);
- assert.match(render,/colspan="7"/);
- assert.match(css,/#page-members \.table-wrap>table\{min-width:1220px\}/);
+ assert.match(render,/colspan="8"/);
+ assert.match(css,/#page-members \.table-wrap>table\{min-width:1400px\}/);
  assert.match(css,/#page-members \.member-schedule-days\{display:grid;grid-template-columns:repeat\(7,minmax\(0,1fr\)\)/);
  const start=app.indexOf('const MEMBER_WORK_DAYS='),end=app.indexOf('function fillMemberWorkSchedule(',start);
  assert.ok(start>0&&end>start);
