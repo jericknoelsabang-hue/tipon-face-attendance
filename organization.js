@@ -188,6 +188,7 @@ function refreshWorkspaceViews(){
  if(state.page==='members')renderMembers();
  if(state.page==='sites')renderSites();
  if(state.page==='adminSites')window.TIPONAdminSites?.render();
+ if(state.page==='paygroups')window.TIPONPaygroups?.renderDirectory();
 }
 window.addEventListener('tipon:workspace-data-updated',refreshWorkspaceViews);
 showPage=async function(page){
@@ -196,6 +197,7 @@ showPage=async function(page){
   await originalShowPage(page);applyRoles();
   if(state.user)await OrgDB.rawSave('meta',{id:'tp5-last-page:'+state.user.id,page});
   if(page==='accounts')await OrgUI.renderAccounts();
+  if(page==='paygroups')window.TIPONPaygroups?.renderDirectory();
   if(page==='adminSites'){
     window.TIPONAdminSites?.render();
     // Fetch the authoritative platform directory when opening the Admin panel.
