@@ -131,19 +131,21 @@ function tp5UserMemberTransferUpdateV2_(actor,q){
     'Member was changed on another device. Sync and reopen Edit.','CONFLICT');
   var c=q.changes;
   tp5Must_(c&&typeof c==='object'&&!Array.isArray(c)&&
-    Object.keys(c).every(function(k){return ['name','memberNumber','coop','platform','siteIds','workSchedule'].includes(k);})&&
+    Object.keys(c).every(function(k){return ['name','memberNumber','coop','platform','siteIds','paygroupIds','workSchedule'].includes(k);})&&
     Object.prototype.hasOwnProperty.call(c,'siteIds'),
     'Only Member ID, Full Name, Cooperative, Business Platform, Work Schedule and Assigned Work Location can be edited.','FORBIDDEN');
   var memberNumber=tp5EditableMemberNumberV2_(old,c.memberNumber),name=TIPONOrgCore.clean(c.name,120),coop=TIPONOrgCore.clean(c.coop,80),platform=tp5ResolvePlatform_(c.platform);
   tp5Must_(name&&TIPONOrgCore.COOPS.includes(coop),'Enter a valid Full Name and Cooperative.','VALIDATION');
   var siteIds=tp5TransferLocationIds_(coop,platform,c.siteIds);
+  var paygroupIds=tp5PaygroupIds_(c.paygroupIds===undefined?old.paygroupIds:c.paygroupIds,{coop:coop,platform:platform,siteIds:siteIds});
   var workSchedule=tp5MemberWorkScheduleV2_(c.workSchedule,old.workSchedule);
   var changed=memberNumber!==(old.memberNumber||old.id)||name!==old.name||coop!==old.coop||
     TIPONOrgCore.platformKey(platform)!==TIPONOrgCore.platformKey(old.platform)||
     !tp5SameLocations_(tp5OldLocations_(old),siteIds)||
+    !tp5SamePaygroupIds_(old.paygroupIds,paygroupIds)||
     !tp5SameMemberScheduleV2_(old.workSchedule,workSchedule);
   if(!changed)return tp5Reply_({member:tp5Safe_(old),unchanged:true});
-  var next=Object.assign({},old,{memberNumber:memberNumber,name:name,coop:coop,platform:platform,siteId:siteIds[0],siteIds:siteIds,
+  var next=Object.assign({},old,{memberNumber:memberNumber,name:name,coop:coop,platform:platform,siteId:siteIds[0],siteIds:siteIds,paygroupIds:paygroupIds,
     workSchedule:workSchedule,workLocationReassignmentRequired:false,updatedAt:tp5Now_(),rev:Number(old.rev||0)+1});
   tp5ApplyMemberScheduleColumnsV2_(next,workSchedule);
   return tp5MemberLocationResult_(actor,old,next,'USER_TRANSFER_MEMBER_SCOPE');
@@ -183,21 +185,22 @@ function tp5AdminMemberUpdateV2_(actor,q){
     'Member was changed on another device. Sync and retry.','CONFLICT');
   var c=q.changes;
   tp5Must_(c&&typeof c==='object'&&!Array.isArray(c)&&
-    Object.keys(c).every(function(k){return ['name','memberNumber','coop','platform','siteIds','workSchedule'].includes(k);})&&
+    Object.keys(c).every(function(k){return ['name','memberNumber','coop','platform','siteIds','paygroupIds','workSchedule'].includes(k);})&&
     Object.prototype.hasOwnProperty.call(c,'siteIds'),
     'Only Member ID, identity, Cooperative, Business Platform, Work Schedule and Assigned Location can be edited.','FORBIDDEN');
   var memberNumber=tp5EditableMemberNumberV2_(old,c.memberNumber),name=TIPONOrgCore.clean(c.name,120),coop=TIPONOrgCore.clean(c.coop,80),
     platform=tp5ResolvePlatform_(c.platform);
   tp5Must_(name&&TIPONOrgCore.COOPS.includes(coop),'Enter a valid name and Cooperative.','VALIDATION');
   var siteIds=tp5LocationIds_(actor,coop,platform,c.siteIds);
+  var paygroupIds=tp5PaygroupIds_(c.paygroupIds===undefined?old.paygroupIds:c.paygroupIds,{coop:coop,platform:platform,siteIds:siteIds});
   var workSchedule=tp5MemberWorkScheduleV2_(c.workSchedule,old.workSchedule);
   var scopeChanged=coop!==old.coop||TIPONOrgCore.platformKey(platform)!==TIPONOrgCore.platformKey(old.platform);
   var locationsChanged=!tp5SameLocations_(tp5OldLocations_(old),siteIds);
   if(!scopeChanged&&!locationsChanged&&name===old.name&&memberNumber===(old.memberNumber||old.id)&&
-     tp5SameMemberScheduleV2_(old.workSchedule,workSchedule))
+     tp5SameMemberScheduleV2_(old.workSchedule,workSchedule)&&tp5SamePaygroupIds_(old.paygroupIds,paygroupIds))
     return tp5Reply_({member:tp5Safe_(old),unchanged:true});
   var next=Object.assign({},old,{memberNumber:memberNumber,name:name,coop:coop,platform:platform,
-    siteId:siteIds[0]||'',siteIds:siteIds,workSchedule:workSchedule,
+    siteId:siteIds[0]||'',siteIds:siteIds,paygroupIds:paygroupIds,workSchedule:workSchedule,
     workLocationReassignmentRequired:siteIds.length===0,
     updatedAt:tp5Now_(),rev:Number(old.rev||0)+1});
   tp5ApplyMemberScheduleColumnsV2_(next,workSchedule);
@@ -217,6 +220,7 @@ function tp5UserMemberLocationUpdate_(actor,q){
     Number(q.baseRev)===Number(old.rev||0),
     'Member changed on another device. Refresh and try again.','CONFLICT');
   var siteIds=tp5LocationIds_(actor,old.coop,old.platform,q.siteIds);
+  tp5PaygroupIds_(old.paygroupIds||[],{coop:old.coop,platform:old.platform,siteIds:siteIds});
   if(tp5SameLocations_(tp5OldLocations_(old),siteIds))
     return tp5Reply_({member:tp5Safe_(old),unchanged:true});
   var next=Object.assign({},old,{siteId:siteIds[0]||'',siteIds:siteIds,
