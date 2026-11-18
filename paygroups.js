@@ -292,40 +292,52 @@ window.TIPONPaygroups = (() => {
       hideOperationPanel();
       return Promise.resolve({ paygroupId: '', paygroup: '', operationCode: '' });
     }
-    const groups = forMemberAtSite(member, site);
+    const groups = forMemberAtSite(member, site).slice().sort((a,b) =>
+      String(a.name || '').localeCompare(String(b.name || '')));
     if (!groups.length)
       return Promise.reject(Error('Assigned Paygroup is not synchronized to this Work Location. Refresh the directory before Time In.'));
-    const choices = [];
-    groups.forEach(pg => {
-      const list = codes(pg);
-      if (list.length) list.forEach(code => choices.push({
-        paygroupId: String(pg.id), paygroup: pg.name, operationCode: code,
-        label: code, detail: pg.name, kind: 'operation'
-      }));
-      else choices.push({
-        paygroupId: String(pg.id), paygroup: pg.name, operationCode: '',
-        label: groups.length > 1 ? pg.name : 'Continue without Operation Code',
-        detail: 'No Operation Code required', kind: 'paygroup'
-      });
-    });
-    if (groups.length === 1 && choices.length === 1 && !choices[0].operationCode) {
+
+    // A member whose assigned Paygroups do not define Operation Codes can
+    // proceed automatically. A Paygroup is still carried into Attendance Logs.
+    const codedGroups = groups.filter(pg => codes(pg).length);
+    if (!codedGroups.length) {
       hideOperationPanel();
-      return Promise.resolve(choices[0]);
+      return Promise.resolve({
+        paygroupId: String(groups[0].id),
+        paygroup: String(groups[0].name || ''),
+        operationCode: ''
+      });
     }
-    const title = groups.every(pg => !codes(pg).length) ? 'Select Paygroup' :
-      groups.length > 1 ? 'Select Operation Code / Paygroup' : 'Select Operation Code';
-    setText('terminalOperationTitle', title);
-    setText('terminalOperationHelp', 'Select before recording Time In. Time Out does not require an Operation Code.');
+
+    // Show every Operation Code assigned to this member at this Work Location.
+    // The selected button also identifies its Paygroup when multiple Paygroups
+    // have different Operation Code lists.
+    const choices = [];
+    codedGroups.forEach(pg => codes(pg).forEach(code => choices.push({
+      paygroupId: String(pg.id),
+      paygroup: pg.name,
+      operationCode: code,
+      label: code,
+      detail: pg.name,
+      kind: 'operation'
+    })));
+    setText('terminalOperationTitle', 'Select Operation Code');
+    setText('terminalOperationHelp', 'Choose an Operation Code to record Time In. Time Out will automatically use the same code.');
     const root = $('terminalOperationChoices');
     if (!root) return Promise.reject(Error('Operation Code selection panel is unavailable. Refresh the attendance app.'));
     root.innerHTML = choices.map(choice =>
       '<button type="button" class="terminal-operation-button" data-paygroup-choice="1" data-paygroup-id="' +
       esc(choice.paygroupId) + '" data-operation-code="' + esc(choice.operationCode) + '">' +
-      '<strong>' + esc(choice.label) + '</strong><small>' + esc(choice.detail) +
-      (choice.kind === 'operation' ? ' · Operation Code' : ' · Paygroup') + '</small></button>').join('');
+      '<strong>' + esc(choice.label) + '</strong><small>' + esc(choice.detail) + '</small></button>').join('');
     const panel = $('terminalOperationPanel');
-    if (panel) panel.hidden = false;
-    return new Promise(resolve => { pendingSelection = resolve; });
+    if (panel) {
+      panel.hidden = false;
+      panel.setAttribute('aria-label', 'Select an Operation Code before Time In');
+    }
+    return new Promise(resolve => {
+      pendingSelection = resolve;
+      panel?.scrollIntoView?.({ block: 'nearest', behavior: 'smooth' });
+    });
   }
 
   async function refreshDirectory(kind = 'refresh') {
