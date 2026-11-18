@@ -2,7 +2,7 @@ const test=require('node:test');
 const assert=require('node:assert/strict');
 const fs=require('node:fs');
 const vm=require('node:vm');
-const Core=require('../core.js'),Org=require('../org-core.js');
+const Core=require('../core.js'),Org=require('../org-core.js'),Export=require('../exporter.js');
 const source=name=>fs.readFileSync(require('node:path').join(__dirname,'..',name),'utf8');
 const actor={id:'user-1',role:'registrar',coop:'Asiapro',platform:'IMG',username:'test-user'};
 const event=(id,type,timestamp)=>({id,sessionId:'session-1',memberId:'TEST-1',memberName:'Synthetic Member',coop:'Asiapro',platform:'IMG',siteId:'site-1',type,timestamp,orgId:'org-1',cloudAck:true});
@@ -1995,26 +1995,37 @@ function csvScheduleImportContext(){
  const src=source('organization.js'),start=src.indexOf('const TIPON_MEMBER_CSV_HEADERS='),end=src.indexOf('async function importMemberCSV(',start),ctx={TIPONOrgCore:Org};
  vm.createContext(ctx);vm.runInContext(src.slice(start,end)+'\nthis.headers=TIPON_MEMBER_CSV_HEADERS;',ctx);return ctx;
 }
-test('Member CSV includes Work Days/Start/End and parses day names, numbers and overnight hours',()=>{
+test('Member CSV includes Paygroup and Work Days/Start/End and maps Paygroup names to IDs',()=>{
  const c=csvScheduleImportContext();
- const rows=[Array.from(c.headers),['000123','Synthetic Member','Asiapro','IMG','Mon;Tue;Wed;Thu;Fri','8:00','6:30 PM']];
- const member=c.prepareMemberImport(rows,[])[0];assert.equal(member.id,'000123');assert.deepEqual(Array.from(member.workSchedule.days),[1,2,3,4,5]);assert.equal(member.workSchedule.start,'08:00');assert.equal(member.workSchedule.end,'18:30');
+ const paygroups=[
+  {id:'pg-day',name:'Daily',coop:'Asiapro',platform:'IMG'},
+  {id:'pg-night',name:'Night Shift',coop:'Asiapro',platform:'IMG'}
+ ];
+ const rows=[Array.from(c.headers),['000123','Synthetic Member','Asiapro','IMG','Daily;Night Shift','Mon;Tue;Wed;Thu;Fri','8:00','6:30 PM']];
+ const member=c.prepareMemberImport(rows,[],paygroups)[0];
+ assert.equal(member.id,'000123');assert.deepEqual(Array.from(member.paygroupIds),['pg-day','pg-night']);
+ assert.deepEqual(Array.from(member.workSchedule.days),[1,2,3,4,5]);assert.equal(member.workSchedule.start,'08:00');assert.equal(member.workSchedule.end,'18:30');
  const night=c.memberImportWorkSchedule('1,3,5','22:00','06:00',2);assert.equal(night.end,'06:00');
  assert.deepEqual(Array.from(c.memberImportWorkSchedule('Sunday;Saturday','12:00 AM','12:00 PM',2).days),[0,6]);
 });
-test('Member CSV validates schedules before sending any row',()=>{
- const c=csvScheduleImportContext();
+test('Member CSV validates Paygroup scope, duplicate names and weekly schedules before sending any row',()=>{
+ const c=csvScheduleImportContext(),paygroups=[{id:'pg-day',name:'Daily',coop:'Asiapro',platform:'IMG'}];
  for(const args of [['Mon;Mon','08:00','17:00'],['Holiday','08:00','17:00'],['','08:00','17:00'],['Mon','24:00','17:00'],['Mon','08:00','08:00']])assert.throws(()=>c.memberImportWorkSchedule(...args,2),/Row 2/);
- assert.throws(()=>c.prepareMemberImport([['Member ID','Full name','Cooperative','Business platform'],['123','Synthetic','Asiapro','IMG']],[]),/seven-column/);
+ const row=(paygroup='Daily')=>[['Member ID','Full name','Cooperative','Business platform','Paygroup','Work Days','Work Start','Work End'],['123','Synthetic','Asiapro','IMG',paygroup,'Mon','08:00','17:00']];
+ assert.throws(()=>c.prepareMemberImport(row('Missing'),[],paygroups),/not uniquely registered/);
+ assert.throws(()=>c.prepareMemberImport(row('Daily'),[],[{id:'pg-other',name:'Daily',coop:'Worklife',platform:'IMG'}]),/not uniquely registered/);
+ assert.throws(()=>c.prepareMemberImport([['Member ID','Full name','Cooperative','Business platform'],['123','Synthetic','Asiapro','IMG']],[]),/eight-column/);
 });
 test('Backend member import saves weekly schedule fields and rejects changed schedules on retry',()=>{
  const f=metadataBackend(),ctx=f.ctx;let writes=0;
  ctx.tp5Read_=type=>type==='members'?f.members:[];
  ctx.tp5Put_=(type,value)=>{assert.equal(type,'members');f.members.push(value);writes++;};
  vm.runInContext(source('backend-patch/MemberCSVImport.gs'),ctx);
- const input={id:'000999',name:'Synthetic import',coop:'Asiapro',platform:'IMG',workSchedule:{enabled:true,days:[1,2,3,4,5],start:'08:00',end:'18:30',grace:0}};
- const result=ctx.tp5ImportMembersWithSchedule_({role:'admin',id:'admin'},[input]);assert.equal(result.added,1);assert.equal(writes,1);
- const saved=f.members.find(m=>m.id==='000999');assert.equal(saved.workDays,'1,2,3,4,5');assert.equal(saved.workStart,'08:00');assert.equal(saved.workEnd,'18:30');
+ ctx.tp5PaygroupIds_=(ids,scope)=>{assert.equal(scope.allowUnassigned,true);return ids;};
+ ctx.tp5SamePaygroupIds_=(a,b)=>JSON.stringify((a||[]).slice().sort())===JSON.stringify((b||[]).slice().sort());
+ const input={id:'000999',name:'Synthetic import',coop:'Asiapro',platform:'IMG',paygroupIds:['pg-day'],workSchedule:{enabled:true,days:[1,2,3,4,5],start:'08:00',end:'18:30',grace:0}};
+ const result=ctx.tp5ImportMembersWithSchedule_({role:'admin',id:'admin'},[input]);assert.equal(result.added,1);assert.equal(result.memberImportPaygroup,true);assert.equal(writes,1);
+ const saved=f.members.find(m=>m.id==='000999');assert.deepEqual(saved.paygroupIds,['pg-day']);assert.equal(saved.workDays,'1,2,3,4,5');assert.equal(saved.workStart,'08:00');assert.equal(saved.workEnd,'18:30');
  assert.equal(ctx.tp5ImportMembersWithSchedule_({role:'admin',id:'admin'},[input]).skipped,1);assert.equal(writes,1);
  assert.throws(()=>ctx.tp5ImportMembersWithSchedule_({role:'admin',id:'admin'},[{...input,workSchedule:{...input.workSchedule,end:'17:00'}}]),e=>e.code==='CONFLICT');
  assert.throws(()=>ctx.tp5ImportMembersWithSchedule_({role:'admin',id:'admin'},[{...input,id:'new',workSchedule:null}]),/Weekly Work Schedule is required/);assert.equal(writes,1);
@@ -2073,4 +2084,31 @@ test('Paygroup List is a separate Admin/User sidebar page and Operation Code Add
   assert.ok(row.indexOf('id="paygroupOperationCodeInput"')<row.indexOf('id="paygroupAddOperationCode"'));
   assert.ok(css.includes(".paygroup-code-entry{display:grid;grid-template-columns:minmax(0,1fr) auto"));
   assert.ok(!css.includes('.paygroup-code-entry{align-items:stretch;flex-direction:column}'));
+});
+
+test('Attendance Excel export includes Time In Paygroup and Operation Code columns',()=>{
+ const punches=[
+  {...event('in','IN','2026-11-06T06:11:54.000Z'),paygroupId:'pg-day',paygroup:'Daily',operationCode:'OP-001'},
+  {...event('out','OUT','2026-11-06T08:34:57.000Z'),paygroupId:'pg-day',paygroup:'Daily',operationCode:'OP-001'}
+ ];
+ const rows=Core.rows(punches,'device-1');
+ assert.equal(rows.length,1);assert.equal(rows[0].paygroup,'Daily');assert.equal(rows[0].operationCode,'OP-001');
+ const table=Export.table(rows);
+ assert.deepEqual(table[0],['MemberId','Date','Time In','Time Out','Date Time Out','Paygroup','Operation Code']);
+ assert.deepEqual(table[1],['TEST-1','11/06/2026','14:11:54','16:34:57','11/06/2026','Daily','OP-001']);
+ const xml=new TextDecoder().decode(Export.xlsx(rows));
+ assert.match(xml,/<dimension ref="A1:G2"\/>/);
+ assert.match(xml,/r="F2"/);assert.match(xml,/r="G2"/);
+ assert.match(xml,/Daily/);assert.match(xml,/OP-001/);
+});
+test('Paygroup List shows Operation Code View buttons and keeps the Member List Paygroup column',()=>{
+ const html=source('index.html'),paygroups=source('paygroups.js'),app=source('app.js');
+ assert.match(html,/id="paygroupCodesViewDialog"/);
+ assert.match(html,/id="paygroupCodesViewList"/);
+ assert.match(paygroups,/data-paygroup-view-codes/);
+ assert.match(paygroups,/operationCodes\.length\s*\?[^:]*data-paygroup-view-codes/);
+ assert.match(paygroups,/openOperationCodeView\(view\.dataset\.paygroupViewCodes\)/);
+ assert.match(app,/window\.TIPONPaygroups\?\.namesForMember\(m\)/);
+ const page=html.slice(html.indexOf('id="page-paygroups"'),html.indexOf('id="page-accounts"'));
+ assert.doesNotMatch(page,/<h2>Paygroup List<\/h2>/);
 });
