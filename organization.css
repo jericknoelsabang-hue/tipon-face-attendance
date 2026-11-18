@@ -24,7 +24,7 @@ body:not([data-terminal-access="allowed"]) [data-terminal-only]{display:none!imp
 
 /* Physical kiosk: auto camera and fullscreen terminal-only view. */
 .kiosk-mode #startCamera{display:none!important}
-.terminal-fullscreen .topbar,.terminal-fullscreen .page-head,.terminal-fullscreen .camera-choice-row,.terminal-fullscreen .terminal-actions,.terminal-fullscreen .gps-panel,.terminal-fullscreen .footnote-card{display:none!important}
+.terminal-fullscreen .topbar,.terminal-fullscreen .page-head,.terminal-fullscreen .camera-choice-row,.terminal-fullscreen .terminal-actions,.terminal-fullscreen .footnote-card{display:none!important}
 .terminal-fullscreen #pageHost{padding:12px!important}
 .terminal-fullscreen .scanner-grid{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(280px,.8fr);max-width:none;height:calc(100vh - 24px);gap:12px}
 .terminal-fullscreen .camera-panel{display:flex;flex-direction:column;min-height:0;padding:14px}
@@ -37,7 +37,7 @@ body:not([data-terminal-access="allowed"]) [data-terminal-only]{display:none!imp
 
 
 /* Shared terminal fullscreen for approved user and kiosk accounts. */
-.terminal-fullscreen .sidebar,.terminal-fullscreen .mobile-nav,.terminal-fullscreen .breadcrumb,.terminal-fullscreen .topbar,.terminal-fullscreen .page-head,.terminal-fullscreen .camera-choice-row,.terminal-fullscreen .terminal-actions,.terminal-fullscreen .gps-panel,.terminal-fullscreen .footnote-card,.terminal-fullscreen #terminalLogPanel{display:none!important}
+.terminal-fullscreen .sidebar,.terminal-fullscreen .mobile-nav,.terminal-fullscreen .breadcrumb,.terminal-fullscreen .topbar,.terminal-fullscreen .page-head,.terminal-fullscreen .camera-choice-row,.terminal-fullscreen .terminal-actions,.terminal-fullscreen .footnote-card,.terminal-fullscreen #terminalLogPanel{display:none!important}
 .terminal-fullscreen .app-shell{display:block!important;min-height:100vh!important}
 .terminal-fullscreen #pageHost{margin:0!important;padding:12px!important}
 .terminal-fullscreen #page-scanner{display:block!important}
@@ -151,3 +151,22 @@ body:not([data-terminal-access="allowed"]) [data-terminal-only]{display:none!imp
 .scope-warning{display:block;color:#9b5b00;font-size:10px;font-weight:700;margin-top:4px}
 
 @media(max-width:540px){.work-day-options{grid-template-columns:repeat(4,minmax(0,1fr))}}
+
+
+/* Keep GPS verification and the inline Operation Code picker visible in fullscreen. */
+.terminal-fullscreen .scanner-side>.gps-panel{
+  display:block!important;flex:0 0 auto!important;max-height:none!important;overflow:visible!important
+}
+.terminal-fullscreen .scanner-side>.terminal-operation-panel:not([hidden]){
+  display:block!important;flex:1 1 auto!important;min-height:0;overflow:auto
+}
+.terminal-fullscreen .scanner-side>.terminal-operation-panel[hidden]{display:none!important}
+@media(max-width:740px){
+  .terminal-fullscreen .scanner-side{
+    display:flex!important;flex-direction:column;gap:8px;max-height:35vh;min-height:0;overflow:auto
+  }
+  .terminal-fullscreen .scanner-side>.gps-panel{flex:0 0 auto!important;max-height:none!important}
+  .terminal-fullscreen .scanner-side>.terminal-operation-panel:not([hidden]){
+    flex:0 0 auto!important;max-height:none!important
+  }
+}
