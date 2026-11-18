@@ -835,7 +835,7 @@ async function importMemberCSV(event){
   if(!await confirmAction('Upload '+members.length+' members?', 'Paygroup is optional. Use exact Paygroup names separated by semicolons (example: Daily;Night Shift). Each name must match the member Cooperative and Business Platform. Work Days use Mon;Tue;Wed;Thu;Fri and times use 24-hour HH:mm. An authorized User assigns a Work Location after import.'))return;
   for(let n=0;n<members.length;n+=20){
    const result=await TIPONAPI.call({action:'adminMemberImportWithSchedule',rows:members.slice(n,n+20)});
-   if(typeof result.added!=='number'||result.memberImportWorkSchedule!==true)throw Error('Server did not acknowledge the member import with Weekly Work Schedule.');
+   if(typeof result.added!=='number'||result.memberImportWorkSchedule!==true||result.memberImportPaygroup!==true)throw Error('Server did not acknowledge the member import with Paygroup and Weekly Work Schedule.');
    total+=result.added;setText('memberUploadStatus',total+' members accepted by the central database. Syncing...');
   }
   await TIPONSync.run();TIPONSync.kick();await loadCollections();renderMembers();renderDashboard();
