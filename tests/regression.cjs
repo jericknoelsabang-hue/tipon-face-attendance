@@ -2281,6 +2281,10 @@ test('Apps Script allows registrar Paygroup creation only in their own Cooperati
   tp5Admin_:actor=>{if(actor.role!=='admin')throw Error('Admin only');}
  };
  vm.createContext(ctx);vm.runInContext(source('backend-patch/Paygroups.gs'),ctx);
+ ctx.tp5PGValidate_=q=>({...q.paygroup});
+ ctx.tp5PGRead_=()=>rows;ctx.tp5PGWrite_=value=>{rows=value;};
+ ctx.tp5Bump_=()=>{};ctx.tp5Audit_=()=>{};ctx.tp5PGList_=actor=>({paygroups:rows});
+ ctx.tp5Admin_=actor=>{if(actor.role!=='admin')throw Error('Admin only');};
  const registrar={id:'u-1',role:'registrar',coop:'Asiapro',platform:'IMG'};
  ctx.tp5PGAdd_(registrar,{paygroup:{id:'pg-user',coop:'Asiapro',platform:'IMG',name:'User Daily',operationCodes:['CUT']}});
  assert.equal(rows.length,1);assert.equal(rows[0].id,'pg-user');
