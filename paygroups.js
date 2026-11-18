@@ -373,6 +373,7 @@ window.TIPONPaygroups = (() => {
       if (view) openOperationCodeView(view.dataset.paygroupViewCodes);
     });
     $('paygroupCodesViewClose')?.addEventListener('click', () => $('paygroupCodesViewDialog')?.close());
+    $('paygroupCodesViewDone')?.addEventListener('click', () => $('paygroupCodesViewDialog')?.close());
     $('paygroupForm')?.addEventListener('submit', savePaygroup);
     $('paygroupHasOperationCodes')?.addEventListener('change', toggleOperationCodeFields);
     $('paygroupAddOperationCode')?.addEventListener('click', addOperationCode);
