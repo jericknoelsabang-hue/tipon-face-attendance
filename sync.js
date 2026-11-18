@@ -599,7 +599,8 @@ window.TIPONSync=(()=>{
             const sameFields=fields.every(k=>same(entity[k],op?.value?.[k]));
             const sameCoords=['lat','lng'].every(k=>Math.abs(Number(entity[k])-Number(op?.value?.[k]))<.0000001);
             const sameRadius=Number(entity.radius||150)===Number(op?.value?.radius||150);
-            if(op?.everSent&&Number(entity.rev)>Number(op.baseRev||0)&&sameFields&&sameCoords&&sameRadius){
+            const samePaygroups=JSON.stringify((entity.paygroupIds||[]).map(String).sort())===JSON.stringify((op?.value?.paygroupIds||[]).map(String).sort());
+            if(op?.everSent&&Number(entity.rev)>Number(op.baseRev||0)&&sameFields&&sameCoords&&sameRadius&&samePaygroups){
               await OrgDB.rawSave('sites',{...entity,orgId:state.orgId});
               await OrgDB.rawDelete('outbox',op.id);
             }
