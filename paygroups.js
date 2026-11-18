@@ -272,8 +272,10 @@ window.TIPONPaygroups = (() => {
       return Promise.resolve({ paygroupId: '', paygroup: '', operationCode: '' });
     }
     const groups = forMemberAtSite(member, site);
-    if (groups.length !== assignedIds.length)
-      return Promise.reject(Error('Paygroup directory or Work Location assignment is not synchronized. Refresh the directory before Time In.'));
+    if (!groups.length) {
+      hideOperationPanel();
+      return Promise.resolve({ paygroupId: '', paygroup: '', operationCode: '' });
+    }
     const choices = [];
     groups.forEach(pg => {
       const list = codes(pg);
