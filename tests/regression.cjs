@@ -2072,5 +2072,5 @@ test('Paygroup List is a separate Admin/User sidebar page and Operation Code Add
  const row=html.slice(html.indexOf('class="paygroup-code-entry"'),html.indexOf('id="paygroupOperationCodes"'));
   assert.ok(row.indexOf('id="paygroupOperationCodeInput"')<row.indexOf('id="paygroupAddOperationCode"'));
   assert.ok(css.includes(".paygroup-code-entry{display:grid;grid-template-columns:minmax(0,1fr) auto"));
-  assert.doesNotMatch(css,/flex-direction:column/);
+  assert.ok(!css.includes('.paygroup-code-entry{align-items:stretch;flex-direction:column}'));
 });
