@@ -2228,6 +2228,8 @@ test('Face Terminal timestamps Time In after Operation Code selection and Time O
  assert.match(flow,/paygroupSelection=\{paygroupId:String\(tx\.last\.paygroupId\|\|''\),paygroup:String\(tx\.last\.paygroup\|\|''\),operationCode:String\(tx\.last\.operationCode\|\|''\)\}/);
  assert.match(flow,/if\(tx\.type==='OUT'&&tx\.last\)/);
 });
+
+// TIPON 5.5.112: the Face Terminal must wait for Operation Code selection before Time In.
 test('Face Terminal fullscreen retains GPS Verification and the Operation Code panel',()=>{
  const css=source('organization.css'),html=source('index.html');
  assert.match(html,/id="gpsStatusBadge"/);assert.match(html,/id="terminalOperationPanel"/);
