@@ -1,4 +1,4 @@
-/* TIPON 5.5.112 — Paygroup directory, assignment pickers and Time In operation selection. */
+/* TIPON 5.5.113 — Paygroup directory, assignment pickers and Time In operation selection. */
 'use strict';
 window.TIPONPaygroups = (() => {
   const $ = id => document.getElementById(id);
@@ -8,6 +8,7 @@ window.TIPONPaygroups = (() => {
   const byId = id => all().find(x => String(x.id) === String(id)) || null;
   const codes = pg => Array.isArray(pg?.operationCodes) ? pg.operationCodes.map(x => String(x || '').trim()).filter(Boolean) : [];
   const sameIds = (a,b) => ids(a).sort().join('|') === ids(b).sort().join('|');
+  const canCreatePaygroup = () => isAdmin() || state.user?.role === 'registrar';
   let editing = null;
   let dialogCodes = [];
   let pendingSelection = null;
@@ -130,6 +131,7 @@ window.TIPONPaygroups = (() => {
     const admin = isAdmin();
     if ($('adminPaygroupPanel')) $('adminPaygroupPanel').hidden = !admin;
     if ($('userPaygroupPanel')) $('userPaygroupPanel').hidden = admin;
+    if ($('userPaygroupAdd')) $('userPaygroupAdd').hidden = !canCreatePaygroup();
     const renderRows = (items, withActions) => items.length ? items.map(pg => {
       const operationCodes = codes(pg);
       const action = withActions ? '<td><div class="row-inline"><button type="button" class="tiny-button" data-paygroup-edit="' +
@@ -162,15 +164,17 @@ window.TIPONPaygroups = (() => {
   function fillPaygroupScope(pg) {
     const coop = $('paygroupCoop');
     if (!coop) return;
+    const registrar = state.user?.role === 'registrar' && !isAdmin();
+    const allowedCoops = registrar ? [state.user.coop].filter(value => TIPONOrgCore.COOPS.includes(value)) : TIPONOrgCore.COOPS;
     coop.innerHTML = '<option value="">Select cooperative</option>' +
-      TIPONOrgCore.COOPS.map(value => '<option value="' + esc(value) + '">' + esc(value) + '</option>').join('');
-    coop.value = pg?.coop || '';
-    TIPONPlatforms.fillScoped('paygroupCoop', 'paygroupPlatform', pg?.platform || '');
+      allowedCoops.map(value => '<option value="' + esc(value) + '">' + esc(value) + '</option>').join('');
+    coop.value = registrar ? state.user.coop : pg?.coop || '';
+    TIPONPlatforms.fillScoped('paygroupCoop', 'paygroupPlatform', registrar ? state.user.platform : pg?.platform || '');
     const referenced = !!(pg && ((pg.siteIds || []).length ||
       (state.sites || []).some(site => ids(site.paygroupIds).includes(String(pg.id))) ||
       (state.members || []).some(member => ids(member.paygroupIds).includes(String(pg.id)))));
-    $('paygroupCoop').disabled = referenced;
-    $('paygroupPlatform').disabled = referenced;
+    $('paygroupCoop').disabled = registrar || referenced;
+    $('paygroupPlatform').disabled = registrar || referenced;
   }
   function renderOperationCodeChips() {
     const root = $('paygroupOperationCodes');
@@ -185,7 +189,7 @@ window.TIPONPaygroups = (() => {
     if ($('paygroupOperationCodeSection')) $('paygroupOperationCodeSection').hidden = !enabled;
   }
   function openDialog(pg = null) {
-    if (!isAdmin()) return;
+    if (!canCreatePaygroup() || (pg && !isAdmin())) return;
     editing = pg ? { ...pg } : null;
     dialogCodes = codes(pg);
     $('paygroupForm')?.reset();
@@ -199,7 +203,7 @@ window.TIPONPaygroups = (() => {
     $('paygroupDialog')?.showModal();
   }
   function addOperationCode() {
-    if (!isAdmin()) return;
+    if (!canCreatePaygroup() || (editing && !isAdmin())) return;
     const input = $('paygroupOperationCodeInput');
     const value = String(input?.value || '').trim().normalize('NFKC').replace(/\s+/g, ' ');
     if (!value) return;
@@ -215,13 +219,15 @@ window.TIPONPaygroups = (() => {
   }
   async function savePaygroup(event) {
     event.preventDefault();
-    if (!isAdmin()) return;
+    if (!canCreatePaygroup() || (editing && !isAdmin())) return;
     const button = $('paygroupSave');
     if (button) button.disabled = true;
     try {
       if (!navigator.onLine) throw Error('Internet is required to save a Paygroup to the central directory.');
       const coop = $('paygroupCoop').value;
       const platform = $('paygroupPlatform').value;
+      if (!isAdmin() && (coop !== state.user?.coop || norm(platform) !== norm(state.user?.platform)))
+        throw Error('You may add Paygroups only within your approved Cooperative and Business Platform.');
       const name = String($('paygroupName').value || '').trim().normalize('NFKC').replace(/\s+/g, ' ');
       const hasCodes = $('paygroupHasOperationCodes').value === 'yes';
       const operationCodes = hasCodes ? [...dialogCodes] : [];
@@ -372,6 +378,7 @@ window.TIPONPaygroups = (() => {
     if (window.__tiponPaygroupsBound) return;
     window.__tiponPaygroupsBound = true;
     $('adminPaygroupAdd')?.addEventListener('click', () => openDialog());
+    $('userPaygroupAdd')?.addEventListener('click', () => openDialog());
     $('adminPaygroupRefresh')?.addEventListener('click', () => refreshDirectory('refresh'));
     $('userPaygroupRefresh')?.addEventListener('click', () => refreshDirectory('refresh'));
     $('adminPaygroupSync')?.addEventListener('click', () => refreshDirectory('sync'));
@@ -432,7 +439,7 @@ window.TIPONPaygroups = (() => {
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', bind, { once: true });
   else bind();
   return {
-    bind, renderDirectory, openOperationCodeView, namesForSite, namesForMember, locationsForPaygroup, groupsForScope,
+    bind, renderDirectory, openOperationCodeView, namesForSite, namesForMember, locationsForPaygroup, groupsForScope, canCreatePaygroup,
     fillSitePicker, refreshSitePicker: () => fillSitePicker(), fillMemberPicker, refreshMemberPicker,
     readPicker, validateSiteAssignment, validateMemberAssignment, chooseForTimeIn, hideOperationPanel,
     cancelPendingSelection, forMemberAtSite

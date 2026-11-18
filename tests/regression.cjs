@@ -2255,3 +2255,58 @@ test('Server preserves the selected Operation Code when Time In and Time Out arr
  assert.equal(timeOut.sessionId,'session-1');assert.equal(timeOut.paygroupId,'pg-1');
  assert.equal(timeOut.paygroup,'Daily');assert.equal(timeOut.operationCode,'CUT');
 });
+
+test('User Paygroup List exposes Add Paygroup to approved Users while keeping edits and deletes Admin-only',()=>{
+ const html=source('index.html'),paygroups=source('paygroups.js');
+ const userPanel=html.slice(html.indexOf('id="userPaygroupPanel"'),html.indexOf('id="paygroupBackendStatus"'));
+ assert.match(userPanel,/id="userPaygroupAdd"[^>]*hidden[^>]*>Add Paygroup/);
+ assert.match(paygroups,/const canCreatePaygroup = \(\) => isAdmin\(\) \|\| state\.user\?\.role === 'registrar';/);
+ assert.match(paygroups,/userPaygroupAdd.*openDialog/);
+ assert.match(paygroups,/if \(\$\('userPaygroupAdd'\)\) \$\('userPaygroupAdd'\)\.hidden = !canCreatePaygroup\(\);/);
+ assert.match(paygroups,/const registrar = state\.user\?\.role === 'registrar' && !isAdmin\(\)/);
+ assert.match(paygroups,/if \(!isAdmin\(\) && \(coop !== state\.user\?\.coop \|\| norm\(platform\) !== norm\(state\.user\?\.platform\)\)\)/);
+ assert.match(paygroups,/async function deletePaygroup\(id\) \{\s*if \(!isAdmin\(\)\) return;/);
+});
+test('Apps Script allows registrar Paygroup creation only in their own Cooperative and Business Platform',()=>{
+ let rows=[];
+ const ctx={
+  TIPONOrgCore:{clean:(v,n)=>String(v||'').trim().slice(0,n)},
+  tp5Must_:(ok,message,code)=>{if(!ok)throw Object.assign(Error(message),{code});},
+  tp5PGValidate_:q=>({...q.paygroup}),
+  tp5PGRead_:()=>rows,
+  tp5PGWrite_:value=>{rows=value;},
+  tp5Bump_:()=>{},
+  tp5Audit_:()=>{},
+  tp5PGList_:actor=>({paygroups:rows}),
+  tp5Admin_:actor=>{if(actor.role!=='admin')throw Error('Admin only');}
+ };
+ vm.createContext(ctx);vm.runInContext(source('backend-patch/Paygroups.gs'),ctx);
+ ctx.tp5PGValidate_=q=>({...q.paygroup});
+ ctx.tp5PGRead_=()=>rows;ctx.tp5PGWrite_=value=>{rows=value;};
+ ctx.tp5Bump_=()=>{};ctx.tp5Audit_=()=>{};ctx.tp5PGList_=actor=>({paygroups:rows});
+ ctx.tp5Admin_=actor=>{if(actor.role!=='admin')throw Error('Admin only');};
+ const registrar={id:'u-1',role:'registrar',coop:'Asiapro',platform:'IMG'};
+ ctx.tp5PGAdd_(registrar,{paygroup:{id:'pg-user',coop:'Asiapro',platform:'IMG',name:'User Daily',operationCodes:['CUT']}});
+ assert.equal(rows.length,1);assert.equal(rows[0].id,'pg-user');
+ assert.throws(()=>ctx.tp5PGAdd_(registrar,{paygroup:{id:'pg-outside',coop:'Worklife',platform:'OCG',name:'Outside',operationCodes:[]}}),/approved Cooperative and Business Platform/);
+ assert.throws(()=>ctx.tp5PGUpdate_(registrar,{paygroup:{id:'pg-user',coop:'Asiapro',platform:'IMG',name:'Edited',operationCodes:[]}}),/Admin only/);
+ assert.throws(()=>ctx.tp5PGDelete_(registrar,{id:'pg-user'}),/Admin only/);
+ const admin={id:'a-1',role:'admin',coop:'Asiapro',platform:'IMG'};
+ ctx.tp5PGAdd_(admin,{paygroup:{id:'pg-admin',coop:'Worklife',platform:'OCG',name:'Admin Added',operationCodes:[]}});
+ assert.equal(rows.length,2);
+});
+test('Face Terminal fullscreen uses the full viewport and balanced centered camera/GPS columns',()=>{
+ const css=source('organization.css');
+ assert.match(css,/body\.terminal-fullscreen main#pageHost\{[\s\S]*width:100vw!important/);
+ assert.match(css,/body\.terminal-fullscreen \.scanner-grid\{[\s\S]*width:100%!important;max-width:1800px!important;[\s\S]*margin:0 auto!important/);
+ assert.match(css,/grid-template-columns:minmax\(0,1\.7fr\) minmax\(340px,\.8fr\)!important/);
+ assert.match(css,/@media\(max-width:900px\)/);
+ assert.match(css,/body\.terminal-fullscreen \.scanner-side>\.gps-panel\{[\s\S]*display:block!important/);
+});
+test('Frontend shell and release manifest identify version 5.5.113',()=>{
+ const html=source('index.html'),sw=source('sw.js'),release=JSON.parse(source('release.json'));
+ assert.match(html,/paygroups\.js\?v=55113/);
+ assert.match(html,/app\.js\?v=55113/);
+ assert.match(sw,/const VERSION='5\.5\.113'/);
+ assert.equal(release.version,'5.5.113');
+});

@@ -170,3 +170,68 @@ body:not([data-terminal-access="allowed"]) [data-terminal-only]{display:none!imp
     flex:0 0 auto!important;max-height:none!important
   }
 }
+
+
+/* 5.5.113 — use the full browser viewport for the Face Terminal in fullscreen.
+   The old max-width and nested content sizing could leave the scanner at half width. */
+body.terminal-fullscreen{
+  width:100vw!important;min-width:100vw!important;max-width:none!important;
+  min-height:100dvh!important;overflow-x:hidden!important
+}
+body.terminal-fullscreen .app-shell,
+body.terminal-fullscreen .main-area{
+  display:block!important;width:100vw!important;min-width:100vw!important;
+  max-width:none!important;margin:0!important
+}
+body.terminal-fullscreen main#pageHost{
+  display:block!important;width:100vw!important;min-width:100vw!important;
+  max-width:none!important;margin:0!important;padding:12px!important;
+  box-sizing:border-box!important
+}
+body.terminal-fullscreen #page-scanner{
+  display:block!important;width:100%!important;max-width:none!important;
+  margin:0!important;padding:0!important
+}
+body.terminal-fullscreen .scanner-grid{
+  display:grid!important;width:100%!important;max-width:1800px!important;
+  margin:0 auto!important;height:calc(100dvh - 24px)!important;
+  min-height:0!important;
+  grid-template-columns:minmax(0,1.7fr) minmax(340px,.8fr)!important;
+  align-items:stretch!important;gap:clamp(12px,1.2vw,22px)!important
+}
+body.terminal-fullscreen .camera-panel{
+  display:flex!important;flex-direction:column!important;
+  width:100%!important;min-width:0!important;min-height:0!important
+}
+body.terminal-fullscreen .camera-viewport{
+  flex:1 1 auto!important;height:auto!important;min-height:0!important
+}
+body.terminal-fullscreen .scanner-side{
+  display:flex!important;flex-direction:column!important;
+  width:100%!important;min-width:0!important;min-height:0!important;
+  max-height:100%!important;overflow-y:auto!important
+}
+body.terminal-fullscreen .scanner-side>.gps-panel{
+  display:block!important;flex:0 0 auto!important;
+  width:100%!important;max-height:none!important;overflow:visible!important
+}
+body.terminal-fullscreen .scanner-side>.terminal-operation-panel:not([hidden]){
+  display:block!important;flex:1 0 auto!important;min-height:0!important;
+  width:100%!important;overflow:auto!important
+}
+body.terminal-fullscreen .scanner-side>.terminal-operation-panel[hidden]{
+  display:none!important
+}
+@media(max-width:900px){
+  body.terminal-fullscreen main#pageHost{padding:8px!important}
+  body.terminal-fullscreen .scanner-grid{
+    grid-template-columns:minmax(0,1fr)!important;
+    grid-template-rows:minmax(52vh,1fr) auto!important;
+    height:auto!important;min-height:calc(100dvh - 16px)!important
+  }
+  body.terminal-fullscreen .camera-panel{min-height:60vh!important}
+  body.terminal-fullscreen .camera-viewport{min-height:38vh!important}
+  body.terminal-fullscreen .scanner-side{
+    max-height:none!important;overflow:visible!important
+  }
+}
