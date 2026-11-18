@@ -1360,7 +1360,7 @@ async function exportExcel(){
   await new Promise(resolve=>setTimeout(resolve,0));
   const bytes=TIPONExport.xlsx(data);
   downloadBlob(`TIPON_Attendance_${todayPH()}.xlsx`,new Blob([bytes],{type:TIPONExport.MIME}));
-  showToast(`Exported ${data.length} rows: MemberId, Date, Time In, Time Out, Date Time Out. Unsynced local records are included.`,'success',7000);
+  showToast(`Exported ${data.length} rows with MemberId, Date, Time In, Time Out, Date Time Out, Paygroup and Operation Code. Unsynced local records are included.`,'success',7500);
  }catch(err){toastError(err,'Excel export failed');}finally{button.disabled=false;}
 }
 async function loadFaceModels(){
