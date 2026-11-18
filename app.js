@@ -925,18 +925,19 @@ async function saveSiteForm(e){
  const proposals=[],seenIds=new Set(),existingInSync=[];
  for(const pair of pairs){
   const current=previous&&samePair(previous,pair)?previous:null;
+  const paygroupIds=window.TIPONPaygroups?.validateSiteAssignment(pair.coop,pair.platform,window.TIPONPaygroups.readPicker('sitePaygroupChoices'))||[];
+  const samePaygroups=(a,b)=>[...(a||[])].map(String).sort().join('|')===[...(b||[])].map(String).sort().join('|');
   const duplicate=state.sites.find(s=>s.id!==current?.id&&!s.deleted&&samePair(s,pair)&&normalized(s.name)===normalized(name));
   if(duplicate){
    const identical=Math.abs(Number(duplicate.lat)-lat)<.0000001&&Math.abs(Number(duplicate.lng)-lng)<.0000001&&
-     Number(duplicate.radius||150)===radius&&normalized(duplicate.address)===normalized(address);
+     Number(duplicate.radius||150)===radius&&normalized(duplicate.address)===normalized(address)&&samePaygroups(duplicate.paygroupIds,paygroupIds);
    if(!identical){showToast('A Work Location named "'+name+'" already exists for '+pair.coop+' / '+pair.platform+'. Edit it instead of creating a duplicate.','error',9500);return;}
    if(duplicate._pendingOp)existingInSync.push(duplicate.id);
    continue;
   }
-  const paygroupIds=window.TIPONPaygroups?.validateSiteAssignment(pair.coop,pair.platform,window.TIPONPaygroups.readPicker('sitePaygroupChoices'))||[];
   const site={id:current?.id||uuid(),name,coop:pair.coop,platform:pair.platform,address,paygroupIds,
     lat,lng,radius,createdAt:current?.createdAt||new Date().toISOString()};
-  if(current&&current.name===name&&normalized(current.address)===normalized(address)&&!gpsChanged)continue;
+  if(current&&current.name===name&&normalized(current.address)===normalized(address)&&!gpsChanged&&samePaygroups(current.paygroupIds,paygroupIds))continue;
   proposals.push(site);seenIds.add(site.id);
  }
  if(!proposals.length&&!existingInSync.length){
