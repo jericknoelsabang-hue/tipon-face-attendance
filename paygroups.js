@@ -1,4 +1,4 @@
-/* TIPON 5.5.111 — Paygroup directory, assignment pickers and Time In operation selection. */
+/* TIPON 5.5.112 — Paygroup directory, assignment pickers and Time In operation selection. */
 'use strict';
 window.TIPONPaygroups = (() => {
   const $ = id => document.getElementById(id);
