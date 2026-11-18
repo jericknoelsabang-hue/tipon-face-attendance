@@ -316,14 +316,14 @@ window.TIPONSync=(()=>{
       }else if(op.type==='memberEdits'){
         const id=op.value.memberId,current=await getOne('members',id),original=op.value.original;
         if(current&&original){
-          Object.assign(current,{memberNumber:original.memberNumber||current.memberNumber||current.id,name:original.name,coop:original.coop,platform:original.platform,siteId:original.siteIds?.[0]||'',siteIds:original.siteIds||[],workSchedule:original.workSchedule||null});
+          Object.assign(current,{memberNumber:original.memberNumber||current.memberNumber||current.id,name:original.name,coop:original.coop,platform:original.platform,siteId:original.siteIds?.[0]||'',siteIds:original.siteIds||[],paygroupIds:original.paygroupIds||[],workSchedule:original.workSchedule||null});
           delete current._pendingOp;delete current.pendingEdit;current.syncIssue=latest.error;await OrgDB.rawSave('members',current);
         }
       }else if(op.type==='memberFaceUpdates'){
         const current=await getOne('members',op.value.memberId),original=op.value.original;
         if(current&&original){
           Object.assign(current,{memberNumber:original.memberNumber||current.memberNumber||current.id,name:original.name,coop:original.coop,platform:original.platform,
-            siteId:original.siteId||original.siteIds?.[0]||'',siteIds:original.siteIds||[],
+            siteId:original.siteId||original.siteIds?.[0]||'',siteIds:original.siteIds||[],paygroupIds:original.paygroupIds||[],
             template:original.template||null,consentAt:original.consentAt||null,
             enrolledBy:original.enrolledBy||'',enrolledByUsername:original.enrolledByUsername||'',
             active:original.active!==false,faceEnrollmentStatus:original.faceEnrollmentStatus||'not-enrolled'});
@@ -394,11 +394,14 @@ window.TIPONSync=(()=>{
           const expectedCoop=String(changes.coop??op.value.original?.coop??reply.member.coop);
           const expectedPlatform=String(changes.platform??op.value.original?.platform??reply.member.platform);
           const expectedSites=(Array.isArray(changes.siteIds)?changes.siteIds:op.value.original?.siteIds||[]).map(String);
+          const expectedPaygroups=(Array.isArray(changes.paygroupIds)?changes.paygroupIds:op.value.original?.paygroupIds||[]).map(String).sort();
+          const returnedPaygroups=(reply.member.paygroupIds||[]).map(String).sort();
           const returnedSites=(Array.isArray(reply.member.siteIds)&&reply.member.siteIds.length?reply.member.siteIds:[reply.member.siteId].filter(Boolean)).map(String);
           if(String(reply.member.memberNumber||reply.member.id).trim()!==expectedNumber||
              String(reply.member.name||'').trim()!==expectedName||String(reply.member.coop||'')!==expectedCoop||
              TIPONOrgCore.platformKey(reply.member.platform)!==TIPONOrgCore.platformKey(expectedPlatform)||
-             returnedSites.length!==expectedSites.length||!returnedSites.every(id=>expectedSites.includes(id)))
+             returnedSites.length!==expectedSites.length||!returnedSites.every(id=>expectedSites.includes(id))||
+             JSON.stringify(returnedPaygroups)!==JSON.stringify(expectedPaygroups))
             throw Error('The central organization did not confirm all member fields. Refresh the Member List before retrying.');
           if(changes.workSchedule&&(!reply.member.workSchedule||
             JSON.stringify(reply.member.workSchedule)!==JSON.stringify(changes.workSchedule)))
@@ -579,7 +582,8 @@ window.TIPONSync=(()=>{
           if(type==='members'){
             const op=await getOne('outbox',old._pendingOp);
             const expected=op?.type==='members'?op.value:null;
-            const sameFields=expected&&['name','memberNumber','coop','platform','consentAt'].every(k=>String(entity[k]||'')===String(expected[k]||''));
+            const sameFields=expected&&['name','memberNumber','coop','platform','consentAt'].every(k=>String(entity[k]||'')===String(expected[k]||''))&&
+              JSON.stringify((entity.paygroupIds||[]).map(String).sort())===JSON.stringify((expected.paygroupIds||[]).map(String).sort());
             const sites=m=>(m.siteIds||[m.siteId].filter(Boolean)).map(String).sort().join('|');
             if(op?.everSent&&sameFields&&Number(entity.rev)>Number(op.baseRev||0)&&
                sites(entity)===sites(expected)&&entity.template?.data===expected.template?.data&&
