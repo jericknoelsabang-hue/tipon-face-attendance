@@ -146,7 +146,7 @@ async function enterApp(options={}){
 function applyRoles(){document.querySelectorAll('[data-roles]').forEach(el=>el.hidden=true);}
 function refreshClock(){const now=new Date();setText('liveDateTime',now.toLocaleString('en-PH',{timeZone:PH_TIMEZONE,weekday:'short',month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}));setText('bigDate',now.toLocaleDateString('en-PH',{timeZone:PH_TIMEZONE,weekday:'long',month:'short',day:'numeric',year:'numeric'}));const connected=navigator.onLine;setText('connectionText',connected?'Online / local storage':'Offline / local storage');setText('headerOnlineText',connected?'Network online':state.offlineReady?'Offline ready':'Offline / setup needed');$('onlineDot').className=`status-dot ${connected?'success':'offline'}`;$('headerOnlineDot').className=`status-dot ${connected?'success':'offline'}`;}
 
-const pageNames={dashboard:'Dashboard',scanner:'Face Terminal',terminalLogs:'Attendance Logs',members:'Member List',sites:'Work Locations',records:'Attendance Logs',settings:'Settings & Offline',adminSites:'Work Locations List'};
+const pageNames={dashboard:'Dashboard',scanner:'Face Terminal',terminalLogs:'Attendance Logs',members:'Member List',sites:'Work Locations',paygroups:'Paygroup List',records:'Attendance Logs',settings:'Settings & Offline',adminSites:'Work Locations List'};
 const sharedAttendanceFilters={from:'',to:'',coop:'',platform:'',site:''};
 function readSharedAttendanceFilters(source='dashboard'){
  const ids=source==='logs'?['terminalLogFrom','terminalLogTo','terminalLogCoop','terminalLogPlatform','terminalLogSite']:source==='records'?['recordFrom','recordTo','','','recordSite']:['dashboardFrom','dashboardTo','dashboardCoop','',''];

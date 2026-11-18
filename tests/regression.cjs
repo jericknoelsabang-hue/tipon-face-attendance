@@ -2053,3 +2053,24 @@ test('Admin Attendance Logs MPC filter includes every cooperative even without m
  for(const coop of Org.COOPS)assert.ok(cooperatives.includes(coop));
  options.length=0;ctx.isAdmin=()=>false;ctx.renderTerminalLogs();assert.equal(options.length,0,'User filter options are not expanded');assert.equal(fields.terminalLogCoop.value,'');
 });
+
+test('Paygroup List is a separate Admin/User sidebar page and Operation Code Add is inline',()=>{
+ const html=source('index.html'),app=source('app.js'),org=source('org-core.js'),workspace=source('organization.js'),css=source('paygroups.css');
+ const nav=html.slice(html.indexOf('<nav aria-label="Main navigation"'),html.indexOf('</nav>',html.indexOf('<nav aria-label="Main navigation"')));
+ assert.ok(nav.indexOf('data-page="adminSites"')<nav.indexOf('data-page="paygroups"'),'Paygroup List follows Work Locations List in the sidebar');
+ assert.match(html,/id="page-paygroups"/);
+ assert.match(html,/id="adminPaygroupPanel"/);
+ assert.match(html,/id="userPaygroupPanel"/);
+ const sites=html.slice(html.indexOf('id="page-sites"'),html.indexOf('id="page-records"'));
+ const adminSites=html.slice(html.indexOf('id="page-adminSites"'),html.indexOf('id="page-paygroups"'));
+ assert.doesNotMatch(sites,/paygroup-directory-panel|id="userPaygroupRows"/);
+ assert.doesNotMatch(adminSites,/paygroup-directory-panel|id="adminPaygroupRows"/);
+  assert.ok(org.includes("admin:['dashboard','members','records','accounts','settings','terminalLogs','adminSites','paygroups']"));
+  assert.ok(org.includes("registrar:['scanner','members','sites','settings','terminalLogs','paygroups']"));
+ assert.match(app,/paygroups:'Paygroup List'/);
+ assert.match(workspace,/if\(page==='paygroups'\)window\.TIPONPaygroups\?\.renderDirectory\(\)/);
+ const row=html.slice(html.indexOf('class="paygroup-code-entry"'),html.indexOf('id="paygroupOperationCodes"'));
+  assert.ok(row.indexOf('id="paygroupOperationCodeInput"')<row.indexOf('id="paygroupAddOperationCode"'));
+  assert.ok(css.includes(".paygroup-code-entry{display:grid;grid-template-columns:minmax(0,1fr) auto"));
+  assert.doesNotMatch(css,/flex-direction:column/);
+});
