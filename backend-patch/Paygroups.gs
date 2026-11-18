@@ -77,9 +77,9 @@ function tp5ValidateTimeInPaygroup_(member,site,event){
   else tp5Must_(!code,'This Paygroup does not use an Operation Code.','VALIDATION');
   return {paygroupId:id,paygroup:pg.name,operationCode:code};
 }
-function tp5InheritTimeOutPaygroup_(event){
+function tp5InheritTimeOutPaygroup_(event,pendingEvents){
   tp5Must_(event&&event.type==='OUT'&&event.memberId,'A valid Time Out event is required.','VALIDATION');
-  var allEvents=tp5AllEvents_();
+  var allEvents=tp5AllEvents_().concat(Array.isArray(pendingEvents)?pendingEvents:[]);
   var rows=allEvents.filter(function(row){
     return row&&row.type==='IN'&&String(row.memberId)===String(event.memberId);
   });
@@ -109,7 +109,7 @@ function tp5InheritTimeOutPaygroup_(event){
   event.operationCode=source.operationCode||'';
   return event;
 }
-function tp5ApplyAttendancePaygroup_(event,member,site){
+function tp5ApplyAttendancePaygroup_(event,member,site,pendingEvents){
   tp5Must_(event&&member,'Attendance event and verified member are required.','VALIDATION');
   if(event.type==='IN'){
     var selected=tp5ValidateTimeInPaygroup_(member,site,event);
@@ -117,7 +117,7 @@ function tp5ApplyAttendancePaygroup_(event,member,site){
     event.paygroup=selected.paygroup;
     event.operationCode=selected.operationCode;
   }else if(event.type==='OUT'){
-    tp5InheritTimeOutPaygroup_(event);
+    tp5InheritTimeOutPaygroup_(event,pendingEvents);
   }else{
     tp5Must_(false,'Attendance type must be IN or OUT.','VALIDATION');
   }
