@@ -1,5 +1,5 @@
 {
   "app": "TIPON Face Attendance",
-  "version": "5.5.109",
-  "label": "Add Paygroup directory and Operation Code workflow (frontend and private backend integration patch)."
+  "version": "5.5.110",
+  "label": "Move Paygroup List to a dedicated sidebar page and align Operation Code Add control."
 }
