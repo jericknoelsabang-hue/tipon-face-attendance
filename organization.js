@@ -81,7 +81,7 @@ isAdmin=()=>state.user?.role==='admin';
 roleName=role=>({admin:'Administrator',registrar:'User',kiosk:'Physical Kiosk'}[role]||'Signed out');
 const decryptedFaces=new Map();let decryptedFaceKey=null;
 loadCollections=async function(){
-  const [allMembers,allSites,allPunches,schedules]=await Promise.all(['members','sites','punches','schedules'].map(getAll));
+  const [allMembers,allSites,allPunches,schedules,allMeta]=await Promise.all(['members','sites','punches','schedules','meta'].map(getAll));
   const u=state.user,belongs=x=>x.orgId===state.orgId||(!x.orgId&&u?.role==='admin');
   // Older successful acknowledgments cleared the operation ID but left this UI flag.
   for(const member of allMembers.filter(m=>belongs(m)&&m.pendingEdit&&!m._pendingOp&&Number(m.rev)>0)){
@@ -113,7 +113,15 @@ loadCollections=async function(){
     await Promise.all(Array.from({length:Math.min(6,queue.length)},worker));
   }
   state.punches=allPunches.filter(x=>belongs(x)&&(u?.role==='admin'||u&&TIPONOrgCore.inScope(u,{...x,platform:x.platform||allSites.find(s=>s.id===x.siteId)?.platform}))).sort((a,b)=>Date.parse(b.timestamp)-Date.parse(a.timestamp));
-  state.schedules=schedules.filter(x=>belongs(x)&&!x.deleted);state.users=[];
+  state.schedules=schedules.filter(x=>belongs(x)&&!x.deleted);
+  const paygroupRows=allMeta.filter(x=>String(x.id||'').indexOf('tp5-paygroup:')===0&&belongs(x));
+  const kioskPaygroups=new Set(state.members.flatMap(m=>(m.paygroupIds||[]).map(String)));
+  state.paygroups=paygroupRows.filter(pg=>u?.role==='admin'||
+    (u?.role==='registrar'&&TIPONOrgCore.inScope(u,pg))||
+    (u?.role==='kiosk'&&(TIPONOrgCore.inScope(u,pg)||kioskPaygroups.has(String(pg.id).replace(/^tp5-paygroup:/,'')))))
+    .map(pg=>{const copy={...pg};copy.id=String(copy.id).replace(/^tp5-paygroup:/,'');delete copy.orgId;return copy;});
+  state.paygroupBackendReady=!!allMeta.find(x=>x.id==='tp5-paygroup-directory-status'&&belongs(x)&&x.supported===true);
+  state.users=[];
 };
 enterApp=async function(options={}){
   const bound=await getOne('meta','tp5-boundOrganization');
