@@ -48,12 +48,13 @@ window.TIPONAdminSites=(()=>{
           ' title="Central confirmation is pending. Open Settings & Offline for sync diagnostics."':'')+
           '>'+esc(site.name||'—')+'</b></td>'+
         '<td>'+coopCell+'</td><td>'+esc(site.platform||'—')+'</td>'+
+        '<td>'+esc(window.TIPONPaygroups?.namesForSite(site)||'—')+'</td>'+
         '<td>'+esc(site.address||'—')+'</td><td><small>'+esc(coords)+'</small></td>'+
         '<td><div class="site-actions">'+
         '<button type="button" class="tiny-button" data-admin-site-edit="'+esc(site.id)+'">Edit</button> '+
         '<button type="button" class="tiny-button delete" data-admin-site-delete="'+esc(site.id)+'">Delete</button>'+
         '</div></td></tr>';
-    }).join(''):'<tr><td colspan="6"><div class="empty-state">'+
+    }).join(''):'<tr><td colspan="7"><div class="empty-state">'+
       (query?'No Work Locations match your search.':'No Work Locations are registered yet.')+
       '</div></td></tr>';
     // The Business Platforms table shares this Admin page, not the Sites data store.
