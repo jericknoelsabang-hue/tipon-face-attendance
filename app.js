@@ -38,7 +38,7 @@ const GPS_MIN_RADIUS=20;
 const GPS_MAX_ACCURACY=80;
 const PH_TIMEZONE='Asia/Manila';
 let db;
-const state={ user:null, page:'dashboard', members:[], sites:[], users:[], punches:[], facePromise:null, modelReady:false,
+const state={ user:null, page:'dashboard', members:[], sites:[], paygroups:[], paygroupBackendReady:false, users:[], punches:[], facePromise:null, modelReady:false,
   scanStream:null, scanTimer:null, scanMode:'in', scanning:false, scanBusy:false, scanCandidate:null,
   scanCandidateCount:0, scanCandidateEvidence:[], scanArmed:true, scanAbsentCount:0, scanRetryAt:0, scanRetryCount:0, lastRecognized:null, lastGPS:null,
   enrollStream:null, enrollTimer:null, enrollActive:false, gpsWatchId:null, pendingDescriptors:[], editMember:null, editSite:null,
@@ -271,10 +271,11 @@ function renderMembers(){
   return '<tr><td><div class="row-inline"><div class="initial-avatar">'+esc(initial(m.name))+'</div><div><b>'+esc(m.name)+'</b><small>ID: '+esc(m.memberNumber||m.id)+'</small></div></div></td>'+
    '<td>'+esc(m.coop)+'</td><td>'+esc(m.platform||sites[0]?.platform||'—')+'</td>'+
    '<td><b>'+esc(names||'Unassigned')+'</b><small>'+(sites.length?'GPS verification at assigned work location':'Assign a Work Location before attendance')+'</small></td>'+
+   '<td>'+esc(window.TIPONPaygroups?.namesForMember(m)||'—')+'</td>'+
    '<td class="member-schedule-cell">'+renderMemberWorkScheduleCell(m)+'</td>'+
    '<td><span class="badge '+faceClass+'">'+faceLabel+'</span></td>'+
    '<td><div class="row-inline"><button class="tiny-button" data-member-edit="'+esc(m.id)+'">Edit</button><button class="tiny-button delete" data-member-delete="'+esc(m.id)+'">Delete</button></div></td></tr>';
- }).join(''):'<tr><td colspan="7"><div class="empty-state">'+pageIcon('users')+'No matching members found.</div></td></tr>';
+ }).join(''):'<tr><td colspan="8"><div class="empty-state">'+pageIcon('users')+'No matching members found.</div></td></tr>';
  setText('memberPageCount','Showing '+(data.length?offset+1:0)+'–'+Math.min(offset+pageSize,data.length)+' of '+data.length+' members');
  setText('memberPage','Page '+state.memberPage+' of '+totalPages);
  if($('memberPrev'))$('memberPrev').disabled=state.memberPage<=1;
@@ -470,24 +471,26 @@ async function addExistingEnrolledMemberLocations(old,siteIds){
 async function saveMemberMetadata(member,changes){
  if(!member||(!isAdmin()&&!canEdit()))throw Error('An approved Administrator or User session is required.');
  const clean={memberNumber:String(changes.memberNumber||member.memberNumber||member.id).trim(),name:String(changes.name||'').trim(),coop:String(changes.coop||''),platform:String(changes.platform||'').trim(),
-  siteIds:[...new Set((changes.siteIds||[]).map(String).filter(Boolean))],workSchedule:normalizeMemberWorkSchedule(changes.workSchedule||member.workSchedule)};
+  paygroupIds:[...new Set((changes.paygroupIds||member.paygroupIds||[]).map(String).filter(Boolean))],siteIds:[...new Set((changes.siteIds||[]).map(String).filter(Boolean))],workSchedule:normalizeMemberWorkSchedule(changes.workSchedule||member.workSchedule)};
  const originalIds=Array.isArray(member.siteIds)&&member.siteIds.length?member.siteIds:[member.siteId].filter(Boolean);
  const workScheduleChanged=JSON.stringify(clean.workSchedule)!==JSON.stringify(normalizeMemberWorkSchedule(member.workSchedule));
+ const paygroupsChanged=JSON.stringify(clean.paygroupIds.slice().sort())!==JSON.stringify([...(member.paygroupIds||[])].map(String).sort());
  const scheduleOnly=workScheduleChanged&&clean.memberNumber===String(member.memberNumber||member.id)&&
   clean.name===member.name&&clean.coop===member.coop&&
   TIPONOrgCore.platformKey(clean.platform)===TIPONOrgCore.platformKey(member.platform)&&
-  clean.siteIds.length===originalIds.length&&originalIds.every(id=>clean.siteIds.includes(String(id)));
+  clean.siteIds.length===originalIds.length&&originalIds.every(id=>clean.siteIds.includes(String(id)))&&!paygroupsChanged;
  if(!clean.workSchedule.days.length||!clean.workSchedule.start||!clean.workSchedule.end||
     clean.workSchedule.start===clean.workSchedule.end)throw Error('Select at least one weekly work day and valid start and end times.');
  if(!clean.name||!clean.coop||!TIPONPlatforms.optionsForCoop(clean.coop).some(v=>TIPONOrgCore.platformKey(v)===TIPONOrgCore.platformKey(clean.platform))||!clean.siteIds.length)throw Error('Member name, Cooperative, Business Platform and at least one Assigned Work Location are required.');
  if(clean.siteIds.length>40)throw Error('Maximum 40 Assigned Work Locations.');
+ clean.paygroupIds=window.TIPONPaygroups?.validateMemberAssignment(clean.coop,clean.platform,clean.siteIds,clean.paygroupIds)||clean.paygroupIds;
  if(clean.siteIds.some(id=>{const site=memberSiteCatalog().find(x=>x.id===id&&!x.deleted);return !site||site.coop!==clean.coop||TIPONOrgCore.platformKey(site.platform)!==TIPONOrgCore.platformKey(clean.platform);}))
   throw Error('Choose only synced Work Locations matching the selected Cooperative and Business Platform.');
  const opId=uuid(),payload={memberId:member.id,mode:scheduleOnly?'weeklySchedule':'memberEdit',changes:clean,original:{memberNumber:member.memberNumber||member.id,name:member.name,coop:member.coop,platform:member.platform,siteIds:originalIds,workSchedule:normalizeMemberWorkSchedule(member.workSchedule)}};
  const queue=async()=>{
   const stored=await getOne('members',member.id);
   if(stored?._pendingOp)throw Error('This member already has a pending change.');
-  const local={...stored,...clean,siteId:clean.siteIds[0],siteIds:clean.siteIds,updatedAt:new Date().toISOString(),_pendingOp:opId,pendingEdit:true};
+  const local={...stored,...clean,siteId:clean.siteIds[0],siteIds:clean.siteIds,paygroupIds:clean.paygroupIds,updatedAt:new Date().toISOString(),_pendingOp:opId,pendingEdit:true};
   const op={id:opId,type:'memberEdits',value:payload,baseRev:Number(member.rev)||0,orgId:state.orgId,ownerId:state.user.id,createdAt:new Date().toISOString(),everSent:false};
   await new Promise((resolve,reject)=>{const tx=db.transaction(['members','outbox'],'readwrite');tx.objectStore('members').put(local);tx.objectStore('outbox').put(op);tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error);tx.onabort=()=>reject(tx.error);});
   await loadCollections();TIPONSync.kick();return {member:local,pending:true,operationId:opId};
@@ -500,16 +503,18 @@ async function saveMemberMetadata(member,changes){
   const reply=await TIPONAPI.call(request);
   const saved=reply.member;
   const savedSites=Array.isArray(saved?.siteIds)&&saved.siteIds.length?saved.siteIds:[saved?.siteId].filter(Boolean);
+   const savedPaygroups=(saved?.paygroupIds||[]).map(String).sort();
   const savedNumber=String(saved?.memberNumber||saved?.id||'').trim();
   if(!saved||String(saved.id)!==String(member.id)||savedNumber!==clean.memberNumber||
      String(saved.name||'').trim()!==clean.name||String(saved.coop||'')!==clean.coop||
      TIPONOrgCore.platformKey(saved.platform)!==TIPONOrgCore.platformKey(clean.platform)||
      !saved.workSchedule||JSON.stringify(normalizeMemberWorkSchedule(saved.workSchedule))!==JSON.stringify(clean.workSchedule)||
-     savedSites.length!==clean.siteIds.length||!savedSites.every(id=>clean.siteIds.includes(id)))
+     savedSites.length!==clean.siteIds.length||!savedSites.every(id=>clean.siteIds.includes(id))||
+      JSON.stringify(savedPaygroups)!==JSON.stringify(clean.paygroupIds.slice().sort()))
    throw Error('The central organization did not confirm the Member ID, identity, Cooperative, Business Platform, work schedule and Assigned Work Locations. Refresh Member List before retrying.');
   const current=await getOne('members',member.id);
   if(current?._pendingOp)throw Error('A local edit is pending. Sync and reopen the member.');
-  const record={...current,...saved,workSchedule:clean.workSchedule,orgId:state.orgId};delete record._pendingOp;delete record.pendingEdit;delete record.syncIssue;
+  const record={...current,...saved,workSchedule:clean.workSchedule,paygroupIds:clean.paygroupIds,orgId:state.orgId};delete record._pendingOp;delete record.pendingEdit;delete record.syncIssue;
   await OrgDB.rawSave('members',record);await loadCollections();TIPONSync.kick();
   return {member:record,pending:false};
  }catch(error){
@@ -549,6 +554,7 @@ async function persistMemberForm(){
  const memberNumber=$('memberId').value.trim(),id=state.editMember?.id||memberNumber,name=memberNameFromFields(),
    coop=$('memberCoop').value,platform=$('memberPlatform').value.trim(),
    siteIds=[...$('memberSite').selectedOptions].map(o=>o.value),
+   paygroupIds=window.TIPONPaygroups?.validateMemberAssignment(coop,platform,siteIds,window.TIPONPaygroups.readPicker('memberPaygroupChoices'))||[],
    workSchedule=readMemberWorkSchedule(),
    sites=siteIds.map(id=>memberSiteCatalog().find(x=>x.id===id&&!x.deleted));
  if(!memberNumber||!id||!name||!TIPONOrgCore.COOPS.includes(coop)||!TIPONPlatforms.optionsForCoop(coop).some(v=>TIPONOrgCore.platformKey(v)===TIPONOrgCore.platformKey(platform))){
@@ -573,14 +579,15 @@ async function persistMemberForm(){
  if(old&&!state.faceReplacementPending&&!state.enrollmentProof){
   const previousIds=Array.isArray(old.siteIds)&&old.siteIds.length?old.siteIds:[old.siteId].filter(Boolean);
   const sameSites=previousIds.length===siteIds.length&&previousIds.every(site=>siteIds.includes(site));
+  const previousPaygroups=(old.paygroupIds||[]).map(String),samePaygroups=previousPaygroups.length===paygroupIds.length&&previousPaygroups.every(id=>paygroupIds.includes(id));
   const changed=memberNumber!==(old.memberNumber||old.id)||name!==old.name||coop!==old.coop||
-    TIPONOrgCore.platformKey(platform)!==TIPONOrgCore.platformKey(old.platform)||!sameSites||
+    TIPONOrgCore.platformKey(platform)!==TIPONOrgCore.platformKey(old.platform)||!sameSites||!samePaygroups||
     JSON.stringify(workSchedule)!==JSON.stringify(normalizeMemberWorkSchedule(old.workSchedule));
   if(!changed){$('memberDialog').close();return;}
   if(old._pendingOp){showToast('This member already has a pending change. Sync before editing again.','error');return;}
   const submit=$('memberForm').querySelector('[type="submit"]');if(submit)submit.disabled=true;
   try{
-   const result=await saveMemberMetadata(old,{name,coop,platform,siteIds,memberNumber,workSchedule});
+   const result=await saveMemberMetadata(old,{name,coop,platform,siteIds,paygroupIds,memberNumber,workSchedule});
    $('memberDialog').close();await loadCollections();renderMembers();renderDashboard();
    showToast(result.pending?'Member update saved locally. Pending Sync; it will retry when internet is available.':'Member changes saved and synchronized.','success',8000);
   }catch(error){showToast(error.message||String(error),'error',8500);}
@@ -589,11 +596,12 @@ async function persistMemberForm(){
  }
  const oldIds=old?(Array.isArray(old.siteIds)&&old.siteIds.length?old.siteIds:[old.siteId].filter(Boolean)):[];
  const sameSites=old&&oldIds.length===siteIds.length&&oldIds.every(site=>siteIds.includes(site));
+ const oldPaygroups=(old?.paygroupIds||[]).map(String),samePaygroups=oldPaygroups.length===paygroupIds.length&&oldPaygroups.every(id=>paygroupIds.includes(id));
  // Editing GPS assignment must not force another facial enrollment.
  // A member without an enrolled face remains NOT ENROLLED until later.
- const locationOnly=!!old&&!state.pendingDescriptors?.length&&!old.template||
+ const locationOnly=!!old&&!state.pendingDescriptors?.length&&!old.template&&samePaygroups||
    !!old&&!!old.template&&name===old.name&&coop===old.coop&&
-     TIPONOrgCore.platformKey(platform)===TIPONOrgCore.platformKey(old.platform);
+     TIPONOrgCore.platformKey(platform)===TIPONOrgCore.platformKey(old.platform)&&samePaygroups;
  if(locationOnly&&!state.faceReplacementPending){
    if(name!==old.name||coop!==old.coop||
      TIPONOrgCore.platformKey(platform)!==TIPONOrgCore.platformKey(old.platform)){
@@ -706,7 +714,7 @@ async function persistMemberForm(){
    const descriptors=state.pendingDescriptors.map(vector=>Array.from(vector));
    const template=await TIPONAuth.seal(descriptors,session.faceKey,'member:'+id);
    const now=new Date().toISOString();
-   const record={...(old||{}),id,memberNumber,name,coop,platform,siteId:siteIds[0],siteIds,workSchedule,
+   const record={...(old||{}),id,memberNumber,name,coop,platform,siteId:siteIds[0],siteIds,paygroupIds,workSchedule,
      descriptors,template,consentAt,enrolledBy:state.user.id,
      enrolledByUsername:state.user.username||'',
      createdBy:old?.createdBy||state.user.id,createdAt:old?.createdAt||now,updatedAt:now,active:true,faceEnrollmentStatus:'enrolled',
@@ -723,7 +731,7 @@ async function persistMemberForm(){
        enrolledByUsername:old.enrolledByUsername||'',active:old.active!==false,
        faceEnrollmentStatus:old.faceEnrollmentStatus||''
      };
-     const changes={name,coop,platform,siteIds,memberNumber,template,consentAt,enrolledBy:state.user.id,
+     const changes={name,coop,platform,siteIds,paygroupIds,memberNumber,template,consentAt,enrolledBy:state.user.id,
        enrolledByUsername:state.user.username||'',workSchedule};
      operation={id:opId,type:'memberFaceUpdates',value:{memberId:id,changes,original},
        baseRev,orgId:state.orgId,ownerId:state.user.id,createdAt:now,everSent:false};
@@ -834,7 +842,8 @@ async function handleMemberTableClick(event){
  }finally{del.disabled=false;}
 }
 function renderSites(){
- $('siteCards').innerHTML=state.sites.length?state.sites.map(s=>`<tr><td><b>${esc(s.name)}</b></td><td>${esc(s.coop)}</td><td>${esc(s.platform||'—')}</td><td><div class="site-actions"><button class="tiny-button" data-site-edit="${esc(s.id)}">Edit</button><button class="tiny-button delete" data-site-delete="${esc(s.id)}">Delete</button></div></td></tr>`).join(''):`<tr><td colspan="4"><div class="empty-state">${pageIcon('pin')}No Work Locations are available for your approved Cooperative / Business Platform. Select “Add Work Location” to register an authorized GPS site.</div></td></tr>`;
+ const rows=state.sites||[];
+ $('siteCards').innerHTML=rows.length?rows.map(site=>'<tr><td><b>'+esc(site.name)+'</b></td><td>'+esc(site.coop)+'</td><td>'+esc(site.platform||'—')+'</td><td>'+esc(window.TIPONPaygroups?.namesForSite(site)||'—')+'</td><td><div class="site-actions"><button class="tiny-button" data-site-edit="'+esc(site.id)+'">Edit</button><button class="tiny-button delete" data-site-delete="'+esc(site.id)+'">Delete</button></div></td></tr>').join(''):'<tr><td colspan="5"><div class="empty-state">'+pageIcon('pin')+'No Work Locations are available for your approved Cooperative / Business Platform. Select “Add Work Location” to register an authorized GPS site.</div></td></tr>';
 }
 function openSiteForm(site){
  state.editSite=site||null;$('siteForm').reset();setText('siteFormTitle',site?'Edit Work Location':'Add Work Location');$('siteRadius').value='150';
@@ -845,6 +854,7 @@ function openSiteForm(site){
  setText('siteAddressCaption',isAdmin()?'Address':'Address / Site Description');
  if($('adminSitePlaceFind'))$('adminSitePlaceFind').textContent=isAdmin()?'Find Location on Map':'Find on Map';
  if(site){$('siteName').value=site.name;$('siteCoop').value=site.coop;$('siteAddress').value=site.address||'';$('siteLat').value=site.lat;$('siteLng').value=site.lng;$('siteRadius').value=150;}
+ window.TIPONPaygroups?.fillSitePicker(site?.paygroupIds||[]);
  updateSiteMap();$('siteDialog').showModal();
 }
 function updateSiteMap(){
@@ -922,7 +932,8 @@ async function saveSiteForm(e){
    if(duplicate._pendingOp)existingInSync.push(duplicate.id);
    continue;
   }
-  const site={id:current?.id||uuid(),name,coop:pair.coop,platform:pair.platform,address,
+  const paygroupIds=window.TIPONPaygroups?.validateSiteAssignment(pair.coop,pair.platform,window.TIPONPaygroups.readPicker('sitePaygroupChoices'))||[];
+  const site={id:current?.id||uuid(),name,coop:pair.coop,platform:pair.platform,address,paygroupIds,
     lat,lng,radius,createdAt:current?.createdAt||new Date().toISOString()};
   if(current&&current.name===name&&normalized(current.address)===normalized(address)&&!gpsChanged)continue;
   proposals.push(site);seenIds.add(site.id);
@@ -1196,10 +1207,10 @@ function renderTerminalLogs(){
     row.timeIn?TIPONCore.phStamp(row.timeIn).slice(-8):'—',
     row.timeOut?TIPONCore.phStamp(row.timeOut).slice(-8):'—',
     row.timeOut?TIPONCore.phStamp(row.timeOut).slice(0,10):'—',
-    row.coop||'—',row.platform||'—',location
+    row.coop||'—',row.platform||'—',location,row.paygroup||'—',row.operationCode||'—'
    ];
    return '<tr>'+data.map(value=>'<td>'+esc(value)+'</td>').join('')+'<td>'+action+'</td></tr>';
-  }).join(''):'<tr><td colspan="10"><div class="empty-state">No records are available in this view. Try Reset Filters or Refresh. Stored records will not be erased.</div></td></tr>';
+  }).join(''):'<tr><td colspan="12"><div class="empty-state">No records are available in this view. Try Reset Filters or Refresh. Stored records will not be erased.</div></td></tr>';
   setText('terminalLogPageCount','Showing '+(filteredRows.length?offset+1:0)+'–'+Math.min(offset+pageSize,filteredRows.length)+' of '+filteredRows.length+' attendance records');
   setText('terminalLogPage','Page '+state.attendancePage+' of '+totalPages);
   if($('terminalLogPrev'))$('terminalLogPrev').disabled=state.attendancePage<=1;
@@ -1210,7 +1221,7 @@ function renderTerminalLogs(){
   setText('terminalLogPage','Page 1 of 1');
   if($('terminalLogPrev'))$('terminalLogPrev').disabled=true;
   if($('terminalLogNext'))$('terminalLogNext').disabled=true;
-  $('terminalLogRows').innerHTML='<tr><td colspan="10">'+esc(err.message)+'</td></tr>';
+  $('terminalLogRows').innerHTML='<tr><td colspan="12">'+esc(err.message)+'</td></tr>';
  }
 }
 function attendanceRowByKey(key){
@@ -1601,10 +1612,17 @@ async function recordRecognizedFace(member,faceDistance,faceEvidence){
   const match=candidates.find(x=>x.distance<=150);
   if(!match){const closest=candidates[0];throw Error(`Face recognized: ${member.name}. Nearest assigned work location is ${Math.round(closest.distance)} m away; maximum allowed is 150 m.`);}
   const {site,distance}=match,stamp=new Date();
+  let paygroupSelection={paygroupId:'',paygroup:'',operationCode:''};
+  if(tx.type==='IN'&&window.TIPONPaygroups){
+   paygroupSelection=await window.TIPONPaygroups.chooseForTimeIn(member,site);
+   if(!paygroupSelection)throw Error('Time In cancelled. Select an Operation Code before recording attendance.');
+  }else if(tx.type==='OUT'&&tx.last){
+   paygroupSelection={paygroupId:String(tx.last.paygroupId||''),paygroup:String(tx.last.paygroup||''),operationCode:String(tx.last.operationCode||'')};
+  }
   // One bounded preflight was already attempted; a second full sync would
   // delay every punch. The server still checks queued records for duplicates.
   const punch={id:uuid(),orgId:state.orgId,siteRev:site.rev||0,deviceId:state.deviceId,timestamp:stamp.toISOString(),day:todayPH(stamp),type:tx.type,
-    memberId:member.id,memberName:member.name,coop:member.coop,platform:site.platform,recordedById:state.user.id,siteId:site.id,siteName:site.name,requiresSessionResolution:needsSessionResolution,
+    memberId:member.id,memberName:member.name,coop:member.coop,platform:site.platform,paygroupId:paygroupSelection.paygroupId,paygroup:paygroupSelection.paygroup,operationCode:paygroupSelection.operationCode,recordedById:state.user.id,siteId:site.id,siteName:site.name,requiresSessionResolution:needsSessionResolution,
     siteLat:site.lat,siteLng:site.lng,radius:150,lat:gps.latitude,lng:gps.longitude,
     accuracy:gps.accuracy,distance,faceDistance,performedBy:state.user.username||state.user.name};
   await commitPunch(punch,mode);state.scanRetryAt=0;state.scanRetryCount=0;TIPONAuth?.touchActivity?.();await loadCollections();renderTerminal();renderTerminalLogs();renderDashboard();
