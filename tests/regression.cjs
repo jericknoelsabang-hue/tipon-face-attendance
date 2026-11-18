@@ -2145,7 +2145,7 @@ function paygroupTerminalContext(paygroups,sitePaygroupIds){
  const ctx={state:{paygroups,sites:[site]},TIPONOrgCore:{platformKey:v=>String(v||'').trim().toLowerCase()},
   $:id=>nodes[id]||null,esc:v=>String(v??''),setText:(id,value)=>{node(id).textContent=String(value);},
   isAdmin:()=>false,showToast:()=>{},navigator:{onLine:true},console,
-  document:{readyState:'loading',addEventListener:()=>{},querySelectorAll:()=>[]}};
+  document:{readyState:'loading',getElementById:id=>nodes[id]||null,addEventListener:()=>{},querySelectorAll:()=>[]}};
  ['terminalOperationPanel','terminalOperationChoices','terminalOperationTitle','terminalOperationHelp','terminalOperationCancel'].forEach(node);
  ctx.window=ctx;vm.createContext(ctx);vm.runInContext(source('paygroups.js'),ctx);
  ctx.TIPONPaygroups.bind();
@@ -2191,6 +2191,7 @@ test('Server validates the selected Time In Operation Code and inherits it uncha
   tp5PGRead_:()=>groups,tp5AllEvents_:()=>events,
   tp5Must_:(ok,message,code)=>{if(!ok)throw Object.assign(Error(message),{code});}};
  vm.createContext(ctx);vm.runInContext(source('backend-patch/Paygroups.gs'),ctx);
+ ctx.tp5PGRead_=()=>groups;ctx.tp5AllEvents_=()=>events;
  const member={id:'M-1',coop:'Asiapro',platform:'IMG',paygroupIds:['pg-code','pg-none']};
  const site={id:'site-1',coop:'Asiapro',platform:'IMG',paygroupIds:['pg-code','pg-none']};
  const timeIn={type:'IN',memberId:'M-1',paygroupId:'pg-code',operationCode:'CUT'};
@@ -2244,6 +2245,7 @@ test('Server preserves the selected Operation Code when Time In and Time Out arr
   tp5AllEvents_:()=>[],
   tp5Must_:(ok,message,code)=>{if(!ok)throw Object.assign(Error(message),{code});}};
  vm.createContext(ctx);vm.runInContext(source('backend-patch/Paygroups.gs'),ctx);
+ ctx.tp5PGRead_=()=>[{id:'pg-1',name:'Daily',coop:'Asiapro',platform:'IMG',operationCodes:['CUT']}];
  const member={id:'M-1',coop:'Asiapro',platform:'IMG',paygroupIds:['pg-1']};
  const site={id:'site-1',coop:'Asiapro',platform:'IMG',paygroupIds:['pg-1']};
  const timeIn={id:'in-1',sessionId:'session-1',memberId:'M-1',type:'IN',paygroupId:'pg-1',operationCode:'CUT'};
