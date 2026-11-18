@@ -45,7 +45,7 @@ function readAdminWorkSchedule(){return {enabled:true,days:[...document.querySel
     [...new Set([...TIPONOrgCore.COOPS,member.coop])].filter(Boolean).map(v=>'<option value="'+esc(v)+'">'+esc(v)+'</option>').join('');
   coop.value=member.coop;
   TIPONPlatforms.fillScoped('adminMemberCoop','adminMemberPlatform',member.platform);
-  fillAdminWorkSchedule(member.workSchedule);choices(ids(member));
+  fillAdminWorkSchedule(member.workSchedule);choices(ids(member));window.TIPONPaygroups?.fillMemberPicker('admin',member.paygroupIds||[]);
   $('adminMemberSitePicker').open=false;
   setText('adminMemberFaceStatus',member.template&&member.active!==false
     ?'ENROLLED — face template and attendance history are preserved.'
@@ -63,7 +63,7 @@ function readAdminWorkSchedule(){return {enabled:true,days:[...document.querySel
    setText('adminMemberEditStatus','This member changed while the form was open. Close and reopen Edit to use the latest record.');return;
   }
   const memberNumber=$('adminMemberId').value.trim(),name=$('adminMemberName').value.trim(),coop=$('adminMemberCoop').value,
-    platform=$('adminMemberPlatform').value,siteIds=selected(),workSchedule=readAdminWorkSchedule();
+    platform=$('adminMemberPlatform').value,siteIds=selected(),paygroupIds=window.TIPONPaygroups?.validateMemberAssignment(coop,platform,siteIds,window.TIPONPaygroups.readPicker('adminMemberPaygroupChoices'))||[],workSchedule=readAdminWorkSchedule();
   if(!name||name.length>120||!TIPONOrgCore.COOPS.includes(coop)||
      !TIPONPlatforms.optionsForCoop(coop).some(v=>key(v)===key(platform))){
    setText('adminMemberEditStatus','Enter a valid Full Name, Cooperative and Business Platform.');return;
@@ -77,13 +77,14 @@ function readAdminWorkSchedule(){return {enabled:true,days:[...document.querySel
   const scopeChanged=coop!==member.coop||key(platform)!==key(member.platform);
   const locationChanged=!same(ids(member),siteIds),nameChanged=name!==member.name;
   const scheduleChanged=JSON.stringify(workSchedule)!==JSON.stringify(normalizeAdminWorkSchedule(member.workSchedule));
-  if(memberNumber===(member.memberNumber||member.id)&&!scopeChanged&&!locationChanged&&!nameChanged&&!scheduleChanged){$('adminMemberDialog').close();return;}
+  const samePaygroups=same((member.paygroupIds||[]).map(String),paygroupIds);
+  if(memberNumber===(member.memberNumber||member.id)&&!scopeChanged&&!locationChanged&&!nameChanged&&!scheduleChanged&&samePaygroups){$('adminMemberDialog').close();return;}
   if(scopeChanged||locationChanged){
    if(!await confirmAction('Confirm Member Assignment','Update '+member.name+'? Existing attendance history will be retained.'))return;
   }
   const button=$('adminMemberSave');button.disabled=true;setText('adminMemberEditStatus','Saving member changes...');
   try{
-   const result=await window.TIPONMemberMetadataSave(member,{name,coop,platform,siteIds,memberNumber,workSchedule});
+   const result=await window.TIPONMemberMetadataSave(member,{name,coop,platform,siteIds,paygroupIds,memberNumber,workSchedule});
    await loadCollections();$('adminMemberDialog').close();renderMembers();renderDashboard();
    showToast(result.pending?'Changes saved locally. Pending Sync.':'Member changes synchronized.','success',7000);
   }catch(error){
