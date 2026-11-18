@@ -23,7 +23,8 @@ function tp5TransferUpdate_(actor,q){
   // Permission comes from the ORIGINAL member scope. The target must be an
   // existing central location, without granting access to target members.
   var ids=c.siteIds;
-  tp5Must_(Array.isArray(ids)&&ids.length>=1&&ids.length<=40&&new Set(ids).size===ids.length,'Select unique Assigned Work Locations (1–40).','VALIDATION');
+  var uniqueSites={};
+  tp5Must_(Array.isArray(ids)&&ids.length>=1&&ids.length<=40&&ids.every(function(id){if(uniqueSites[String(id)])return false;uniqueSites[String(id)]=true;return true;}),'Select unique Assigned Work Locations (1–40).','VALIDATION');
   ids.forEach(function(id){
     var site=typeof id==='string'&&tp5Find_('sites',id);
     tp5Must_(site&&!site.deleted&&site.coop===coop&&TIPONOrgCore.platformKey(site.platform)===TIPONOrgCore.platformKey(platform),'Assigned locations must match the selected Cooperative and Business Platform.','DEPENDENCY');
@@ -47,7 +48,8 @@ function tp5MemberFaceUpdate_(actor,q){
   tp5Must_(name&&TIPONOrgCore.COOPS.includes(coop),'Enter a valid name and Cooperative.','VALIDATION');
   var memberNumber=tp5EditableMemberNumber_(old,c.memberNumber),ids=c.siteIds,template=c.template;
   var paygroupIds=tp5PaygroupIds_(c.paygroupIds===undefined?old.paygroupIds:c.paygroupIds,{coop:coop,platform:platform,siteIds:ids});
-  tp5Must_(Array.isArray(ids)&&ids.length>=1&&ids.length<=40&&new Set(ids).size===ids.length,'Select unique Assigned Work Locations (1–40).','VALIDATION');
+  var uniqueFaceSites={};
+  tp5Must_(Array.isArray(ids)&&ids.length>=1&&ids.length<=40&&ids.every(function(id){if(uniqueFaceSites[String(id)])return false;uniqueFaceSites[String(id)]=true;return true;}),'Select unique Assigned Work Locations (1–40).','VALIDATION');
   ids.forEach(function(id){var site=typeof id==='string'&&tp5Find_('sites',id);tp5Must_(site&&!site.deleted&&site.coop===coop&&TIPONOrgCore.platformKey(site.platform)===TIPONOrgCore.platformKey(platform),'Assigned locations must match the selected Cooperative and Business Platform.','DEPENDENCY');});
   var workSchedule=tp5MemberWorkScheduleV2_(c.workSchedule,old.workSchedule);
   tp5Must_(template&&template.alg==='AES-GCM'&&typeof template.data==='string'&&template.data.length>0&&template.data.length<18000&&typeof template.iv==='string'&&template.iv.length>0,'An encrypted AES-GCM face template is required.','VALIDATION');
