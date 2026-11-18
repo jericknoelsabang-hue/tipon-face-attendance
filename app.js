@@ -487,7 +487,7 @@ async function saveMemberMetadata(member,changes){
  clean.paygroupIds=window.TIPONPaygroups?.validateMemberAssignment(clean.coop,clean.platform,clean.siteIds,clean.paygroupIds)||clean.paygroupIds;
  if(clean.siteIds.some(id=>{const site=memberSiteCatalog().find(x=>x.id===id&&!x.deleted);return !site||site.coop!==clean.coop||TIPONOrgCore.platformKey(site.platform)!==TIPONOrgCore.platformKey(clean.platform);}))
   throw Error('Choose only synced Work Locations matching the selected Cooperative and Business Platform.');
- const opId=uuid(),payload={memberId:member.id,mode:scheduleOnly?'weeklySchedule':'memberEdit',changes:clean,original:{memberNumber:member.memberNumber||member.id,name:member.name,coop:member.coop,platform:member.platform,siteIds:originalIds,workSchedule:normalizeMemberWorkSchedule(member.workSchedule)}};
+ const opId=uuid(),payload={memberId:member.id,mode:scheduleOnly?'weeklySchedule':'memberEdit',changes:clean,original:{memberNumber:member.memberNumber||member.id,name:member.name,coop:member.coop,platform:member.platform,siteIds:originalIds,paygroupIds:member.paygroupIds||[],workSchedule:normalizeMemberWorkSchedule(member.workSchedule)}};
  const queue=async()=>{
   const stored=await getOne('members',member.id);
   if(stored?._pendingOp)throw Error('This member already has a pending change.');
@@ -727,7 +727,7 @@ async function persistMemberForm(){
    if(old){
      const original={
        memberNumber:old.memberNumber||old.id,name:old.name,coop:old.coop,platform:old.platform,siteId:old.siteId||'',
-       siteIds:Array.isArray(old.siteIds)&&old.siteIds.length?old.siteIds:[old.siteId].filter(Boolean),
+       siteIds:Array.isArray(old.siteIds)&&old.siteIds.length?old.siteIds:[old.siteId].filter(Boolean),paygroupIds:old.paygroupIds||[],
        template:old.template||null,consentAt:old.consentAt||null,enrolledBy:old.enrolledBy||'',
        enrolledByUsername:old.enrolledByUsername||'',active:old.active!==false,
        faceEnrollmentStatus:old.faceEnrollmentStatus||''
