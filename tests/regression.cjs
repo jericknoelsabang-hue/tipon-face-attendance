@@ -2146,6 +2146,7 @@ function paygroupTerminalContext(paygroups,sitePaygroupIds){
   $:id=>nodes[id]||null,esc:v=>String(v??''),setText:(id,value)=>{node(id).textContent=String(value);},
   isAdmin:()=>false,showToast:()=>{},navigator:{onLine:true},console,
   document:{readyState:'loading',addEventListener:()=>{},querySelectorAll:()=>[]}};
+ ['terminalOperationPanel','terminalOperationChoices','terminalOperationTitle','terminalOperationHelp','terminalOperationCancel'].forEach(node);
  ctx.window=ctx;vm.createContext(ctx);vm.runInContext(source('paygroups.js'),ctx);
  ctx.TIPONPaygroups.bind();
  return {ctx,nodes,node};
