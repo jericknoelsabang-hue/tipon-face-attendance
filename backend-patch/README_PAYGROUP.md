@@ -22,7 +22,7 @@ if(action==='paygroupDelete')return tp5Lock_(function(){actor=tp5Auth_(q);return
 6. Run upgradeTIPONPaygroups once from the Google Sheet menu or Apps Script editor. It safely adds Department to the visible TIPON Paygroups directory and the Attendance report when their destination columns are blank, then refreshes the directory. It stops with a schema error instead of overwriting conflicting data.
 7. Save the project and deploy a new version of the existing Web App deployment.
 
-Approved Admins can add, update, and delete Paygroups. An approved User (registrar) can add and edit Paygroups only in their own Cooperative + Business Platform scope; deletion stays Admin-only. Kiosks and Users receive only the Paygroups within their authorized Work Location or account scope.
+Approved Admins can add, update, and delete Paygroups. An approved User (registrar) can add, edit, and delete Paygroups only in their own Cooperative + Business Platform scope. Deletion is a soft delete and the server rejects it while any active Work Location or member still references that Paygroup. Kiosks and Users receive only the Paygroups within their authorized Work Location or account scope.
 
 ## Attendance rules
 
