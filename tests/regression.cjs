@@ -2269,7 +2269,7 @@ test('Apps Script lets scoped Users soft-delete only unused Paygroups',()=>{
   tp5ValidatePaygroup_:(actor,record)=>({...record}),
   tp5Put_:(type,record)=>{const i=paygroups.findIndex(x=>x.id===record.id);if(i>=0)paygroups[i]=record;else paygroups.push(record);},
   tp5RefreshPaygroupDirectory_:()=>{},tp5Bump_:()=>2,tp5Now_:()=> 'now',tp5Audit_:()=>{},
-  tp5PGList_:()=>({paygroups}),tp5Reply_:value=>value
+  tp5PGList_:()=>({paygroups}),tp5Safe_:value=>({...value}),tp5Reply_:value=>value
  };
  vm.createContext(ctx);vm.runInContext(source('backend-patch/PaygroupEndpoints.gs'),ctx);
  const user={id:'u-1',role:'registrar',coop:'Asiapro',platform:'IMG'};
