@@ -1,5 +1,5 @@
 {
   "app": "TIPON Face Attendance",
-  "version": "5.5.122",
-  "label": "Attendance sync now preserves Department selections and retries valid GPS fixes."
+  "version": "5.5.123",
+  "label": "Attendance sync retries valid rejected records and preserves Department selections."
 }
