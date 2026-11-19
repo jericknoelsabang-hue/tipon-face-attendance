@@ -391,14 +391,20 @@ test('Fast Face Terminal combines GPS with one bounded central sync without weak
  assert.match(body,/const gpsResult=await gpsOutcome/);
  assert.doesNotMatch(body,/await TIPONSync\.submitPendingNow\(/);
  assert.match(body,/TIPONCore\.transition\(/);
- assert.match(body,/gps\.accuracy>GPS_MAX_ACCURACY/);
- assert.match(body,/distance<=150/);
+ assert.match(body,/gps\.accuracy<=gpsAccuracyLimit\(radius\)/);
+ assert.match(body,/x\.distance<=radius/);
  assert.match(body,/await commitPunch\(punch,mode\)/);
  assert.match(body,/const syncPending=!centralReadOk/);
  assert.match(body,/TIPONSync\.kick\(\)/);
  assert.match(sync,/if\(ready&&!state\.scanBusy\)updateScanResult\('Member directory ready'/);
 });
 
+test('500-meter worksite radius accepts a 151-meter fix while default radius remains strict',()=>{
+ const site={lat:0,lng:0,radius:500};
+ assert.equal(Org.gps(site,{lat:0,lng:.001,accuracy:151}),true);
+ assert.throws(()=>Org.gps({...site,radius:150},{lat:0,lng:.001,accuracy:151}),/too inaccurate/);
+ assert.throws(()=>Org.gps(site,{lat:0,lng:.001,accuracy:201}),/too inaccurate/);
+});
 test('Attendance reuses a recent accurate GPS watch fix without waiting for another position',async()=>{
   const app=source('app.js'),start=app.indexOf('function usableAttendanceGPS('),end=app.indexOf('function startGPSWatch(){',start);
   assert.ok(start>=0&&end>start);
