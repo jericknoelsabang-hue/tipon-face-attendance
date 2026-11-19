@@ -390,7 +390,6 @@ window.TIPONPaygroups = (() => {
     window.__tiponPaygroupsBound = true;
     $('adminPaygroupAdd')?.addEventListener('click', () => openDialog());
     ['admin','user'].forEach(prefix=>{$(`${prefix}PaygroupPrev`)?.addEventListener('click',()=>{directoryPage=Math.max(1,directoryPage-1);renderDirectory();});$(`${prefix}PaygroupNext`)?.addEventListener('click',()=>{directoryPage++;renderDirectory();});});
-    document.addEventListener('click',ev=>{const b=ev.target.closest('[data-member-paygroups],[data-site-paygroups]');if(!b)return;const isMember=b.hasAttribute('data-member-paygroups'),id=isMember?b.dataset.memberPaygroups:b.dataset.sitePaygroups,obj=isMember?state.members.find(x=>String(x.id)===String(id)):state.sites.find(x=>String(x.id)===String(id));if(obj)openAssignedPaygroupsView('Paygroups — '+(obj.name||''),obj.paygroupIds);});
     $('userPaygroupAdd')?.addEventListener('click', () => openDialog());
     $('adminPaygroupRefresh')?.addEventListener('click', () => refreshDirectory('refresh'));
     $('userPaygroupRefresh')?.addEventListener('click', () => refreshDirectory('refresh'));
