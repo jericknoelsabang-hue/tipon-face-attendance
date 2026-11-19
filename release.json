@@ -1,5 +1,5 @@
 {
   "app": "TIPON Face Attendance",
-  "version": "5.5.117",
-  "label": "Work Location GPS checks now respect the saved geofence radius."
+  "version": "5.5.118",
+  "label": "Attendance now requires a fresh central ledger while online; Time Out inherits the Time In department and operation."
 }
