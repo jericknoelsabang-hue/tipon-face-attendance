@@ -142,8 +142,10 @@ function tp5PGAdd_(actor,q){
   rows.push(p);tp5PGWrite_(rows);tp5Bump_();tp5Audit_(actor,'PAYGROUP_ADD',p.id,'Paygroup created.');return tp5PGList_(actor);
 }
 function tp5PGUpdate_(actor,q){
-  tp5Admin_(actor);var p=tp5PGValidate_(q),rows=tp5PGRead_(),old=rows.find(function(x){return String(x.id)===p.id;});
+  tp5Must_(actor&&(actor.role==='admin'||actor.role==='registrar'),'Only an Administrator or approved User can edit a Paygroup.','FORBIDDEN');
+  var p=tp5PGValidate_(q),rows=tp5PGRead_(),old=rows.find(function(x){return String(x.id)===p.id;});
   tp5Must_(!!old,'Paygroup not found. Refresh and retry.','NOT_FOUND');
+  if(actor.role==='registrar')tp5Must_(actor.coop===old.coop&&tp5PGKey_(actor.platform)===tp5PGKey_(old.platform),'You may edit Paygroups only within your approved Cooperative and Business Platform.','FORBIDDEN');
   tp5Must_(old.coop===p.coop&&tp5PGKey_(old.platform)===tp5PGKey_(p.platform),
     'Cooperative and Business Platform cannot be changed after assignments exist.','CONFLICT');
   tp5Must_(!rows.some(function(x){return String(x.id)!==p.id&&x.coop===p.coop&&tp5PGKey_(x.platform)===tp5PGKey_(p.platform)&&tp5PGKey_(x.name)===tp5PGKey_(p.name);}),
