@@ -126,7 +126,7 @@
     // Repeatable daily shifts are paired one at a time: Time Out must close
     // an open Time In, and the next Time In is allowed only after that close.
     if(mode==='out'&&!open.length&&last?.type!=='IN')
-      throw Error('No open Time In to close. Select Time In to start another attendance period today.');
+      throw Error('Already timed out today. No open Time In to close; select Time In to start another attendance period.');
     const type = mode.toUpperCase();
     if (last && epoch(last.timestamp) > now) throw Error('Device clock is earlier than the previous attendance. Correct the clock first.');
     if (last?.type === type) throw Error(type === 'IN' ? 'Already timed in. Select Time Out after the shift.' : 'Already timed out today. Select Time In for the next shift.');
