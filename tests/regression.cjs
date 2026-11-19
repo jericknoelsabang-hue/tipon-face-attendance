@@ -410,7 +410,7 @@ test('Attendance reuses a recent accurate GPS watch fix without waiting for anot
   assert.ok(start>=0&&end>start);
   const cached={latitude:14.575347,longitude:121.063125,accuracy:68,timestamp:Date.now()-5000};
   let calls=0;
-  const ctx={Date,Promise,Error,Number,Math,GPS_MAX_ACCURACY:80,state:{lastGPS:cached,page:'scanner'},
+  const ctx={Date,Promise,Error,Number,Math,GPS_MAX_ACCURACY:80,GPS_ABSOLUTE_MAX_ACCURACY:200,state:{lastGPS:cached,page:'scanner'},
     navigator:{geolocation:{getCurrentPosition(){calls++;}}},renderTerminal:()=>{}};
   vm.createContext(ctx);vm.runInContext(app.slice(start,end),ctx);
   const gps=await ctx.readGPS();
@@ -421,7 +421,7 @@ test('Attendance GPS refresh waits at most eight seconds and falls back to a rec
   const app=source('app.js'),start=app.indexOf('function usableAttendanceGPS('),end=app.indexOf('function startGPSWatch(){',start);
   const cached={latitude:14.575347,longitude:121.063125,accuracy:68,timestamp:Date.now()-27000};
   let options;
-  const ctx={Date,Promise,Error,Number,Math,GPS_MAX_ACCURACY:80,state:{lastGPS:cached,page:'scanner'},
+  const ctx={Date,Promise,Error,Number,Math,GPS_MAX_ACCURACY:80,GPS_ABSOLUTE_MAX_ACCURACY:200,state:{lastGPS:cached,page:'scanner'},
     navigator:{geolocation:{getCurrentPosition:(success,failure,opts)=>{options=opts;failure({code:3});}}},renderTerminal:()=>{}};
   vm.createContext(ctx);vm.runInContext(app.slice(start,end),ctx);
   const gps=await ctx.readGPS();
@@ -431,7 +431,7 @@ test('Attendance GPS refresh waits at most eight seconds and falls back to a rec
 test('Attendance GPS refuses an expired fallback when fresh location acquisition times out',async()=>{
   const app=source('app.js'),start=app.indexOf('function usableAttendanceGPS('),end=app.indexOf('function startGPSWatch(){',start);
   const cached={latitude:14.575347,longitude:121.063125,accuracy:68,timestamp:Date.now()-60000};
-  const ctx={Date,Promise,Error,Number,Math,GPS_MAX_ACCURACY:80,state:{lastGPS:cached,page:'scanner'},
+  const ctx={Date,Promise,Error,Number,Math,GPS_MAX_ACCURACY:80,GPS_ABSOLUTE_MAX_ACCURACY:200,state:{lastGPS:cached,page:'scanner'},
     navigator:{geolocation:{getCurrentPosition:(success,failure)=>failure({code:3})}},renderTerminal:()=>{}};
   vm.createContext(ctx);vm.runInContext(app.slice(start,end),ctx);
   await assert.rejects(ctx.readGPS(),/GPS timed out/);
@@ -2339,10 +2339,10 @@ test('Face Terminal fullscreen uses the full viewport and balanced centered came
  assert.match(css,/@media\(max-width:900px\)/);
  assert.match(css,/body\.terminal-fullscreen \.scanner-side>\.gps-panel\{[\s\S]*display:block!important/);
 });
-test('Frontend shell and release manifest identify version 5.5.116',()=>{
+test('Frontend shell and release manifest identify version 5.5.117',()=>{
  const html=source('index.html'),sw=source('sw.js'),release=JSON.parse(source('release.json'));
- assert.match(html,/paygroups\.js\?v=55116/);
- assert.match(html,/app\.js\?v=55116/);
- assert.match(sw,/const VERSION='5\.5\.116'/);
- assert.equal(release.version,'5.5.116');
+ assert.match(html,/paygroups\.js\?v=55117/);
+ assert.match(html,/app\.js\?v=55117/);
+ assert.match(sw,/const VERSION='5\.5\.117'/);
+ assert.equal(release.version,'5.5.117');
 });
