@@ -147,7 +147,8 @@ window.TIPONPaygroups = (() => {
     if ($('userPaygroupAdd')) $('userPaygroupAdd').hidden = !canCreatePaygroup();
     const renderRows = (items, withActions) => items.length ? items.map(pg => {
       const operationCodes = codes(pg);
-      const action = '<td><div class="row-inline">'+(withActions ? '<button type="button" class="tiny-button" data-paygroup-edit="' + esc(pg.id) + '">Edit</button><button type="button" class="tiny-button delete" data-paygroup-delete="' + esc(pg.id) + '">Delete</button>' : state.user?.role === 'registrar' ? '<button type="button" class="tiny-button" data-paygroup-edit="' + esc(pg.id) + '">Edit</button>' : '—')+'</div></td>';
+      const canManage = withActions || state.user?.role === 'registrar';
+      const action = '<td><div class="row-inline paygroup-row-actions">'+(canManage ? '<button type="button" class="tiny-button" data-paygroup-edit="' + esc(pg.id) + '">Edit</button><button type="button" class="tiny-button delete" data-paygroup-delete="' + esc(pg.id) + '">Delete</button>' : '—')+'</div></td>';
       const operationCodeView = operationCodes.length
         ? '<button type="button" class="tiny-button" data-paygroup-view-codes="' + esc(pg.id) + '">View</button>'
         : '—';
@@ -276,7 +277,7 @@ window.TIPONPaygroups = (() => {
     }
   }
   async function deletePaygroup(id) {
-    if (!isAdmin()) return;
+    if (!isAdmin() && state.user?.role !== 'registrar') return;
     const pg = byId(id);
     if (!pg) return;
     if (!await confirmAction('Delete Paygroup?', 'Delete ' + pg.name + '? The central server will prevent deletion while a Work Location or member still uses this Paygroup.')) return;
@@ -402,8 +403,10 @@ window.TIPONPaygroups = (() => {
     });
     $('userPaygroupRows')?.addEventListener('click', event => {
       const edit = event.target.closest('[data-paygroup-edit]');
+      const remove = event.target.closest('[data-paygroup-delete]');
       const view = event.target.closest('[data-paygroup-view-codes]');
       if (edit && state.user?.role === 'registrar') openDialog(byId(edit.dataset.paygroupEdit));
+      if (remove && state.user?.role === 'registrar') void deletePaygroup(remove.dataset.paygroupDelete);
       if (view) openOperationCodeView(view.dataset.paygroupViewCodes);
     });
     $('paygroupCodesViewClose')?.addEventListener('click', () => $('paygroupCodesViewDialog')?.close());
