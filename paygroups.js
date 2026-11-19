@@ -144,9 +144,7 @@ window.TIPONPaygroups = (() => {
     if ($('userPaygroupAdd')) $('userPaygroupAdd').hidden = !canCreatePaygroup();
     const renderRows = (items, withActions) => items.length ? items.map(pg => {
       const operationCodes = codes(pg);
-      const action = '<td>'+(withActions ? '<div class="row-inline"><button type="button" class="tiny-button" data-paygroup-edit="' +
-        esc(pg.id) + '">Edit</button><button type="button" class="tiny-button delete" data-paygroup-delete="' +
-        esc(pg.id) + '">Delete</button></div>' : '—')+'</td>';
+      const action = '<td><div class="row-inline">'+(withActions ? '<button type="button" class="tiny-button" data-paygroup-edit="' + esc(pg.id) + '">Edit</button><button type="button" class="tiny-button delete" data-paygroup-delete="' + esc(pg.id) + '">Delete</button>' : state.user?.role === 'registrar' ? '<button type="button" class="tiny-button" data-paygroup-edit="' + esc(pg.id) + '">Edit</button>' : '—')+'</div></td>';
       const operationCodeView = operationCodes.length
         ? '<button type="button" class="tiny-button" data-paygroup-view-codes="' + esc(pg.id) + '">View</button>'
         : '—';
@@ -200,7 +198,8 @@ window.TIPONPaygroups = (() => {
     if ($('paygroupOperationCodeSection')) $('paygroupOperationCodeSection').hidden = !enabled;
   }
   function openDialog(pg = null) {
-    if (!canCreatePaygroup() || (pg && !isAdmin())) return;
+    if (!canCreatePaygroup() || (pg && !isAdmin() && state.user?.role !== 'registrar')) return;
+    if(pg&&state.user?.role==='registrar'&&(pg.coop!==state.user.coop||norm(pg.platform)!==norm(state.user.platform)))return;
     editing = pg ? { ...pg } : null;
     dialogCodes = codes(pg);
     $('paygroupForm')?.reset();
@@ -214,7 +213,7 @@ window.TIPONPaygroups = (() => {
     $('paygroupDialog')?.showModal();
   }
   function addOperationCode() {
-    if (!canCreatePaygroup() || (editing && !isAdmin())) return;
+    if (!canCreatePaygroup() || (editing && !isAdmin() && state.user?.role !== 'registrar')) return;
     const input = $('paygroupOperationCodeInput');
     const value = String(input?.value || '').trim().normalize('NFKC').replace(/\s+/g, ' ');
     if (!value) return;
@@ -238,7 +237,7 @@ window.TIPONPaygroups = (() => {
       const coop = $('paygroupCoop').value;
       const platform = $('paygroupPlatform').value;
       if (!isAdmin() && (coop !== state.user?.coop || norm(platform) !== norm(state.user?.platform)))
-        throw Error('You may add Paygroups only within your approved Cooperative and Business Platform.');
+        throw Error('You may add or edit Paygroups only within your approved Cooperative and Business Platform.');
       const name = String($('paygroupName').value || '').trim().normalize('NFKC').replace(/\s+/g, ' ');
       const hasCodes = $('paygroupHasOperationCodes').value === 'yes';
       const operationCodes = hasCodes ? [...dialogCodes] : [];
@@ -404,7 +403,9 @@ window.TIPONPaygroups = (() => {
       if (view) openOperationCodeView(view.dataset.paygroupViewCodes);
     });
     $('userPaygroupRows')?.addEventListener('click', event => {
+      const edit = event.target.closest('[data-paygroup-edit]');
       const view = event.target.closest('[data-paygroup-view-codes]');
+      if (edit && state.user?.role === 'registrar') openDialog(byId(edit.dataset.paygroupEdit));
       if (view) openOperationCodeView(view.dataset.paygroupViewCodes);
     });
     $('paygroupCodesViewClose')?.addEventListener('click', () => $('paygroupCodesViewDialog')?.close());
