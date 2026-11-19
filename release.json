@@ -1,5 +1,5 @@
 {
   "app": "TIPON Face Attendance",
-  "version": "5.5.113",
-  "label": "Allow approved Users to add Paygroups within their Cooperative and Business Platform scope, and use the full viewport for Face Terminal fullscreen."
+  "version": "5.5.114",
+  "label": "Add Paygroup departments and Department-first attendance capture for members with multiple assigned Paygroups."
 }
