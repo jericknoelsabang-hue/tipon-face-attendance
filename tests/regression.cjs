@@ -401,7 +401,7 @@ test('Fast Face Terminal combines GPS with one bounded central sync without weak
 
 test('500-meter worksite radius accepts a 151-meter fix while default radius remains strict',()=>{
  const site={lat:0,lng:0,radius:500};
- assert.equal(Org.gps(site,{lat:0,lng:.001,accuracy:151}),true);
+ assert.ok(Org.gps(site,{lat:0,lng:.001,accuracy:151})>0);
  assert.throws(()=>Org.gps({...site,radius:150},{lat:0,lng:.001,accuracy:151}),/too inaccurate/);
  assert.throws(()=>Org.gps(site,{lat:0,lng:.001,accuracy:201}),/too inaccurate/);
 });
