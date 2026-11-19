@@ -117,3 +117,7 @@
 #page-terminalLogs .timesheet-pager .text-count{color:#6f849b;font-size:11px}
 #page-terminalLogs .timesheet-pager .admin-list-pager-actions{display:flex;gap:10px;align-items:center}
 @media(max-width:600px){#page-terminalLogs .timesheet-pager{flex-direction:column;align-items:stretch}#page-terminalLogs .timesheet-pager .admin-list-pager-actions{justify-content:space-between}}
+
+/* v5.5.116: keep member row actions side by side in both account views. */
+#page-members td .member-actions{display:flex!important;align-items:center!important;justify-content:flex-start!important;gap:8px!important;flex-wrap:nowrap!important;white-space:nowrap!important}
+#page-members td .member-actions .tiny-button{flex:0 0 auto!important}
