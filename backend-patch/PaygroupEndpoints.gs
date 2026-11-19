@@ -47,9 +47,17 @@ function tp5PGUpdate_(actor,q){
   return tp5Reply_({paygroups:tp5PGList_(actor).paygroups,paygroupDirectorySupported:true,catalogVersion:version});
 }
 function tp5PGDelete_(actor,q){
-  tp5Admin_(actor);
+  tp5Must_(actor&&(actor.role==='admin'||actor.role==='registrar'),
+    'Only an Administrator or approved User can delete a Paygroup.','FORBIDDEN');
   var id=TIPONOrgCore.clean(q.id,120),old=tp5Find_('paygroups',id);
   tp5Must_(old&&!old.deleted,'Paygroup not found. Refresh and retry.','NOT_FOUND');
+  if(actor.role==='registrar')tp5Must_(TIPONOrgCore.inScope(actor,old),
+    'Delete Paygroups only in your approved Cooperative and Business Platform.','FORBIDDEN');
+  var sites=tp5Read_('sites'),members=tp5Read_('members');
+  var assignedToSite=sites.some(function(site){return !site.deleted&&(site.paygroupIds||[]).map(String).indexOf(String(id))>=0;});
+  var assignedToMember=members.some(function(member){return !member.deleted&&(member.paygroupIds||[]).map(String).indexOf(String(id))>=0;});
+  tp5Must_(!assignedToSite&&!assignedToMember,
+    'This Paygroup is assigned to a Work Location or member. Remove those assignments before deleting it.','IN_USE');
   var record=tp5ValidatePaygroup_(actor,Object.assign({},old,{deleted:true}),old);
   record.createdBy=old.createdBy||actor.id;record.createdAt=old.createdAt||tp5Now_();
   record.updatedAt=tp5Now_();record.rev=Number(old.rev||0)+1;record.deleted=true;
