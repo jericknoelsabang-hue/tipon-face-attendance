@@ -2256,6 +2256,31 @@ test('Server preserves the selected Operation Code when Time In and Time Out arr
  assert.equal(timeOut.paygroup,'Daily');assert.equal(timeOut.operationCode,'CUT');
 });
 
+test('Apps Script lets scoped Users soft-delete only unused Paygroups',()=>{
+ const paygroups=[{id:'pg-user',coop:'Asiapro',platform:'IMG',name:'Daily',operationCodes:[],departments:[],rev:1,deleted:false},
+  {id:'pg-used',coop:'Asiapro',platform:'IMG',name:'Used',operationCodes:[],departments:[],rev:1,deleted:false},
+  {id:'pg-other',coop:'Worklife',platform:'OCG',name:'Other',operationCodes:[],departments:[],rev:1,deleted:false}];
+ const sites=[{id:'s-1',deleted:false,paygroupIds:['pg-used']}],members=[];
+ const ctx={
+  TIPONOrgCore:{clean:(v,n)=>String(v||'').trim().slice(0,n),inScope:(actor,record)=>actor.role==='admin'||actor.coop===record.coop&&actor.platform===record.platform},
+  tp5Must_:(ok,message,code)=>{if(!ok)throw Object.assign(Error(message),{code});},
+  tp5Find_:(type,id)=>paygroups.find(x=>x.id===String(id))||null,
+  tp5Read_:type=>type==='sites'?sites:type==='members'?members:paygroups,
+  tp5ValidatePaygroup_:(actor,record)=>({...record}),
+  tp5Put_:(type,record)=>{const i=paygroups.findIndex(x=>x.id===record.id);if(i>=0)paygroups[i]=record;else paygroups.push(record);},
+  tp5RefreshPaygroupDirectory_:()=>{},tp5Bump_:()=>2,tp5Now_:()=> 'now',tp5Audit_:()=>{},
+  tp5PGList_:()=>({paygroups}),tp5Reply_:value=>value
+ };
+ vm.createContext(ctx);vm.runInContext(source('backend-patch/PaygroupEndpoints.gs'),ctx);
+ const user={id:'u-1',role:'registrar',coop:'Asiapro',platform:'IMG'};
+ ctx.tp5PGDelete_(user,{id:'pg-user'});
+ assert.equal(paygroups.find(x=>x.id==='pg-user').deleted,true);
+ assert.throws(()=>ctx.tp5PGDelete_(user,{id:'pg-used'}),/assigned to a Work Location or member/);
+ assert.throws(()=>ctx.tp5PGDelete_(user,{id:'pg-other'}),/approved Cooperative and Business Platform/);
+ const admin={id:'a-1',role:'admin'};
+ ctx.tp5PGDelete_(admin,{id:'pg-other'});
+ assert.equal(paygroups.find(x=>x.id==='pg-other').deleted,true);
+});
 test('User Paygroup List exposes Add, Edit, and Delete actions to approved Users',()=>{
  const html=source('index.html'),paygroups=source('paygroups.js');
  const userPanel=html.slice(html.indexOf('id="userPaygroupPanel"'),html.indexOf('id="paygroupBackendStatus"'));
