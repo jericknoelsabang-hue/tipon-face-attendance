@@ -1211,10 +1211,10 @@ function renderTerminalLogs(){
     row.timeIn?TIPONCore.phStamp(row.timeIn).slice(-8):'—',
     row.timeOut?TIPONCore.phStamp(row.timeOut).slice(-8):'—',
     row.timeOut?TIPONCore.phStamp(row.timeOut).slice(0,10):'—',
-    row.coop||'—',row.platform||'—',location,row.paygroup||'—',row.operationCode||'—'
+    row.coop||'—',row.platform||'—',location,row.paygroup||'—',row.operationCode||'—',row.department||'—'
    ];
    return '<tr>'+data.map(value=>'<td>'+esc(value)+'</td>').join('')+'<td>'+action+'</td></tr>';
-  }).join(''):'<tr><td colspan="12"><div class="empty-state">No records are available in this view. Try Reset Filters or Refresh. Stored records will not be erased.</div></td></tr>';
+  }).join(''):'<tr><td colspan="13"><div class="empty-state">No records are available in this view. Try Reset Filters or Refresh. Stored records will not be erased.</div></td></tr>';
   setText('terminalLogPageCount','Showing '+(filteredRows.length?offset+1:0)+'–'+Math.min(offset+pageSize,filteredRows.length)+' of '+filteredRows.length+' attendance records');
   setText('terminalLogPage','Page '+state.attendancePage+' of '+totalPages);
   if($('terminalLogPrev'))$('terminalLogPrev').disabled=state.attendancePage<=1;
@@ -1616,11 +1616,11 @@ async function recordRecognizedFace(member,faceDistance,faceEvidence){
   const match=candidates.find(x=>x.distance<=150);
   if(!match){const closest=candidates[0];throw Error(`Face recognized: ${member.name}. Nearest assigned work location is ${Math.round(closest.distance)} m away; maximum allowed is 150 m.`);}
   const {site,distance}=match;
-  let paygroupSelection={paygroupId:'',paygroup:'',operationCode:''};
+  let paygroupSelection={paygroupId:'',paygroup:'',operationCode:'',department:''};
   if(tx.type==='IN'){
    if(window.TIPONPaygroups){
     if((member.paygroupIds||[]).length){
-     updateScanResult('Select Operation Code',member.name+' · Choose an Operation Code button below GPS Verification to complete Time In.','neutral');
+     updateScanResult('Select Department',member.name+' · Choose your Department and then its Operation Code below GPS Verification.','neutral');
     }
     paygroupSelection=await window.TIPONPaygroups.chooseForTimeIn(member,site);
     if(!paygroupSelection)throw Error('Time In cancelled. Select an Operation Code before recording attendance.');
@@ -1630,14 +1630,14 @@ async function recordRecognizedFace(member,faceDistance,faceEvidence){
   }else if(tx.type==='OUT'&&tx.last){
    // Time Out inherits the exact Paygroup and Operation Code selected at Time In.
    // No Operation Code selection is requested again.
-   paygroupSelection={paygroupId:String(tx.last.paygroupId||''),paygroup:String(tx.last.paygroup||''),operationCode:String(tx.last.operationCode||'')};
+   paygroupSelection={paygroupId:String(tx.last.paygroupId||''),paygroup:String(tx.last.paygroup||''),operationCode:String(tx.last.operationCode||''),department:String(tx.last.department||'')};
   }
   // Timestamp the punch only after any required Operation Code button is clicked.
   const stamp=new Date();
   // One bounded preflight was already attempted; a second full sync would
   // delay every punch. The server still checks queued records for duplicates.
   const punch={id:uuid(),orgId:state.orgId,siteRev:site.rev||0,deviceId:state.deviceId,timestamp:stamp.toISOString(),day:todayPH(stamp),type:tx.type,
-    memberId:member.id,memberName:member.name,coop:member.coop,platform:site.platform,paygroupId:paygroupSelection.paygroupId,paygroup:paygroupSelection.paygroup,operationCode:paygroupSelection.operationCode,recordedById:state.user.id,siteId:site.id,siteName:site.name,requiresSessionResolution:needsSessionResolution,
+    memberId:member.id,memberName:member.name,coop:member.coop,platform:site.platform,paygroupId:paygroupSelection.paygroupId,paygroup:paygroupSelection.paygroup,operationCode:paygroupSelection.operationCode,department:paygroupSelection.department,recordedById:state.user.id,siteId:site.id,siteName:site.name,requiresSessionResolution:needsSessionResolution,
     siteLat:site.lat,siteLng:site.lng,radius:150,lat:gps.latitude,lng:gps.longitude,
     accuracy:gps.accuracy,distance,faceDistance,performedBy:state.user.username||state.user.name};
   await commitPunch(punch,mode);state.scanRetryAt=0;state.scanRetryCount=0;TIPONAuth?.touchActivity?.();await loadCollections();renderTerminal();renderTerminalLogs();renderDashboard();
