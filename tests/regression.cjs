@@ -2306,10 +2306,10 @@ test('Face Terminal fullscreen uses the full viewport and balanced centered came
  assert.match(css,/@media\(max-width:900px\)/);
  assert.match(css,/body\.terminal-fullscreen \.scanner-side>\.gps-panel\{[\s\S]*display:block!important/);
 });
-test('Frontend shell and release manifest identify version 5.5.114',()=>{
+test('Frontend shell and release manifest identify version 5.5.115',()=>{
  const html=source('index.html'),sw=source('sw.js'),release=JSON.parse(source('release.json'));
- assert.match(html,/paygroups\.js\?v=55114/);
- assert.match(html,/app\.js\?v=55114/);
- assert.match(sw,/const VERSION='5\.5\.114'/);
- assert.equal(release.version,'5.5.114');
+ assert.match(html,/paygroups\.js\?v=55115/);
+ assert.match(html,/app\.js\?v=55115/);
+ assert.match(sw,/const VERSION='5\.5\.115'/);
+ assert.equal(release.version,'5.5.115');
 });
