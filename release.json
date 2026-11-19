@@ -1,5 +1,5 @@
 {
   "app": "TIPON Face Attendance",
-  "version": "5.5.114",
-  "label": "Add Paygroup departments and Department-first attendance capture for members with multiple assigned Paygroups."
+  "version": "5.5.115",
+  "label": "Add Department-first attendance capture and Department reporting for Paygroups."
 }
