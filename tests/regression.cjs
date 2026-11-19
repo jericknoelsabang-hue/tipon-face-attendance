@@ -2018,10 +2018,10 @@ test('Member CSV validates Paygroup scope, duplicate names and weekly schedules 
 });
 test('Backend member import saves weekly schedule fields and rejects changed schedules on retry',()=>{
  const f=metadataBackend(),ctx=f.ctx;let writes=0;
- ctx.tp5Read_=type=>type==='members'?f.members:[];
+ ctx.tp5Read_=type=>type==='members'?f.members:(type==='sites'?[{id:'site-1',coop:'Asiapro',platform:'IMG',paygroupIds:['pg-day']}]:[]);
  ctx.tp5Put_=(type,value)=>{assert.equal(type,'members');f.members.push(value);writes++;};
  vm.runInContext(source('backend-patch/MemberCSVImport.gs'),ctx);
- ctx.tp5PaygroupIds_=(ids,scope)=>{assert.equal(scope.allowUnassigned,true);return ids;};
+ ctx.tp5PaygroupIds_=(ids,scope)=>{assert.equal(scope.coop,'Asiapro');assert.equal(scope.platform,'IMG');return ids;};
  ctx.tp5SamePaygroupIds_=(a,b)=>JSON.stringify((a||[]).slice().sort())===JSON.stringify((b||[]).slice().sort());
  const input={id:'000999',name:'Synthetic import',coop:'Asiapro',platform:'IMG',paygroupIds:['pg-day'],workSchedule:{enabled:true,days:[1,2,3,4,5],start:'08:00',end:'18:30',grace:0}};
  const result=ctx.tp5ImportMembersWithSchedule_({role:'admin',id:'admin'},[input]);assert.equal(result.added,1);assert.equal(result.memberImportPaygroup,true);assert.equal(writes,1);
