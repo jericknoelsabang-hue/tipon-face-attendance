@@ -314,15 +314,43 @@ window.TIPONPaygroups = (() => {
     else hideOperationPanel();
   }
   function drawTerminalChoices(title,help,choices,kind){setText('terminalOperationTitle',title);setText('terminalOperationHelp',help);const root=$('terminalOperationChoices');if(!root)throw Error('Department / Operation Code selection panel is unavailable. Refresh the Face Terminal.');root.innerHTML=choices.map(x=>'<button type="button" class="terminal-operation-button" data-choice-kind="'+kind+'" data-choice-value="'+esc(x.value)+'" '+(x.paygroupId?'data-paygroup-id="'+esc(x.paygroupId)+'" ':'')+(x.operationCode!==undefined?'data-operation-code="'+esc(x.operationCode)+'" ':'')+(x.department?'data-department-value="'+esc(x.department)+'" ':'')+'><strong>'+esc(x.label)+'</strong><small>'+esc(x.detail||'')+'</small></button>').join('');const panel=$('terminalOperationPanel');if(panel){panel.hidden=false;panel.setAttribute('aria-label',title);panel.scrollIntoView?.({block:'nearest',behavior:'smooth'});}}
-  function chooseDepartment(department){if(!pendingTimeIn)return;pendingTimeIn.selectedDepartment=department;const groups=pendingTimeIn.groups.filter(pg=>(departmentNames(pg).length?departmentNames(pg):[String(pg.name||'')]).some(x=>norm(x)===norm(department)));const coded=groups.filter(pg=>codes(pg).length);if(!coded.length){if(groups.length===1){const pg=groups[0];resolveSelection({paygroupId:String(pg.id),paygroup:String(pg.name||''),operationCode:'',department});return;}drawTerminalChoices('Select Paygroup','Choose the Paygroup for '+department+'.',groups.map(pg=>({value:pg.id,paygroupId:String(pg.id),label:pg.name,detail:department})),'paygroup');return;}const choices=[];coded.forEach(pg=>codes(pg).forEach(code=>choices.push({value:code,paygroupId:String(pg.id),operationCode:code,department,label:code,detail:pg.name+' · '+department})));drawTerminalChoices('Select Operation Code','Choose an Operation Code for '+department+' before Time In.',choices,'operation');}
-  function chooseForTimeIn(member, site) {
-    const assignedIds=ids(member?.paygroupIds);if(!assignedIds.length){hideOperationPanel();return Promise.resolve({paygroupId:'',paygroup:'',operationCode:'',department:''});}
+  function timeInSelection(pg,operationCode='',department=''){
+    const result={paygroupId:String(pg?.id||''),paygroup:String(pg?.name||''),operationCode:String(operationCode||'')};
+    if(department)result.department=department;
+    return result;
+  }
+  function chooseDepartment(department){
+    if(!pendingTimeIn)return;
+    pendingTimeIn.selectedDepartment=department;
+    const groups=pendingTimeIn.groups.filter(pg=>departmentNames(pg).some(x=>norm(x)===norm(department)));
+    const coded=groups.filter(pg=>codes(pg).length);
+    if(!coded.length){
+      if(groups.length===1){resolveSelection(timeInSelection(groups[0],'',department));return;}
+      drawTerminalChoices('Select Paygroup','Choose the Paygroup for '+department+'.',groups.map(pg=>({value:pg.id,paygroupId:String(pg.id),label:pg.name,detail:department})),'paygroup');
+      return;
+    }
+    const choices=[];
+    coded.forEach(pg=>codes(pg).forEach(code=>choices.push({value:code,paygroupId:String(pg.id),operationCode:code,department,label:code,detail:pg.name+' · '+department})));
+    drawTerminalChoices('Select Operation Code','Choose an Operation Code for '+department+' before Time In.',choices,'operation');
+  }
+  function chooseForTimeIn(member,site){
+    const assignedIds=ids(member?.paygroupIds);
+    if(!assignedIds.length){hideOperationPanel();return Promise.resolve({paygroupId:'',paygroup:'',operationCode:''});}
     const groups=forMemberAtSite(member,site).slice().sort((a,b)=>String(a.name||'').localeCompare(String(b.name||'')));
     if(!groups.length)return Promise.reject(Error('Assigned Paygroup is not synchronized to this Work Location. Refresh the directory before Time In.'));
-    if(groups.length===1){hideOperationPanel();const pg=groups[0];return Promise.resolve({paygroupId:String(pg.id),paygroup:String(pg.name||''),operationCode:'',department:departmentNames(pg)[0]||''});}
-    const departments=new Map();groups.forEach(pg=>(departmentNames(pg).length?departmentNames(pg):[String(pg.name||'')]).forEach(d=>{if(d&&!departments.has(norm(d)))departments.set(norm(d),d);}));
-    if(!departments.size)return Promise.reject(Error('Assign a Department to each Paygroup before recording Time In.'));
-    pendingTimeIn={member,groups,selectedDepartment:''};drawTerminalChoices('Select Department','Choose your Department to continue to its Operation Codes.',[...departments.values()].map(d=>({value:d,label:d,detail:'Select Department'})),'department');
+    if(groups.length===1){hideOperationPanel();return Promise.resolve(timeInSelection(groups[0],'',departmentNames(groups[0])[0]||''));}
+    const departments=[...new Map(groups.flatMap(pg=>departmentNames(pg)).filter(Boolean).map(d=>[norm(d),d])).values()];
+    if(!departments.length){
+      const coded=groups.filter(pg=>codes(pg).length);
+      if(!coded.length){hideOperationPanel();return Promise.resolve(timeInSelection(groups[0]));}
+      pendingTimeIn={member,groups,selectedDepartment:''};
+      const choices=[];
+      coded.forEach(pg=>codes(pg).forEach(code=>choices.push({value:code,paygroupId:String(pg.id),operationCode:code,label:code,detail:pg.name})));
+      drawTerminalChoices('Select Operation Code','Choose an Operation Code before Time In.',choices,'operation');
+      return new Promise(resolve=>{pendingSelection=resolve;});
+    }
+    pendingTimeIn={member,groups,selectedDepartment:''};
+    drawTerminalChoices('Select Department','Choose your Department to continue to its Operation Codes.',departments.map(d=>({value:d,label:d,detail:'Select Department'})),'department');
     return new Promise(resolve=>{pendingSelection=resolve;});
   }
 
@@ -411,8 +439,8 @@ window.TIPONPaygroups = (() => {
       const button=event.target.closest('[data-choice-kind]');if(!button)return;
       if(button.dataset.choiceKind==='department'){chooseDepartment(button.dataset.choiceValue);return;}
       const pg=byId(button.dataset.paygroupId);
-      if(button.dataset.choiceKind==='paygroup'){resolveSelection({paygroupId:String(pg?.id||''),paygroup:String(pg?.name||''),operationCode:'',department:String(pendingTimeIn?.selectedDepartment||'')});return;}
-      resolveSelection({paygroupId:String(pg?.id||''),paygroup:String(pg?.name||''),operationCode:String(button.dataset.operationCode||''),department:String(button.dataset.departmentValue||'')});
+      if(button.dataset.choiceKind==='paygroup'){resolveSelection(timeInSelection(pg,'',String(pendingTimeIn?.selectedDepartment||'')));return;}
+      resolveSelection(timeInSelection(pg,String(button.dataset.operationCode||''),String(button.dataset.departmentValue||'')));
     });
     $('terminalOperationCancel')?.addEventListener('click', () => resolveSelection(null));
     $('terminalOperationPanel')?.addEventListener('close', cancelPendingSelection);
