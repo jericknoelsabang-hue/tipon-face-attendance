@@ -2352,6 +2352,6 @@ test('Frontend shell and release manifest identify version 5.5.118',()=>{
  const html=source('index.html'),sw=source('sw.js'),release=JSON.parse(source('release.json'));
  assert.match(html,/paygroups\.js\?v=55118/);
  assert.match(html,/app\.js\?v=55118/);
- assert.match(sw,/const VERSION='5\.5\.117'/);
+ assert.match(sw,/const VERSION='5\.5\.118'/);
  assert.equal(release.version,'5.5.118');
 });
