@@ -123,37 +123,48 @@ window.TIPONPaygroups = (() => {
     $('paygroupCodesViewDialog')?.showModal();
   }
 
+  function openAssignedPaygroupsView(title, paygroupIds) {
+    const selected=ids(paygroupIds).map(byId).filter(Boolean);
+    if(!selected.length)return;
+    setText('paygroupCodesViewTitle',title||'Assigned Paygroups');
+    const root=$('paygroupCodesViewList');if(root)root.innerHTML=selected.map((pg,index)=>'<li class="paygroup-code-view-item"><span>'+(index+1)+'</span><b>'+esc(pg.name||'Paygroup')+'</b>'+(codes(pg).length?' <small>Operation codes: '+esc(codes(pg).join(', '))+'</small>':'')+'</li>').join('');
+    $('paygroupCodesViewDialog')?.showModal();
+  }
+
+  let directoryPage=1;const DIRECTORY_PAGE_SIZE=6;
   function renderDirectory() {
     const groups = all().slice().sort((a,b) =>
       String(a.coop || '').localeCompare(String(b.coop || '')) ||
       String(a.platform || '').localeCompare(String(b.platform || '')) ||
       String(a.name || '').localeCompare(String(b.name || '')));
+    const total=groups.length,pages=Math.max(1,Math.ceil(total/DIRECTORY_PAGE_SIZE));directoryPage=Math.max(1,Math.min(directoryPage,pages));const start=(directoryPage-1)*DIRECTORY_PAGE_SIZE;const visible=groups.slice(start,start+DIRECTORY_PAGE_SIZE);
     const admin = isAdmin();
     if ($('adminPaygroupPanel')) $('adminPaygroupPanel').hidden = !admin;
     if ($('userPaygroupPanel')) $('userPaygroupPanel').hidden = admin;
     if ($('userPaygroupAdd')) $('userPaygroupAdd').hidden = !canCreatePaygroup();
     const renderRows = (items, withActions) => items.length ? items.map(pg => {
       const operationCodes = codes(pg);
-      const action = withActions ? '<td><div class="row-inline"><button type="button" class="tiny-button" data-paygroup-edit="' +
+      const action = '<td>'+(withActions ? '<div class="row-inline"><button type="button" class="tiny-button" data-paygroup-edit="' +
         esc(pg.id) + '">Edit</button><button type="button" class="tiny-button delete" data-paygroup-delete="' +
-        esc(pg.id) + '">Delete</button></div></td>' : '';
+        esc(pg.id) + '">Delete</button></div>' : '—')+'</td>';
       const operationCodeView = operationCodes.length
         ? '<button type="button" class="tiny-button" data-paygroup-view-codes="' + esc(pg.id) + '">View</button>'
         : '—';
       return '<tr><td>' + esc(pg.coop || '—') + '</td><td>' + esc(pg.platform || '—') + '</td><td>' +
         esc(locationsForPaygroup(pg)) + '</td><td><b>' + esc(pg.name || '—') + '</b></td><td>' +
         operationCodeView + '</td>' + action + '</tr>';
-    }).join('') : '<tr><td colspan="' + (withActions ? '6' : '5') + '"><div class="empty-state">' +
+    }).join('') : '<tr><td colspan="' + '6' + '"><div class="empty-state">' +
       (!state.paygroupBackendReady ? 'Paygroup backend update is required. Install backend-patch/README_PAYGROUP.md and redeploy the existing Apps Script Web App.' :
         'No Paygroups have been configured for this account scope.') + '</div></td></tr>';
     if ($('adminPaygroupRows')) {
-      $('adminPaygroupRows').innerHTML = renderRows(groups, true);
+      $('adminPaygroupRows').innerHTML = renderRows(visible, true);
       setText('adminPaygroupCount', groups.length + ' paygroup' + (groups.length === 1 ? '' : 's'));
     }
     if ($('userPaygroupRows')) {
-      $('userPaygroupRows').innerHTML = renderRows(groups, false);
+      $('userPaygroupRows').innerHTML = renderRows(visible, false);
       setText('userPaygroupCount', groups.length + ' paygroup' + (groups.length === 1 ? '' : 's'));
     }
+    ['admin','user'].forEach(prefix=>{const count=$(`${prefix}PaygroupCount`);if(count)count.textContent='Showing '+(total?start+1:0)+'–'+Math.min(start+DIRECTORY_PAGE_SIZE,total)+' of '+total+' paygroups';const page=$(`${prefix}PaygroupPage`);if(page)page.textContent='Page '+directoryPage+' of '+pages;const prev=$(`${prefix}PaygroupPrev`),next=$(`${prefix}PaygroupNext`);if(prev)prev.disabled=directoryPage<=1;if(next)next.disabled=directoryPage>=pages;});
     if ($('paygroupBackendStatus')) {
       $('paygroupBackendStatus').textContent = state.paygroupBackendReady
         ? 'Central Paygroup directory connected.'
@@ -378,6 +389,8 @@ window.TIPONPaygroups = (() => {
     if (window.__tiponPaygroupsBound) return;
     window.__tiponPaygroupsBound = true;
     $('adminPaygroupAdd')?.addEventListener('click', () => openDialog());
+    ['admin','user'].forEach(prefix=>{$(`${prefix}PaygroupPrev`)?.addEventListener('click',()=>{directoryPage=Math.max(1,directoryPage-1);renderDirectory();});$(`${prefix}PaygroupNext`)?.addEventListener('click',()=>{directoryPage++;renderDirectory();});});
+    document.addEventListener('click',ev=>{const b=ev.target.closest('[data-member-paygroups],[data-site-paygroups]');if(!b)return;const isMember=b.hasAttribute('data-member-paygroups'),id=isMember?b.dataset.memberPaygroups:b.dataset.sitePaygroups,obj=isMember?state.members.find(x=>String(x.id)===String(id)):state.sites.find(x=>String(x.id)===String(id));if(obj)openAssignedPaygroupsView('Paygroups — '+(obj.name||''),obj.paygroupIds);});
     $('userPaygroupAdd')?.addEventListener('click', () => openDialog());
     $('adminPaygroupRefresh')?.addEventListener('click', () => refreshDirectory('refresh'));
     $('userPaygroupRefresh')?.addEventListener('click', () => refreshDirectory('refresh'));
@@ -439,7 +452,7 @@ window.TIPONPaygroups = (() => {
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', bind, { once: true });
   else bind();
   return {
-    bind, renderDirectory, openOperationCodeView, namesForSite, namesForMember, locationsForPaygroup, groupsForScope, canCreatePaygroup,
+    bind, renderDirectory, openOperationCodeView, openAssignedPaygroupsView, groupsForMember, namesForSite, namesForMember, locationsForPaygroup, groupsForScope, canCreatePaygroup,
     fillSitePicker, refreshSitePicker: () => fillSitePicker(), fillMemberPicker, refreshMemberPicker,
     readPicker, validateSiteAssignment, validateMemberAssignment, chooseForTimeIn, hideOperationPanel,
     cancelPendingSelection, forMemberAtSite
