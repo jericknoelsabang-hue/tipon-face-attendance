@@ -271,7 +271,7 @@ function renderMembers(){
   return '<tr><td><div class="row-inline"><div class="initial-avatar">'+esc(initial(m.name))+'</div><div><b>'+esc(m.name)+'</b><small>ID: '+esc(m.memberNumber||m.id)+'</small></div></div></td>'+
    '<td>'+esc(m.coop)+'</td><td>'+esc(m.platform||sites[0]?.platform||'—')+'</td>'+
    '<td><b>'+esc(names||'Unassigned')+'</b><small>'+(sites.length?'GPS verification at assigned work location':'Assign a Work Location before attendance')+'</small></td>'+
-   '<td>'+esc(window.TIPONPaygroups?.namesForMember(m)||'—')+'</td>'+
+   '<td>'+(window.TIPONPaygroups?.groupsForMember(m).length?'<button type="button" class="tiny-button" data-member-paygroups="'+esc(m.id)+'">View</button>':'—')+'</td>'+
    '<td class="member-schedule-cell">'+renderMemberWorkScheduleCell(m)+'</td>'+
    '<td><span class="badge '+faceClass+'">'+faceLabel+'</span></td>'+
    '<td><div class="row-inline"><button class="tiny-button" data-member-edit="'+esc(m.id)+'">Edit</button><button class="tiny-button delete" data-member-delete="'+esc(m.id)+'">Delete</button></div></td></tr>';
@@ -843,8 +843,10 @@ async function handleMemberTableClick(event){
  }finally{del.disabled=false;}
 }
 function renderSites(){
- const rows=state.sites||[];
- $('siteCards').innerHTML=rows.length?rows.map(site=>'<tr><td><b>'+esc(site.name)+'</b></td><td>'+esc(site.coop)+'</td><td>'+esc(site.platform||'—')+'</td><td>'+esc(window.TIPONPaygroups?.namesForSite(site)||'—')+'</td><td><div class="site-actions"><button class="tiny-button" data-site-edit="'+esc(site.id)+'">Edit</button><button class="tiny-button delete" data-site-delete="'+esc(site.id)+'">Delete</button></div></td></tr>').join(''):'<tr><td colspan="5"><div class="empty-state">'+pageIcon('pin')+'No Work Locations are available for your approved Cooperative / Business Platform. Select “Add Work Location” to register an authorized GPS site.</div></td></tr>';
+ const rows=(state.sites||[]).filter(s=>!s.deleted&&TIPONOrgCore.inScope(state.user,s)).sort((a,b)=>String(a.name||'').localeCompare(String(b.name||'')));
+ const size=6,total=rows.length,pages=Math.max(1,Math.ceil(total/size));state.sitePage=Math.max(1,Math.min(pages,Number(state.sitePage)||1));const start=(state.sitePage-1)*size,page=rows.slice(start,start+size);
+ $('siteCards').innerHTML=page.length?page.map(site=>'<tr><td><b>'+esc(site.name)+'</b></td><td>'+esc(site.coop)+'</td><td>'+esc(site.platform||'—')+'</td><td>'+((site.paygroupIds||[]).length?'<button class="tiny-button" data-site-paygroups="'+esc(site.id)+'">View</button>':'—')+'</td><td><div class="site-actions"><button class="tiny-button" data-site-edit="'+esc(site.id)+'">Edit</button><button class="tiny-button delete" data-site-delete="'+esc(site.id)+'">Delete</button></div></td></tr>').join(''):'<tr><td colspan="5"><div class="empty-state">'+pageIcon('pin')+'No Work Locations are available for your approved Cooperative / Business Platform. Select “Add Work Location” to register an authorized GPS site.</div></td></tr>';
+ setText('sitePageCount',total?'Showing '+(start+1)+'–'+Math.min(start+size,total)+' of '+total+' work locations':'Showing 0–0 of 0 work locations');setText('sitePage','Page '+state.sitePage+' of '+pages);if($('sitePrev'))$('sitePrev').disabled=state.sitePage<=1;if($('siteNext'))$('siteNext').disabled=state.sitePage>=pages;
 }
 function openSiteForm(site){
  state.editSite=site||null;$('siteForm').reset();window.TIPONSiteScopes?.reset(site,isAdmin());setText('siteFormTitle',site?'Edit Work Location':'Add Work Location');$('siteRadius').value='150';
@@ -1922,6 +1924,8 @@ function bindEvents(){
  attach('memberSearch','input',()=>{state.memberPage=1;renderMembers();});
  attach('memberRefresh','click',()=>refreshDirectoryView('members'));
  attach('siteRefresh','click',()=>refreshDirectoryView('sites','siteRefresh'));
+ attach('sitePrev','click',()=>{state.sitePage=Math.max(1,(state.sitePage||1)-1);renderSites();});attach('siteNext','click',()=>{state.sitePage=(state.sitePage||1)+1;renderSites();});
+ attach('siteCards','click',ev=>{const b=ev.target.closest('[data-site-paygroups]');if(!b)return;const s=state.sites.find(x=>String(x.id)===b.dataset.sitePaygroups);if(s)window.TIPONPaygroups?.openAssignedPaygroupsView('Paygroups — '+s.name,s.paygroupIds);});
  attach('terminalLogRefresh','click',()=>refreshDirectoryView('logs'));
  attach('memberFilterFace','change',()=>{state.memberPage=1;renderMembers();});
  attach('memberResetFilters','click',()=>{
@@ -1929,6 +1933,7 @@ function bindEvents(){
  });
  attach('memberPrev','click',()=>{state.memberPage=Math.max(1,(state.memberPage||1)-1);renderMembers();});
  attach('memberNext','click',()=>{state.memberPage=(state.memberPage||1)+1;renderMembers();});
+ attach('memberRows','click',ev=>{const b=ev.target.closest('[data-member-paygroups]');if(!b)return;const m=state.members.find(x=>String(x.id)===b.dataset.memberPaygroups);if(m)window.TIPONPaygroups?.openAssignedPaygroupsView('Paygroups — '+m.name,m.paygroupIds);});
  const rerenderLogFilters=()=>applySharedAttendanceFilters('logs',true);
  attach('terminalLogSearch','input',()=>{state.attendancePage=1;renderTerminalLogs();});
  ['terminalLogFrom','terminalLogTo','terminalLogCoop','terminalLogPlatform','terminalLogSite'].forEach(id=>attach(id,'change',rerenderLogFilters));
