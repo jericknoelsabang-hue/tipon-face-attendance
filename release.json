@@ -1,5 +1,5 @@
 {
   "app": "TIPON Face Attendance",
-  "version": "5.5.116",
-  "label": "Editable Work Location radius, scoped Paygroup actions, and aligned member actions."
+  "version": "5.5.117",
+  "label": "Work Location GPS checks now respect the saved geofence radius."
 }
