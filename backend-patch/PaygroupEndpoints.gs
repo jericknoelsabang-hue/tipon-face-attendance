@@ -34,7 +34,7 @@ function tp5PGAdd_(actor,q){
   return tp5Reply_({paygroups:tp5PGList_(actor).paygroups,paygroupDirectorySupported:true,catalogVersion:version});
 }
 function tp5PGUpdate_(actor,q){
-  tp5Admin_(actor);
+  tp5Must_(actor&&(actor.role==='admin'||actor.role==='registrar'),'Only an Administrator or approved User can edit a Paygroup.','FORBIDDEN');
   tp5Must_(q.paygroup&&typeof q.paygroup==='object'&&!Array.isArray(q.paygroup),
     'Paygroup details are required.','VALIDATION');
   var old=tp5Find_('paygroups',q.paygroup.id);
