@@ -2339,10 +2339,19 @@ test('Face Terminal fullscreen uses the full viewport and balanced centered came
  assert.match(css,/@media\(max-width:900px\)/);
  assert.match(css,/body\.terminal-fullscreen \.scanner-side>\.gps-panel\{[\s\S]*display:block!important/);
 });
-test('Frontend shell and release manifest identify version 5.5.117',()=>{
+test('Online attendance fails closed when the central ledger read is not confirmed',()=>{
+ const app=source('app.js');
+ const start=app.indexOf('async function recordRecognizedFace(');
+ const end=app.indexOf('function commitPunch(',start);
+ const record=app.slice(start,end);
+ assert.match(record,/if\(navigator\.onLine&&!centralReadOk\)/);
+ assert.match(record,/Central attendance could not be verified\. No punch was recorded/);
+ assert.match(record,/paygroupSelection=\{paygroupId:String\(tx\.last\.paygroupId\|\|''\),paygroup:String\(tx\.last\.paygroup\|\|''\),operationCode:String\(tx\.last\.operationCode\|\|''\),department:String\(tx\.last\.department\|\|''\)\}/);
+});
+test('Frontend shell and release manifest identify version 5.5.118',()=>{
  const html=source('index.html'),sw=source('sw.js'),release=JSON.parse(source('release.json'));
- assert.match(html,/paygroups\.js\?v=55117/);
- assert.match(html,/app\.js\?v=55117/);
+ assert.match(html,/paygroups\.js\?v=55118/);
+ assert.match(html,/app\.js\?v=55118/);
  assert.match(sw,/const VERSION='5\.5\.117'/);
- assert.equal(release.version,'5.5.117');
+ assert.equal(release.version,'5.5.118');
 });
