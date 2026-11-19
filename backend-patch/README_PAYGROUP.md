@@ -4,7 +4,7 @@ The GitHub Pages frontend and the private Apps Script receiver deploy separately
 
 ## Current integrated v5 backend
 
-The current v5.5.113 code line already contains the Paygroup validators, attendance Operation Code validation, and upgradeTIPONPaygroups() schema migration. Its missing pieces are the authenticated API routes and Paygroup-aware CSV import acknowledgment.
+The current v5.5.114 code line contains Paygroup validators, Department and Operation Code attendance validation, and the upgradeTIPONPaygroups() schema migration. Its missing pieces are the authenticated API routes and Paygroup-aware CSV import acknowledgment.
 
 1. Add PaygroupEndpoints.gs to the existing Apps Script project. Do not also add Paygroups.gs when Code.gs already defines tp5ValidatePaygroup_, tp5AttendancePaygroup_, and tp5PaygroupIds_; those files implement overlapping versions of the same helpers.
 2. In tp5Handle_(q, transport), after var actor=tp5Auth_(q);, add:
@@ -19,20 +19,21 @@ if(action==='paygroupDelete')return tp5Lock_(function(){actor=tp5Auth_(q);return
 3. Set paygroupDirectorySupported:typeof tp5PGList_==='function' in the catalog response. Add memberImportPaygroup to the health response; report it as available only after the importer persists and acknowledges paygroupIds.
 4. Update MemberCSVImport.gs to validate each submitted paygroupIds value against the row's Cooperative and Business Platform, require each Paygroup to be assigned to a matching active Work Location, persist the IDs, and return memberImportPaygroup:true.
 5. Validate member Paygroup assignments against the selected Work Locations on the server, including location-only reassignment. Keep the existing member revision checks and audit trail.
-6. Run upgradeTIPONPaygroups once from the Apps Script editor. It creates the hidden JSON table, adds Attendance report columns I:J and Members column L when those cells are blank, then refreshes the visible TIPON Paygroups directory. It stops with a schema error instead of overwriting non-empty conflicting cells.
+6. Run upgradeTIPONPaygroups once from the Google Sheet menu or Apps Script editor. It safely adds Department to the visible TIPON Paygroups directory and the Attendance report when their destination columns are blank, then refreshes the directory. It stops with a schema error instead of overwriting conflicting data.
 7. Save the project and deploy a new version of the existing Web App deployment.
 
-Approved Admins can add, update, and delete Paygroups. An approved User (registrar) can add a Paygroup only in their own Cooperative + Business Platform scope. Kiosks and Users receive only the Paygroups within their authorized Work Location or account scope.
+Approved Admins can add, update, and delete Paygroups. An approved User (registrar) can add and edit Paygroups only in their own Cooperative + Business Platform scope; deletion stays Admin-only. Kiosks and Users receive only the Paygroups within their authorized Work Location or account scope.
 
 ## Attendance rules
 
 The server must validate Operation Code selections after resolving the authenticated member and GPS-matched Work Location, before writing or acknowledging an attendance event.
 
-- Time In with configured Operation Codes requires a valid selected Paygroup and code.
+- A member with one eligible Paygroup records Time In directly. When multiple Paygroups are eligible and Departments are configured, the terminal asks for Department first, then shows only that Department's Operation Codes.
+- Time In with configured Operation Codes requires a valid selected Paygroup, Department, and code.
 - A member with no Paygroup, or with Paygroups that have no codes, can record Time In automatically with a blank code.
-- Time Out ignores client-supplied code values and inherits the code from the matching Time In session.
+- Time Out ignores client-supplied selections and inherits the Paygroup, Department, and Operation Code from the matching Time In session.
 - For an offline Time Out without a session ID, accept it only when exactly one open Time In can be identified.
-- Store Paygroup and Operation Code fields on both event directions and preserve them in polling, corrections, and the attendance report.
+- Store Paygroup, Department, and Operation Code on both event directions and preserve them in polling, corrections, and the attendance report.
 
 ## Legacy backend variant
 
