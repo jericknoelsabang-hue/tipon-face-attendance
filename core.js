@@ -118,6 +118,10 @@
       throw Error('This member still has an open Time In. Record Time Out before another Time In.');
     const resolved = resolveModeForDate(punches, memberId, mode, now);
     mode = resolved.mode;
+    // Date rollover may convert a stale Time Out selection to Time In. Recheck
+    // after normalization so an overnight/open session is never bypassed.
+    if(mode==='in'&&open.length)
+      throw Error('This member still has an open Time In. Record Time Out before another Time In.');
     const last=mode==='out'&&open.length?open[open.length-1]:resolved.last;
     const type = mode.toUpperCase();
     if (last && epoch(last.timestamp) > now) throw Error('Device clock is earlier than the previous attendance. Correct the clock first.');
