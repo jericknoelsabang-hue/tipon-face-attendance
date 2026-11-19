@@ -111,10 +111,13 @@
     return open.sort((a,b)=>epoch(a.timestamp)-epoch(b.timestamp)||String(a.id).localeCompare(String(b.id)));
   }
   function transition(punches, memberId, mode, now = Date.now(), cooldown = 90000) {
+    // Enforce the open-session rule before date/mode normalization. A stale
+    // selected mode or midnight rollover must never permit a second Time In.
+    const open=openSessionsForMember(punches,memberId);
+    if(String(mode).toLowerCase()==='in'&&open.length)
+      throw Error('This member still has an open Time In. Record Time Out before another Time In.');
     const resolved = resolveModeForDate(punches, memberId, mode, now);
     mode = resolved.mode;
-    const open=openSessionsForMember(punches,memberId);
-    if(mode==='in'&&open.length)throw Error('Already timed in on this account or another device. Select Time Out after the shift.');
     const last=mode==='out'&&open.length?open[open.length-1]:resolved.last;
     const type = mode.toUpperCase();
     if (last && epoch(last.timestamp) > now) throw Error('Device clock is earlier than the previous attendance. Correct the clock first.');
