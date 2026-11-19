@@ -1,5 +1,5 @@
 {
   "app": "TIPON Face Attendance",
-  "version": "5.5.118",
-  "label": "Attendance now requires a fresh central ledger while online; Time Out inherits the Time In department and operation."
+  "version": "5.5.122",
+  "label": "Attendance sync now preserves Department selections and retries valid GPS fixes."
 }
