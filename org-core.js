@@ -91,12 +91,17 @@
     return !!u.coop&&!!u.platform&&r.coop===u.coop&&platformKey(r.platform)===platformKey(u.platform);
   }
   function distance(a,b,c,d){const rad=Math.PI/180,h=Math.sin((c-a)*rad/2)**2+Math.cos(a*rad)*Math.cos(c*rad)*Math.sin((d-b)*rad/2)**2;return 12742000*Math.asin(Math.min(1,Math.sqrt(h)));}
+  function gpsAccuracyLimit(radius){
+    const meters=Number(radius)||150;
+    const baseline=Math.min(80,Math.max(30,meters));
+    return Math.min(200,Math.max(baseline,meters*.4));
+  }
   function gps(site,event){
-    const {lat,lng,accuracy}=event;
+    const {lat,lng,accuracy}=event,radius=Number(site.radius)||150;
     must(Number.isFinite(lat)&&Math.abs(lat)<=90&&Number.isFinite(lng)&&Math.abs(lng)<=180,'Invalid GPS coordinates.','GPS');
-    must(Number.isFinite(accuracy)&&accuracy>=0&&accuracy<=Math.min(80,Math.max(30,site.radius)),'GPS fix is too inaccurate.','GPS');
+    must(Number.isFinite(accuracy)&&accuracy>=0&&accuracy<=gpsAccuracyLimit(radius),'GPS fix is too inaccurate for this worksite radius.','GPS');
     const meters=distance(site.lat,site.lng,lat,lng);
-    must(meters<=site.radius,'Outside the approved worksite radius.','GEOFENCE');return meters;
+    must(meters<=radius,'Outside the approved worksite radius.','GEOFENCE');return meters;
   }
   function phDay(value){return new Date(Date.parse(value)+28800000).toISOString().slice(0,10);}
   function stamp(day,time){return Date.parse(day+'T'+time+':00+08:00');}
