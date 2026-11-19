@@ -274,7 +274,7 @@ function renderMembers(){
    '<td>'+(window.TIPONPaygroups?.groupsForMember(m).length?'<button type="button" class="tiny-button" data-member-paygroups="'+esc(m.id)+'">View</button>':'—')+'</td>'+
    '<td class="member-schedule-cell">'+renderMemberWorkScheduleCell(m)+'</td>'+
    '<td><span class="badge '+faceClass+'">'+faceLabel+'</span></td>'+
-   '<td><div class="row-inline"><button class="tiny-button" data-member-edit="'+esc(m.id)+'">Edit</button><button class="tiny-button delete" data-member-delete="'+esc(m.id)+'">Delete</button></div></td></tr>';
+   '<td><div class="row-inline member-actions"><button class="tiny-button" data-member-edit="'+esc(m.id)+'">Edit</button><button class="tiny-button delete" data-member-delete="'+esc(m.id)+'">Delete</button></div></td></tr>';
  }).join(''):'<tr><td colspan="8"><div class="empty-state">'+pageIcon('users')+'No matching members found.</div></td></tr>';
  setText('memberPageCount','Showing '+(data.length?offset+1:0)+'–'+Math.min(offset+pageSize,data.length)+' of '+data.length+' members');
  setText('memberPage','Page '+state.memberPage+' of '+totalPages);
@@ -856,7 +856,7 @@ function openSiteForm(site){
  if(addressField){addressField.required=addressRequired;addressField.setAttribute('aria-required',addressRequired?'true':'false');}
  setText('siteAddressCaption',isAdmin()?'Address':'Address / Site Description');
  if($('adminSitePlaceFind'))$('adminSitePlaceFind').textContent=isAdmin()?'Find Location on Map':'Find on Map';
- if(site){$('siteName').value=site.name;$('siteCoop').value=site.coop;$('siteAddress').value=site.address||'';$('siteLat').value=site.lat;$('siteLng').value=site.lng;$('siteRadius').value=150;}
+ if(site){$('siteName').value=site.name;$('siteCoop').value=site.coop;$('siteAddress').value=site.address||'';$('siteLat').value=site.lat;$('siteLng').value=site.lng;$('siteRadius').value=Number(site.radius)||150;}
  window.TIPONPaygroups?.fillSitePicker(site?.paygroupIds||[]);
  updateSiteMap();$('siteDialog').showModal();
 }
