@@ -88,7 +88,7 @@ test('Time In/Out pairs across devices; duplicate and early punches are blocked'
   const output={...event('out','OUT','2026-10-29T08:00:00Z'),deviceId:'other-device'};
   const row=Org.project([input,output])[0];
   assert.equal(row.timeIn,input.timestamp);assert.equal(row.timeOut,output.timestamp);
-  assert.throws(()=>Core.transition([input],'TEST-1','in',Date.parse(output.timestamp)),/Already timed in/);
+  assert.throws(()=>Core.transition([input],'TEST-1','in',Date.parse(output.timestamp)),/open Time In/i);
   assert.throws(()=>Core.transition([input],'TEST-1','out',Date.parse(input.timestamp)+1000),/90 seconds/);
   assert.equal(Core.transition([input],'TEST-1','out',Date.parse(output.timestamp)).type,'OUT');
   assert.equal(Org.project([{...input,deleted:true},{...output,deleted:true}]).length,0);
@@ -143,7 +143,7 @@ test('Multiple attendance sessions are allowed until eight completed duty hours'
 test('Open sessions from other devices prevent duplicate Time In and choose one Time Out session',()=>{
   const first={...event('in-device-a','IN','2026-10-29T00:00:00Z'),sessionId:'session-a',deviceId:'device-a'},
     second={...event('in-device-b','IN','2026-10-29T00:01:00Z'),sessionId:'session-b',deviceId:'device-b'};
-  assert.throws(()=>Core.transition([first,second],'TEST-1','in',Date.parse('2026-10-29T00:05:00Z')),/Already timed in/);
+  assert.throws(()=>Core.transition([first,second],'TEST-1','in',Date.parse('2026-10-29T00:05:00Z')),/open Time In/i);
   assert.equal(Core.transition([first,second],'TEST-1','out',Date.parse('2026-10-29T02:00:00Z')).last.sessionId,'session-b');
 });
 test('Open overnight Time In from the previous Philippine date can still be closed with Time Out',()=>{
@@ -1808,7 +1808,7 @@ test('Unavailable optional capabilities do not add a failing request to every su
  let capabilityCalls=0;const ctx={stopped:false,busy:false,document:{hidden:false},navigator:{onLine:true},state:{user:actor,orgId:'org-1',page:'members'},
   Date,console:{warn(){}},attempt:0,recoveredCompatibleOperations:false,nextCapabilityCheckAt:0,siteFastRetry:0,
   TIPONAuth:{ensureOnline:async()=>{}},TIPONAPI:{raw:async()=>{capabilityCalls++;throw Object.assign(Error('Unknown action'),{code:'ACTION'});}},
-  recoverUnsupportedMetadataEdits:async()=>{},loadCollections:async()=>{},reconcileLegacyAdminDeletes:async()=>{},flush:async()=>{},pull:async()=>{},reconcileConfirmedCorrections:async()=>{},
+  recoverUnsupportedMetadataEdits:async()=>{},recoverAccurateGpsReviews:async()=>{},loadCollections:async()=>{},reconcileLegacyAdminDeletes:async()=>{},flush:async()=>{},pull:async()=>{},reconcileConfirmedCorrections:async()=>{},
   TIPONCore:{phStamp:x=>x},OrgDB:{rawSave:async()=>{}},syncStampId:()=> 'stamp',getAll:async()=>[],
   localQueue:()=>({total:0,queued:0,needsReview:0,retrying:0}),render(){},schedule(){},renderMembers(){},TIPONPlatforms:{render(){}}};
  vm.createContext(ctx);vm.runInContext(src.slice(start,end),ctx);
@@ -2348,10 +2348,10 @@ test('Online attendance fails closed when the central ledger read is not confirm
  assert.match(record,/Central attendance could not be verified\. No punch was recorded/);
  assert.match(record,/paygroupSelection=\{paygroupId:String\(tx\.last\.paygroupId\|\|''\),paygroup:String\(tx\.last\.paygroup\|\|''\),operationCode:String\(tx\.last\.operationCode\|\|''\),department:String\(tx\.last\.department\|\|''\)\}/);
 });
-test('Frontend shell and release manifest identify version 5.5.118',()=>{
+test('Frontend shell and release manifest use the same current version',()=>{
  const html=source('index.html'),sw=source('sw.js'),release=JSON.parse(source('release.json'));
- assert.match(html,/paygroups\.js\?v=55118/);
- assert.match(html,/app\.js\?v=55118/);
- assert.match(sw,/const VERSION='5\.5\.118'/);
- assert.equal(release.version,'5.5.118');
+ const assetVersion=release.version.split('.').join('');
+ assert.match(html,new RegExp('paygroups\\\\.js\\\\?v='+assetVersion));
+ assert.match(html,new RegExp('app\\\\.js\\\\?v='+assetVersion));
+ assert.match(sw,new RegExp('const VERSION=\\\\''+release.version.replaceAll('.','\\\\.')+'\\\\''));
 });
