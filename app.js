@@ -1620,7 +1620,7 @@ async function recordRecognizedFace(member,faceDistance,faceEvidence){
   if(tx.type==='IN'){
    if(window.TIPONPaygroups){
     if((member.paygroupIds||[]).length){
-     updateScanResult('Select Department',member.name+' · Choose your Department and then its Operation Code below GPS Verification.','neutral');
+     updateScanResult('Checking assigned Paygroups',member.name+' · Verifying the Paygroup selection required for Time In.','neutral');
     }
     paygroupSelection=await window.TIPONPaygroups.chooseForTimeIn(member,site);
     if(!paygroupSelection)throw Error('Time In cancelled. Select an Operation Code before recording attendance.');
