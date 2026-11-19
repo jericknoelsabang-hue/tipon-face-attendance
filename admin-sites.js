@@ -17,7 +17,7 @@ window.TIPONAdminSites=(()=>{
     return Number.isFinite(lat)&&Number.isFinite(lng)&&Math.abs(lat)<=90&&Math.abs(lng)<=180
       ?{lat,lng}:null;
   }
-  const PAGE_SIZE=10;
+  const PAGE_SIZE=6;
   let sitePage=1;
   function render(){
     if(!available())return;
@@ -48,7 +48,7 @@ window.TIPONAdminSites=(()=>{
           ' title="Central confirmation is pending. Open Settings & Offline for sync diagnostics."':'')+
           '>'+esc(site.name||'—')+'</b></td>'+
         '<td>'+coopCell+'</td><td>'+esc(site.platform||'—')+'</td>'+
-        '<td>'+esc(window.TIPONPaygroups?.namesForSite(site)||'—')+'</td>'+
+        '<td>'+((site.paygroupIds||[]).length?'<button type="button" class="tiny-button" data-site-paygroups="'+esc(site.id)+'">View</button>':'—')+'</td>'+
         '<td>'+esc(site.address||'—')+'</td><td><small>'+esc(coords)+'</small></td>'+
         '<td><div class="site-actions">'+
         '<button type="button" class="tiny-button" data-admin-site-edit="'+esc(site.id)+'">Edit</button> '+
@@ -57,6 +57,7 @@ window.TIPONAdminSites=(()=>{
     }).join(''):'<tr><td colspan="7"><div class="empty-state">'+
       (query?'No Work Locations match your search.':'No Work Locations are registered yet.')+
       '</div></td></tr>';
+    field('adminSiteRows').onclick=ev=>{const b=ev.target.closest('[data-site-paygroups]');if(!b)return;const site=state.sites.find(x=>String(x.id)===b.dataset.sitePaygroups);if(site)window.TIPONPaygroups?.openAssignedPaygroupsView('Paygroups — '+site.name,site.paygroupIds);};
     // The Business Platforms table shares this Admin page, not the Sites data store.
     TIPONPlatforms.renderDirectory?.();
   }
