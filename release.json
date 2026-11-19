@@ -1,5 +1,5 @@
 {
   "app": "TIPON Face Attendance",
-  "version": "5.5.123",
-  "label": "Attendance sync retries valid rejected records and preserves Department selections."
+  "version": "5.5.124",
+  "label": "Fixes IndexedDB paygroup cache lookup so sync and central attendance checks can complete."
 }
