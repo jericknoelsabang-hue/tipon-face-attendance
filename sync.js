@@ -109,13 +109,37 @@ window.TIPONSync=(()=>{
     const base=p.uploadPayload||{id:p.id,deviceId:p.deviceId,sessionId:p.sessionId,memberId:String(p.memberId),
       siteId:p.siteId,siteRev:p.siteRev||0,type:p.type,timestamp:p.timestamp,lat:p.lat,lng:p.lng,
       accuracy:p.accuracy,faceDistance:p.faceDistance};
-    // Preserve the Time In Paygroup/Operation Code in every durable upload,
+    // Preserve all Time In selection fields in every durable upload,
     // including records whose uploadPayload was created by an older app shell.
     return {...base,sessionId:String(p.sessionId||base.sessionId||''),
       paygroupId:String(p.paygroupId??base.paygroupId??''),
       paygroup:String(p.paygroup??base.paygroup??''),
-      operationCode:String(p.operationCode??base.operationCode??'')};
+      operationCode:String(p.operationCode??base.operationCode??''),
+      department:String(p.department??base.department??'')};
   };
+  // Older backend builds rejected GPS fixes that are valid under the current
+  // radius-aware limit. Retry only those locally saved events that pass today's
+  // site geofence/accuracy rules and still contain required paygroup selections.
+  async function recoverAccurateGpsReviews(){
+    if(!navigator.onLine)return;
+    const [punches,sites,paygroups]=await Promise.all([getAll('punches'),getAll('sites'),getAll('paygroups')]);
+    const siteById=new Map(sites.map(x=>[String(x.id),x])),paygroupById=new Map(paygroups.map(x=>[String(x.id),x]));
+    for(const punch of punches){
+      if(punch.orgId!==state.orgId||punch.deviceId!==state.deviceId||punch.cloudAck||
+         String(punch.reviewStatus||'').toUpperCase()!=='GPS')continue;
+      const site=siteById.get(String(punch.siteId));if(!site||site.deleted)continue;
+      try{TIPONOrgCore.gps(site,punch);}catch(_){continue;}
+      const group=paygroupById.get(String(punch.paygroupId||''));
+      if(group){
+        const codes=Array.isArray(group.operationCodes)?group.operationCodes:[];
+        const departments=Array.isArray(group.departments)?group.departments:[];
+        if(codes.length&&!codes.includes(String(punch.operationCode||'')))continue;
+        if(departments.length&&!departments.includes(String(punch.department||'')))continue;
+      }
+      delete punch.reviewStatus;delete punch.syncError;delete punch.uploadPayload;
+      await OrgDB.rawSave('punches',punch);
+    }
+  }
   // Recover Admin member deletions queued by older app versions. Earlier
   // submit() rules rejected these operations after hiding the record locally.
   // Never infer deletions merely from missing local members: require an actual
@@ -725,6 +749,7 @@ window.TIPONSync=(()=>{
        }catch(error){console.warn('Backend capability check:',error.message);}
       }
        await loadCollections();
+       await recoverAccurateGpsReviews();
        let uploadFailure=null;
        try{await reconcileLegacyAdminDeletes();await flush();}
        catch(error){
