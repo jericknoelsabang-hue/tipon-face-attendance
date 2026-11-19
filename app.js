@@ -1543,7 +1543,7 @@ function canQueueUnresolvedTimeOut(mode,online,centralReadOk,sameDay,error){
 /* A slow full-catalog poll must not block local biometric capture. Reuse the
  * currently running sync (if any), limit the preflight wait, and allow the
  * usual authenticated backend to validate queued records asynchronously. */
-async function fastAttendanceLedgerRead(maxWaitMs=1800){
+async function fastAttendanceLedgerRead(maxWaitMs=8000){
  if(!navigator.onLine)return {ok:false,readOk:false,offline:true};
  let timer;
  const pending=Promise.resolve().then(()=>TIPONSync.run()).catch(error=>({
@@ -1574,6 +1574,11 @@ async function recordRecognizedFace(member,faceDistance,faceEvidence){
   centralReadOk=!!refreshed?.readOk;
   if(!centralReadOk&&['AUTH','ACCOUNT','DEVICE_DISABLED','FORBIDDEN','PROTOCOL'].includes(String(refreshed?.code||'').toUpperCase()))
    throw Object.assign(Error(refreshed.error||'Attendance account must reconnect.'),{code:refreshed.code});
+  // While connected, never create a punch from a stale local ledger. A fresh
+  // server read is required so another kiosk's open Time In blocks duplicates.
+  // Offline punching remains available and is reconciled by Apps Script later.
+  if(navigator.onLine&&!centralReadOk)
+   throw Error('Central attendance could not be verified. No punch was recorded. Check Sync Status and retry when the server responds.');
   await loadCollections();
   if(!verifiedFaceEvidence(faceEvidence,member.id))
    throw Error('Face identity could not be verified against the latest directory. Attendance was NOT recorded. Ask an Administrator to check enrollment.');
