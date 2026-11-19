@@ -36,6 +36,12 @@ const SCAN_DELAY_MS=320;
 const COOLDOWN_MS=90000;
 const GPS_MIN_RADIUS=20;
 const GPS_MAX_ACCURACY=80;
+const GPS_ABSOLUTE_MAX_ACCURACY=200;
+function gpsAccuracyLimit(radius){
+ const meters=Number(radius)||150;
+ const baseline=Math.min(GPS_MAX_ACCURACY,Math.max(30,meters));
+ return Math.min(GPS_ABSOLUTE_MAX_ACCURACY,Math.max(baseline,meters*.4));
+}
 const PH_TIMEZONE='Asia/Manila';
 let db;
 const state={ user:null, page:'dashboard', members:[], sites:[], paygroups:[], paygroupBackendReady:false, users:[], punches:[], facePromise:null, modelReady:false,
@@ -1068,7 +1074,7 @@ function resolveConfirm(answer){if($('confirmDialog').open)$('confirmDialog').cl
 function usableAttendanceGPS(gps,now=Date.now(),maxAge=25000){
  return !!gps&&Number.isFinite(gps.latitude)&&Math.abs(gps.latitude)<=90&&
   Number.isFinite(gps.longitude)&&Math.abs(gps.longitude)<=180&&
-  Number.isFinite(gps.accuracy)&&gps.accuracy>=0&&gps.accuracy<=GPS_MAX_ACCURACY&&
+  Number.isFinite(gps.accuracy)&&gps.accuracy>=0&&gps.accuracy<=GPS_ABSOLUTE_MAX_ACCURACY&&
   Number.isFinite(gps.timestamp)&&Math.abs(now-gps.timestamp)<=maxAge;
 }
 function readGPS(){return new Promise((resolve,reject)=>{
@@ -1611,10 +1617,20 @@ async function recordRecognizedFace(member,faceDistance,faceEvidence){
   const gps=gpsResult.gps;
   if(!state.scanning||state.scanRun!==run||state.user?.id!==actorId||!hasTerminalSession()||document.hidden)throw Error('Scanner or session changed before GPS verification completed. Retry with the current camera.');
   if(!Number.isFinite(gps.accuracy)||gps.accuracy<0||Math.abs(Date.now()-gps.timestamp)>30000)throw Error('GPS fix is missing, stale, or invalid. Retry outdoors.');
-  if(gps.accuracy>GPS_MAX_ACCURACY)throw Error(`GPS accuracy ${Math.round(gps.accuracy)} m is too poor. Required: ${GPS_MAX_ACCURACY} m or better.`);
   const candidates=assignedSites.map(site=>({site,distance:distanceM(site.lat,site.lng,gps.latitude,gps.longitude)})).sort((x,y)=>x.distance-y.distance);
-  const match=candidates.find(x=>x.distance<=150);
-  if(!match){const closest=candidates[0];throw Error(`Face recognized: ${member.name}. Nearest assigned work location is ${Math.round(closest.distance)} m away; maximum allowed is 150 m.`);}
+  const match=candidates.find(x=>{
+   const radius=Number(x.site.radius)||150;
+   return x.distance<=radius&&gps.accuracy<=gpsAccuracyLimit(radius);
+  });
+  if(!match){
+   const inRadius=candidates.find(x=>x.distance<=(Number(x.site.radius)||150));
+   if(inRadius){
+    const radius=Number(inRadius.site.radius)||150,required=gpsAccuracyLimit(radius);
+    throw Error(`GPS accuracy ${Math.round(gps.accuracy)} m is too poor for this ${radius} m worksite radius. Required: ${required} m or better.`);
+   }
+   const closest=candidates[0],radius=Number(closest.site.radius)||150;
+   throw Error(`Face recognized: ${member.name}. Nearest assigned work location is ${Math.round(closest.distance)} m away; maximum allowed is ${radius} m.`);
+  }
   const {site,distance}=match;
   let paygroupSelection={paygroupId:'',paygroup:'',operationCode:'',department:''};
   if(tx.type==='IN'){
