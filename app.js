@@ -1666,7 +1666,13 @@ async function recordRecognizedFace(member,faceDistance,faceEvidence){
   updateScanResult(`TIME ${punch.type} saved locally`,`${member.name} | ${member.memberNumber||member.id} | ${site.name} | ${displayTime(stamp)}. Stored on this device; automatic central sync follows.${syncPending?' Central confirmation pending.':''}`,'success');
   playTerminalSound('success');speakTerminal('Time '+(punch.type==='IN'?'in':'out')+' recorded for '+member.name+'.','success','punch:'+punch.id);showToast(`${member.name}: TIME ${punch.type} recorded.${syncPending?' Sync pending.':''}`,'success');
   if(navigator.vibrate){try{navigator.vibrate(80);}catch{}}
-  if(window.TIPONSync)TIPONSync.kick();
+  if(window.TIPONSync){
+   if(navigator.onLine){
+    // Submit the punch immediately while this page is active. A durable local
+    // copy remains if Apps Script is unavailable; later polling retries it.
+    try{await TIPONSync.run();}catch(error){console.warn('Attendance sync is pending:',error.message);}
+   }else TIPONSync.kick();
+  }
  }catch(err){
    const message=String(err?.message||err);
    const retryableGps=/GPS timed out|Current location unavailable|GPS fix is missing, stale, or invalid|GPS accuracy \d+ m is too poor|Nearest assigned work location is \d+ m away/i.test(message);
