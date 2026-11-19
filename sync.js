@@ -121,7 +121,12 @@ window.TIPONSync=(()=>{
   // payload build, but only after validating it against today's directory.
   async function recoverAccurateGpsReviews(){
     if(!navigator.onLine)return;
-    const [punches,sites,paygroups]=await Promise.all([getAll('punches'),getAll('sites'),getAll('paygroups')]);
+    const [punches,sites,meta]=await Promise.all([getAll('punches'),getAll('sites'),getAll('meta')]);
+    // Paygroups are cached in the existing `meta` object store; there is no
+    // standalone `paygroups` store in DB_STORE. Keep this recovery path aligned
+    // with pullCatalog() so an IndexedDB schema mismatch cannot abort sync.
+    const paygroups=meta.filter(x=>x.orgId===state.orgId&&String(x.id||'').startsWith('tp5-paygroup:'))
+      .map(x=>({...x,id:String(x.id).slice('tp5-paygroup:'.length)}));
     const siteById=new Map(sites.map(x=>[String(x.id),x])),paygroupById=new Map(paygroups.map(x=>[String(x.id),x]));
     const key=value=>String(value||'').trim().normalize('NFKC').replace(/\\s+/g,' ').toLocaleLowerCase();
     for(const punch of punches){
