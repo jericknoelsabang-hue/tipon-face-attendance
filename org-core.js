@@ -11,7 +11,7 @@
   const COOP_PLATFORMS=Object.freeze({"Asiapro":["IMG","AP Cons","Contracting","MSG-NW","ATS"],"Gawa at Kalinga":["GAK"],"Kaakbay sa Kinabukasan":["IMG"],"Kadayawan":["MSG-SM"],"Kaamulan":["MSG-NM"],"Tnalak":["MSG-SM"],"Victory":["MSG-NM"],"Worklife":["OCG"]});
   const EXPORT_HEADERS=['MemberId','Date','Time In','Time Out','Date Time Out'];
   // The payroll extract stays at five columns. Only the central report adds context.
-  const REPORT_HEADERS=[...EXPORT_HEADERS,'Work location','MPC','BP','Paygroup','Operation Code'];
+  const REPORT_HEADERS=[...EXPORT_HEADERS,'Work location','MPC','BP','Paygroup','Operation Code','Department'];
   const clean=(v,n=160)=>String(v==null?'':v).trim().slice(0,n);
   const userKey=v=>clean(v,80).normalize('NFKC').toLowerCase();
   function must(ok,message,code='VALIDATION'){if(!ok){const e=new Error(message);e.code=code;throw e;}}
@@ -104,13 +104,13 @@
     const m=new Map(),seen=new Set();
     [...events].sort((a,b)=>Date.parse(a.timestamp)-Date.parse(b.timestamp)||String(a.id).localeCompare(String(b.id))).forEach(e=>{
       if(seen.has(e.id)||e.reviewStatus==='rejected'||e.deleted)return;seen.add(e.id);
-      const key=e.sessionId||e.id;const r=m.get(key)||{key,memberId:String(e.memberId),memberName:e.memberName||'',coop:e.coop||'',platform:e.platform||'',siteId:e.siteId||'',location:e.siteName||e.location||'',paygroupId:'',paygroup:'',operationCode:'',correctionRev:Number(e.correctionRev)||0,timeIn:'',timeOut:'',eventIds:[]};r.correctionRev=Math.max(Number(r.correctionRev)||0,Number(e.correctionRev)||0);
+      const key=e.sessionId||e.id;const r=m.get(key)||{key,memberId:String(e.memberId),memberName:e.memberName||'',coop:e.coop||'',platform:e.platform||'',siteId:e.siteId||'',location:e.siteName||e.location||'',paygroupId:'',paygroup:'',operationCode:'',department:'',correctionRev:Number(e.correctionRev)||0,timeIn:'',timeOut:'',eventIds:[]};r.correctionRev=Math.max(Number(r.correctionRev)||0,Number(e.correctionRev)||0);
       must(r.memberId===String(e.memberId),'Session contains conflicting member IDs.','SESSION');
       const col=e.type==='IN'?'timeIn':'timeOut';
       // Keep the projection readable when older/offline devices uploaded the
       // same direction twice under one session ID. Preserve every event ID so
       // an administrator correction can reconcile the complete session.
-      if(e.type==='IN'){const prev=Date.parse(r.timeIn),next=Date.parse(e.timestamp);r.timeIn=!r.timeIn||!Number.isFinite(prev)||Number.isFinite(next)&&next<prev?e.timestamp:r.timeIn;if(!r.paygroupId){r.paygroupId=String(e.paygroupId||'');r.paygroup=String(e.paygroup||'');r.operationCode=String(e.operationCode||'');}}
+      if(e.type==='IN'){const prev=Date.parse(r.timeIn),next=Date.parse(e.timestamp);r.timeIn=!r.timeIn||!Number.isFinite(prev)||Number.isFinite(next)&&next<prev?e.timestamp:r.timeIn;if(!r.paygroupId){r.paygroupId=String(e.paygroupId||'');r.paygroup=String(e.paygroup||'');r.operationCode=String(e.operationCode||'');r.department=String(e.department||'');}}
       else if(e.type==='OUT'){const prev=Date.parse(r.timeOut),next=Date.parse(e.timestamp);r.timeOut=!r.timeOut||!Number.isFinite(prev)||Number.isFinite(next)&&next>prev?e.timestamp:r.timeOut;}
       else return;
       r.eventIds.push(e.id);m.set(key,r);
@@ -146,6 +146,6 @@
   }
   function periodSummary(rows){const m=new Map();for(const r of rows){const k=r.memberId,s=m.get(k)||{memberId:k,name:r.memberName||'',coop:r.coop||'',sessions:0,complete:0,hours:0,open:0};s.sessions++;if(r.timeIn&&r.timeOut){s.complete++;s.hours+=(Date.parse(r.timeOut)-Date.parse(r.timeIn))/3600000;}else s.open++;m.set(k,s);}return [...m.values()];}
   function sheetRow(r){const f=t=>{if(!t)return null;const ms=Date.parse(t)+28800000,d=new Date(ms);return {date:Math.floor(ms/86400000)+25569,time:(d.getUTCHours()*3600+d.getUTCMinutes()*60+d.getUTCSeconds())/86400};};const a=f(r.timeIn),b=f(r.timeOut);return [String(r.memberId),a?a.date:'',a?a.time:'',b?b.time:'',b?b.date:''];}
-  function reportRow(row){return [...sheetRow(row),String(row.location||''),String(row.coop||''),String(row.platform||''),String(row.paygroup||''),String(row.operationCode||'')];}
+  function reportRow(row){return [...sheetRow(row),String(row.location||''),String(row.coop||''),String(row.platform||''),String(row.paygroup||''),String(row.operationCode||''),String(row.department||'—')];}
   return {VERSION,PROTOCOL,PBKDF2_ITERATIONS,COOPS,DEFAULT_PLATFORMS,COOP_PLATFORMS,EXPORT_HEADERS,REPORT_HEADERS,clean,userKey,must,profile,allowed,canUseTerminal,inScope,platformKey,platformNames,overview,distance,gps,phDay,project,scheduled,dashboard,periodSummary,sheetRow,reportRow};
 });
