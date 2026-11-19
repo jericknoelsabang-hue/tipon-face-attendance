@@ -2256,7 +2256,7 @@ test('Server preserves the selected Operation Code when Time In and Time Out arr
  assert.equal(timeOut.paygroup,'Daily');assert.equal(timeOut.operationCode,'CUT');
 });
 
-test('User Paygroup List exposes Add Paygroup to approved Users while keeping edits and deletes Admin-only',()=>{
+test('User Paygroup List exposes Add, Edit, and Delete actions to approved Users',()=>{
  const html=source('index.html'),paygroups=source('paygroups.js');
  const userPanel=html.slice(html.indexOf('id="userPaygroupPanel"'),html.indexOf('id="paygroupBackendStatus"'));
  assert.match(userPanel,/id="userPaygroupAdd"[^>]*hidden[^>]*>Add Paygroup/);
@@ -2265,7 +2265,7 @@ test('User Paygroup List exposes Add Paygroup to approved Users while keeping ed
  assert.match(paygroups,/if \(\$\('userPaygroupAdd'\)\) \$\('userPaygroupAdd'\)\.hidden = !canCreatePaygroup\(\);/);
  assert.match(paygroups,/const registrar = state\.user\?\.role === 'registrar' && !isAdmin\(\)/);
  assert.match(paygroups,/if \(!isAdmin\(\) && \(coop !== state\.user\?\.coop \|\| norm\(platform\) !== norm\(state\.user\?\.platform\)\)\)/);
- assert.match(paygroups,/async function deletePaygroup\(id\) \{\s*if \(!isAdmin\(\)\) return;/);
+ assert.match(paygroups,/data-paygroup-delete=/);\n assert.match(paygroups,/if \(!isAdmin\(\) && state\.user\?\.role !== 'registrar'\) return;/);\n assert.match(paygroups,/remove && state\.user\?\.role === 'registrar'.*deletePaygroup/);
 });
 test('Apps Script scopes registrar Paygroup creation and editing to their own Cooperative and Business Platform',()=>{
  let rows=[];
@@ -2306,10 +2306,10 @@ test('Face Terminal fullscreen uses the full viewport and balanced centered came
  assert.match(css,/@media\(max-width:900px\)/);
  assert.match(css,/body\.terminal-fullscreen \.scanner-side>\.gps-panel\{[\s\S]*display:block!important/);
 });
-test('Frontend shell and release manifest identify version 5.5.115',()=>{
+test('Frontend shell and release manifest identify version 5.5.116',()=>{
  const html=source('index.html'),sw=source('sw.js'),release=JSON.parse(source('release.json'));
- assert.match(html,/paygroups\.js\?v=55115/);
- assert.match(html,/app\.js\?v=55115/);
- assert.match(sw,/const VERSION='5\.5\.115'/);
- assert.equal(release.version,'5.5.115');
+ assert.match(html,/paygroups\\.js\\?v=55116/);
+ assert.match(html,/app\\.js\\?v=55116/);
+ assert.match(sw,/const VERSION='5\\.5\\.116'/);
+ assert.equal(release.version,'5.5.116');
 });
