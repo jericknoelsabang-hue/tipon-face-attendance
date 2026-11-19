@@ -117,24 +117,31 @@ window.TIPONSync=(()=>{
       operationCode:String(p.operationCode??base.operationCode??''),
       department:String(p.department??base.department??'')};
   };
-  // Older backend builds rejected GPS fixes that are valid under the current
-  // radius-aware limit. Retry only those locally saved events that pass today's
-  // site geofence/accuracy rules and still contain required paygroup selections.
+  // Retry locally saved attendance rejected by an older GPS or department-
+  // payload build, but only after validating it against today's directory.
   async function recoverAccurateGpsReviews(){
     if(!navigator.onLine)return;
     const [punches,sites,paygroups]=await Promise.all([getAll('punches'),getAll('sites'),getAll('paygroups')]);
     const siteById=new Map(sites.map(x=>[String(x.id),x])),paygroupById=new Map(paygroups.map(x=>[String(x.id),x]));
+    const key=value=>String(value||'').trim().normalize('NFKC').replace(/\\s+/g,' ').toLocaleLowerCase();
     for(const punch of punches){
+      const status=String(punch.reviewStatus||'').toUpperCase();
       if(punch.orgId!==state.orgId||punch.deviceId!==state.deviceId||punch.cloudAck||
-         String(punch.reviewStatus||'').toUpperCase()!=='GPS')continue;
+         punch.type!=='IN'||!['GPS','OPERATION_CODE'].includes(status))continue;
       const site=siteById.get(String(punch.siteId));if(!site||site.deleted)continue;
       try{TIPONOrgCore.gps(site,punch);}catch(_){continue;}
       const group=paygroupById.get(String(punch.paygroupId||''));
-      if(group){
+      if(status==='OPERATION_CODE'){
+        if(!group)continue;
         const codes=Array.isArray(group.operationCodes)?group.operationCodes:[];
         const departments=Array.isArray(group.departments)?group.departments:[];
         if(codes.length&&!codes.includes(String(punch.operationCode||'')))continue;
-        if(departments.length&&!departments.includes(String(punch.department||'')))continue;
+        if(departments.length&&(!punch.department||!departments.some(d=>key(d)===key(punch.department))))continue;
+      }else if(group){
+        const codes=Array.isArray(group.operationCodes)?group.operationCodes:[];
+        const departments=Array.isArray(group.departments)?group.departments:[];
+        if(codes.length&&!codes.includes(String(punch.operationCode||'')))continue;
+        if(departments.length&&(!punch.department||!departments.some(d=>key(d)===key(punch.department))))continue;
       }
       delete punch.reviewStatus;delete punch.syncError;delete punch.uploadPayload;
       await OrgDB.rawSave('punches',punch);
