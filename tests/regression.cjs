@@ -2108,7 +2108,7 @@ test('Paygroup List shows Operation Code View buttons and keeps the Member List 
  assert.match(paygroups,/data-paygroup-view-codes/);
  assert.match(paygroups,/operationCodes\.length\s*\?[^:]*data-paygroup-view-codes/);
  assert.match(paygroups,/openOperationCodeView\(view\.dataset\.paygroupViewCodes\)/);
- assert.match(app,/window\.TIPONPaygroups\?\.namesForMember\(m\)/);
+ assert.ok(app.includes("window.TIPONPaygroups?.openAssignedPaygroupsView('Paygroups — '+m.name,m.paygroupIds)"));
  const page=html.slice(html.indexOf('id="page-paygroups"'),html.indexOf('id="page-accounts"'));
  assert.doesNotMatch(page,/<h2>Paygroup List<\/h2>/);
 });
@@ -2267,7 +2267,7 @@ test('User Paygroup List exposes Add Paygroup to approved Users while keeping ed
  assert.match(paygroups,/if \(!isAdmin\(\) && \(coop !== state\.user\?\.coop \|\| norm\(platform\) !== norm\(state\.user\?\.platform\)\)\)/);
  assert.match(paygroups,/async function deletePaygroup\(id\) \{\s*if \(!isAdmin\(\)\) return;/);
 });
-test('Apps Script allows registrar Paygroup creation only in their own Cooperative and Business Platform',()=>{
+test('Apps Script scopes registrar Paygroup creation and editing to their own Cooperative and Business Platform',()=>{
  let rows=[];
  const ctx={
   TIPONOrgCore:{clean:(v,n)=>String(v||'').trim().slice(0,n)},
@@ -2289,11 +2289,14 @@ test('Apps Script allows registrar Paygroup creation only in their own Cooperati
  ctx.tp5PGAdd_(registrar,{paygroup:{id:'pg-user',coop:'Asiapro',platform:'IMG',name:'User Daily',operationCodes:['CUT']}});
  assert.equal(rows.length,1);assert.equal(rows[0].id,'pg-user');
  assert.throws(()=>ctx.tp5PGAdd_(registrar,{paygroup:{id:'pg-outside',coop:'Worklife',platform:'OCG',name:'Outside',operationCodes:[]}}),/approved Cooperative and Business Platform/);
- assert.throws(()=>ctx.tp5PGUpdate_(registrar,{paygroup:{id:'pg-user',coop:'Asiapro',platform:'IMG',name:'Edited',operationCodes:[]}}),/Admin only/);
+ ctx.tp5PGUpdate_(registrar,{paygroup:{id:'pg-user',coop:'Asiapro',platform:'IMG',name:'Edited',operationCodes:[],departments:['Packing']}});
+ assert.equal(rows[0].name,'Edited');
+ rows.push({id:'pg-outside',coop:'Worklife',platform:'OCG',name:'Outside',operationCodes:[],departments:[]});
+ assert.throws(()=>ctx.tp5PGUpdate_(registrar,{paygroup:{id:'pg-outside',coop:'Worklife',platform:'OCG',name:'Outside edit',operationCodes:[]}}),/approved Cooperative and Business Platform/);
  assert.throws(()=>ctx.tp5PGDelete_(registrar,{id:'pg-user'}),/Admin only/);
  const admin={id:'a-1',role:'admin',coop:'Asiapro',platform:'IMG'};
  ctx.tp5PGAdd_(admin,{paygroup:{id:'pg-admin',coop:'Worklife',platform:'OCG',name:'Admin Added',operationCodes:[]}});
- assert.equal(rows.length,2);
+ assert.equal(rows.length,3);
 });
 test('Face Terminal fullscreen uses the full viewport and balanced centered camera/GPS columns',()=>{
  const css=source('organization.css');
@@ -2307,6 +2310,6 @@ test('Frontend shell and release manifest identify version 5.5.114',()=>{
  const html=source('index.html'),sw=source('sw.js'),release=JSON.parse(source('release.json'));
  assert.match(html,/paygroups\.js\?v=55114/);
  assert.match(html,/app\.js\?v=55114/);
- assert.match(sw,/const VERSION='5\.5\.113'/);
+ assert.match(sw,/const VERSION='5\.5\.114'/);
  assert.equal(release.version,'5.5.114');
 });
