@@ -24,7 +24,11 @@ function tp5PGValidate_(q){
   var codes=Array.isArray(p.operationCodes)?p.operationCodes.map(function(x){return TIPONOrgCore.clean(x,60);}):[],seen={};
   tp5Must_(codes.length<=30&&codes.every(function(x){var k=tp5PGKey_(x);if(!k||seen[k])return false;seen[k]=true;return true;}),
     'Operation Codes must be unique, non-empty values (maximum 30).','VALIDATION');
-  return {id:id,coop:coop,platform:platform,name:name,operationCodes:codes,updatedAt:tp5Now_(),rev:Number(p.rev)||0};
+  var departments=Array.isArray(p.departments)?p.departments.map(function(x){return TIPONOrgCore.clean(x,60);}):[],seenDepartments={};
+  tp5Must_(departments.length<=30&&departments.every(function(x){var k=tp5PGKey_(x);if(!k||seenDepartments[k])return false;seenDepartments[k]=true;return true;}),
+    'Departments must be unique, non-empty values (maximum 30).','VALIDATION');
+  if(codes.length)tp5Must_(departments.length>0,'Add at least one Department when Operation Codes are enabled.','VALIDATION');
+  return {id:id,coop:coop,platform:platform,name:name,operationCodes:codes,departments:departments,updatedAt:tp5Now_(),rev:Number(p.rev)||0};
 }
 function tp5PGCatalog_(actor){
   var sites=tp5Read_('sites').filter(function(s){return !s.deleted;});
@@ -66,16 +70,18 @@ function tp5SitePaygroupIds_(value,scope){
   return ids.map(function(value){var id=TIPONOrgCore.clean(value,120);tp5Must_(id&&!seen[id]&&available[id],'Choose only Paygroups matching this Work Location Cooperative and Business Platform.','DEPENDENCY');seen[id]=true;return id;});
 }
 function tp5ValidateTimeInPaygroup_(member,site,event){
-  var id=TIPONOrgCore.clean(event.paygroupId,120),code=TIPONOrgCore.clean(event.operationCode,60),pg=null;
+  var id=TIPONOrgCore.clean(event.paygroupId,120),code=TIPONOrgCore.clean(event.operationCode,60),department=TIPONOrgCore.clean(event.department,60),pg=null;
   if(!id){tp5Must_(!(member.paygroupIds||[]).length,'Select an assigned Paygroup before Time In.','VALIDATION');tp5Must_(!code,'An Operation Code requires a Paygroup.','VALIDATION');return {paygroupId:'',paygroup:'',operationCode:''};}
   pg=tp5PGRead_().filter(function(x){return String(x.id)===id;})[0];
   tp5Must_(!!pg&&member.coop===pg.coop&&tp5PGKey_(member.platform)===tp5PGKey_(pg.platform),'Paygroup is outside the member Cooperative / Business Platform.','FORBIDDEN');
   tp5Must_((member.paygroupIds||[]).map(String).indexOf(id)>=0&&(site.paygroupIds||[]).map(String).indexOf(id)>=0,
     'Paygroup is not assigned to this member and Work Location.','DEPENDENCY');
-  var codes=pg.operationCodes||[];
+  var codes=pg.operationCodes||[],departments=Array.isArray(pg.departments)?pg.departments:[];
+  if(departments.length)tp5Must_(departments.map(tp5PGKey_).indexOf(tp5PGKey_(department))>=0,'Select a valid Department for this Paygroup.','VALIDATION');
+  else tp5Must_(!department,'This Paygroup has no configured Department.','VALIDATION');
   if(codes.length)tp5Must_(codes.map(tp5PGKey_).indexOf(tp5PGKey_(code))>=0,'Select a valid Operation Code for this Paygroup.','VALIDATION');
   else tp5Must_(!code,'This Paygroup does not use an Operation Code.','VALIDATION');
-  return {paygroupId:id,paygroup:pg.name,operationCode:code};
+  return {paygroupId:id,paygroup:pg.name,operationCode:code,department:department};
 }
 function tp5InheritTimeOutPaygroup_(event,pendingEvents){
   tp5Must_(event&&event.type==='OUT'&&event.memberId,'A valid Time Out event is required.','VALIDATION');
@@ -107,6 +113,7 @@ function tp5InheritTimeOutPaygroup_(event,pendingEvents){
   event.paygroupId=source.paygroupId||'';
   event.paygroup=source.paygroup||'';
   event.operationCode=source.operationCode||'';
+  event.department=source.department||'';
   return event;
 }
 function tp5ApplyAttendancePaygroup_(event,member,site,pendingEvents){
@@ -116,6 +123,7 @@ function tp5ApplyAttendancePaygroup_(event,member,site,pendingEvents){
     event.paygroupId=selected.paygroupId;
     event.paygroup=selected.paygroup;
     event.operationCode=selected.operationCode;
+    event.department=selected.department;
   }else if(event.type==='OUT'){
     tp5InheritTimeOutPaygroup_(event,pendingEvents);
   }else{
