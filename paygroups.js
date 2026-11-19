@@ -7,11 +7,14 @@ window.TIPONPaygroups = (() => {
   const all = () => Array.isArray(state.paygroups) ? state.paygroups.filter(x => !x.deleted) : [];
   const byId = id => all().find(x => String(x.id) === String(id)) || null;
   const codes = pg => Array.isArray(pg?.operationCodes) ? pg.operationCodes.map(x => String(x || '').trim()).filter(Boolean) : [];
+  const departmentNames = pg => [...new Set((Array.isArray(pg?.departments)?pg.departments:[]).map(x=>String(x||'').trim()).filter(Boolean))];
   const sameIds = (a,b) => ids(a).sort().join('|') === ids(b).sort().join('|');
   const canCreatePaygroup = () => isAdmin() || state.user?.role === 'registrar';
   let editing = null;
   let dialogCodes = [];
+  let dialogDepartments = [];
   let pendingSelection = null;
+  let pendingTimeIn = null;
 
   function groupsForScope(coop, platform) {
     if (!coop || !platform) return [];
@@ -150,8 +153,8 @@ window.TIPONPaygroups = (() => {
         : '—';
       return '<tr><td>' + esc(pg.coop || '—') + '</td><td>' + esc(pg.platform || '—') + '</td><td>' +
         esc(locationsForPaygroup(pg)) + '</td><td><b>' + esc(pg.name || '—') + '</b></td><td>' +
-        operationCodeView + '</td>' + action + '</tr>';
-    }).join('') : '<tr><td colspan="' + '6' + '"><div class="empty-state">' +
+        operationCodeView + '</td><td>' + esc(departmentNames(pg).join(', ')||'—') + '</td>' + action + '</tr>';
+    }).join('') : '<tr><td colspan="7"><div class="empty-state">' +
       (!state.paygroupBackendReady ? 'Paygroup backend update is required. Install backend-patch/README_PAYGROUP.md and redeploy the existing Apps Script Web App.' :
         'No Paygroups have been configured for this account scope.') + '</div></td></tr>';
     if ($('adminPaygroupRows')) {
@@ -197,6 +200,9 @@ window.TIPONPaygroups = (() => {
     const enabled = $('paygroupHasOperationCodes')?.value === 'yes';
     if ($('paygroupOperationCodeSection')) $('paygroupOperationCodeSection').hidden = !enabled;
   }
+  function renderDepartmentChips(){const root=$('paygroupDepartments');if(!root)return;root.innerHTML=dialogDepartments.length?dialogDepartments.map((name,index)=>'<span class="paygroup-code-chip"><b>'+esc(name)+'</b><button type="button" data-remove-department="'+index+'" aria-label="Remove '+esc(name)+'">×</button></span>').join(''):'<span class="mini-info">No departments added.</span>';}
+  function addDepartment(){const input=$('paygroupDepartmentInput');const value=String(input?.value||'').trim().normalize('NFKC').replace(/\s+/g,' ');if(!value)return;if(value.length>80)return setText('paygroupStatus','Department must be 80 characters or fewer.');if(dialogDepartments.some(x=>norm(x)===norm(value)))return setText('paygroupStatus','This Department is already listed.');if(dialogDepartments.length>=30)return setText('paygroupStatus','Maximum 30 Departments per Paygroup.');dialogDepartments.push(value);if(input)input.value='';setText('paygroupStatus','');renderDepartmentChips();input?.focus();}
+
   function openDialog(pg = null) {
     if (!canCreatePaygroup() || (pg && !isAdmin() && state.user?.role !== 'registrar')) return;
     if(pg&&state.user?.role==='registrar'&&(pg.coop!==state.user.coop||norm(pg.platform)!==norm(state.user.platform)))return;
@@ -205,9 +211,11 @@ window.TIPONPaygroups = (() => {
     $('paygroupForm')?.reset();
     fillPaygroupScope(pg);
     $('paygroupName').value = pg?.name || '';
-    $('paygroupHasOperationCodes').value = dialogCodes.length ? 'yes' : 'no';
+    dialogDepartments = departmentNames(pg);
+    $('paygroupHasOperationCodes').value = (dialogCodes.length || dialogDepartments.length) ? 'yes' : 'no';
     toggleOperationCodeFields();
     renderOperationCodeChips();
+    renderDepartmentChips();
     setText('paygroupFormTitle', pg ? 'Edit Paygroup' : 'Add Paygroup');
     setText('paygroupStatus', '');
     $('paygroupDialog')?.showModal();
@@ -229,7 +237,7 @@ window.TIPONPaygroups = (() => {
   }
   async function savePaygroup(event) {
     event.preventDefault();
-    if (!canCreatePaygroup() || (editing && !isAdmin())) return;
+    if (!canCreatePaygroup() || (editing && !isAdmin() && state.user?.role !== 'registrar')) return;
     const button = $('paygroupSave');
     if (button) button.disabled = true;
     try {
@@ -241,12 +249,14 @@ window.TIPONPaygroups = (() => {
       const name = String($('paygroupName').value || '').trim().normalize('NFKC').replace(/\s+/g, ' ');
       const hasCodes = $('paygroupHasOperationCodes').value === 'yes';
       const operationCodes = hasCodes ? [...dialogCodes] : [];
+      const departments = hasCodes ? [...dialogDepartments] : [];
       if (!TIPONOrgCore.COOPS.includes(coop) ||
           !TIPONPlatforms.optionsForCoop(coop).some(value => norm(value) === norm(platform)))
         throw Error('Select a valid Cooperative and its Business Platform.');
       if (name.length < 2 || name.length > 80) throw Error('Paygroup must be between 2 and 80 characters.');
       if (hasCodes && !operationCodes.length) throw Error('Add at least one Operation Code or select No.');
-      const payload = { id: editing?.id || uuid(), coop, platform, name, operationCodes };
+      if (hasCodes && !departments.length) throw Error('Add at least one Department for this Paygroup.');
+      const payload = { id: editing?.id || uuid(), coop, platform, name, operationCodes, departments };
       await TIPONAPI.call({ action: editing ? 'paygroupUpdate' : 'paygroupAdd', paygroup: payload });
       const refreshed = await TIPONSync.refreshDirectory();
       if (refreshed?.ok === false && refreshed?.readOk !== true)
@@ -296,64 +306,24 @@ window.TIPONPaygroups = (() => {
     const resolve = pendingSelection;
     pendingSelection = null;
     hideOperationPanel();
+    pendingTimeIn=null;
     if (resolve) resolve(value || null);
   }
   function cancelPendingSelection() {
     if (pendingSelection) resolveSelection(null);
     else hideOperationPanel();
   }
+  function drawTerminalChoices(title,help,choices,kind){setText('terminalOperationTitle',title);setText('terminalOperationHelp',help);const root=$('terminalOperationChoices');if(!root)throw Error('Department / Operation Code selection panel is unavailable. Refresh the Face Terminal.');root.innerHTML=choices.map(x=>'<button type="button" class="terminal-operation-button" data-choice-kind="'+kind+'" data-choice-value="'+esc(x.value)+'" '+(x.paygroupId?'data-paygroup-id="'+esc(x.paygroupId)+'" ':'')+(x.operationCode!==undefined?'data-operation-code="'+esc(x.operationCode)+'" ':'')+(x.department?'data-department-value="'+esc(x.department)+'" ':'')+'><strong>'+esc(x.label)+'</strong><small>'+esc(x.detail||'')+'</small></button>').join('');const panel=$('terminalOperationPanel');if(panel){panel.hidden=false;panel.setAttribute('aria-label',title);panel.scrollIntoView?.({block:'nearest',behavior:'smooth'});}}
+  function chooseDepartment(department){if(!pendingTimeIn)return;pendingTimeIn.selectedDepartment=department;const groups=pendingTimeIn.groups.filter(pg=>(departmentNames(pg).length?departmentNames(pg):[String(pg.name||'')]).some(x=>norm(x)===norm(department)));const coded=groups.filter(pg=>codes(pg).length);if(!coded.length){if(groups.length===1){const pg=groups[0];resolveSelection({paygroupId:String(pg.id),paygroup:String(pg.name||''),operationCode:'',department});return;}drawTerminalChoices('Select Paygroup','Choose the Paygroup for '+department+'.',groups.map(pg=>({value:pg.id,paygroupId:String(pg.id),label:pg.name,detail:department})),'paygroup');return;}const choices=[];coded.forEach(pg=>codes(pg).forEach(code=>choices.push({value:code,paygroupId:String(pg.id),operationCode:code,department,label:code,detail:pg.name+' · '+department})));drawTerminalChoices('Select Operation Code','Choose an Operation Code for '+department+' before Time In.',choices,'operation');}
   function chooseForTimeIn(member, site) {
-    const assignedIds = ids(member?.paygroupIds);
-    if (!assignedIds.length) {
-      hideOperationPanel();
-      return Promise.resolve({ paygroupId: '', paygroup: '', operationCode: '' });
-    }
-    const groups = forMemberAtSite(member, site).slice().sort((a,b) =>
-      String(a.name || '').localeCompare(String(b.name || '')));
-    if (!groups.length)
-      return Promise.reject(Error('Assigned Paygroup is not synchronized to this Work Location. Refresh the directory before Time In.'));
-
-    // A member whose assigned Paygroups do not define Operation Codes can
-    // proceed automatically. A Paygroup is still carried into Attendance Logs.
-    const codedGroups = groups.filter(pg => codes(pg).length);
-    if (!codedGroups.length) {
-      hideOperationPanel();
-      return Promise.resolve({
-        paygroupId: String(groups[0].id),
-        paygroup: String(groups[0].name || ''),
-        operationCode: ''
-      });
-    }
-
-    // Show every Operation Code assigned to this member at this Work Location.
-    // The selected button also identifies its Paygroup when multiple Paygroups
-    // have different Operation Code lists.
-    const choices = [];
-    codedGroups.forEach(pg => codes(pg).forEach(code => choices.push({
-      paygroupId: String(pg.id),
-      paygroup: pg.name,
-      operationCode: code,
-      label: code,
-      detail: pg.name,
-      kind: 'operation'
-    })));
-    setText('terminalOperationTitle', 'Select Operation Code');
-    setText('terminalOperationHelp', 'Choose an Operation Code to record Time In. Time Out will automatically use the same code.');
-    const root = $('terminalOperationChoices');
-    if (!root) return Promise.reject(Error('Operation Code selection panel is unavailable. Refresh the attendance app.'));
-    root.innerHTML = choices.map(choice =>
-      '<button type="button" class="terminal-operation-button" data-paygroup-choice="1" data-paygroup-id="' +
-      esc(choice.paygroupId) + '" data-operation-code="' + esc(choice.operationCode) + '">' +
-      '<strong>' + esc(choice.label) + '</strong><small>' + esc(choice.detail) + '</small></button>').join('');
-    const panel = $('terminalOperationPanel');
-    if (panel) {
-      panel.hidden = false;
-      panel.setAttribute('aria-label', 'Select an Operation Code before Time In');
-    }
-    return new Promise(resolve => {
-      pendingSelection = resolve;
-      panel?.scrollIntoView?.({ block: 'nearest', behavior: 'smooth' });
-    });
+    const assignedIds=ids(member?.paygroupIds);if(!assignedIds.length){hideOperationPanel();return Promise.resolve({paygroupId:'',paygroup:'',operationCode:'',department:''});}
+    const groups=forMemberAtSite(member,site).slice().sort((a,b)=>String(a.name||'').localeCompare(String(b.name||'')));
+    if(!groups.length)return Promise.reject(Error('Assigned Paygroup is not synchronized to this Work Location. Refresh the directory before Time In.'));
+    if(groups.length===1){hideOperationPanel();const pg=groups[0];return Promise.resolve({paygroupId:String(pg.id),paygroup:String(pg.name||''),operationCode:'',department:departmentNames(pg)[0]||''});}
+    const departments=new Map();groups.forEach(pg=>(departmentNames(pg).length?departmentNames(pg):[String(pg.name||'')]).forEach(d=>{if(d&&!departments.has(norm(d)))departments.set(norm(d),d);}));
+    if(!departments.size)return Promise.reject(Error('Assign a Department to each Paygroup before recording Time In.'));
+    pendingTimeIn={member,groups,selectedDepartment:''};drawTerminalChoices('Select Department','Choose your Department to continue to its Operation Codes.',[...departments.values()].map(d=>({value:d,label:d,detail:'Select Department'})),'department');
+    return new Promise(resolve=>{pendingSelection=resolve;});
   }
 
   async function refreshDirectory(kind = 'refresh') {
@@ -413,6 +383,8 @@ window.TIPONPaygroups = (() => {
     $('paygroupForm')?.addEventListener('submit', savePaygroup);
     $('paygroupHasOperationCodes')?.addEventListener('change', toggleOperationCodeFields);
     $('paygroupAddOperationCode')?.addEventListener('click', addOperationCode);
+    $('paygroupAddDepartment')?.addEventListener('click',addDepartment);
+    $('paygroupDepartmentInput')?.addEventListener('keydown',event=>{if(event.key==='Enter'){event.preventDefault();addDepartment();}});
     $('paygroupOperationCodeInput')?.addEventListener('keydown', event => {
       if (event.key === 'Enter') { event.preventDefault(); addOperationCode(); }
     });
@@ -422,6 +394,7 @@ window.TIPONPaygroups = (() => {
       dialogCodes.splice(Number(remove.dataset.removeOperationCode), 1);
       renderOperationCodeChips();
     });
+    $('paygroupDepartments')?.addEventListener('click',event=>{const remove=event.target.closest('[data-remove-department]');if(!remove)return;dialogDepartments.splice(Number(remove.dataset.removeDepartment),1);renderDepartmentChips();});
     $('paygroupCoop')?.addEventListener('change', () => TIPONPlatforms.fillScoped('paygroupCoop','paygroupPlatform',''));
     $('siteCoop')?.addEventListener('change', () => fillSitePicker());
     $('sitePlatform')?.addEventListener('change', () => fillSitePicker());
@@ -435,13 +408,11 @@ window.TIPONPaygroups = (() => {
     $('adminMemberSiteChoices')?.addEventListener('change', () => refreshMemberPicker('admin'));
     $('adminMemberPaygroupChoices')?.addEventListener('change', () => updatePickerSummary('adminMemberPaygroupChoices','adminMemberPaygroupSummary'));
     $('terminalOperationChoices')?.addEventListener('click', event => {
-      const button = event.target.closest('[data-paygroup-choice]');
-      if (!button) return;
-      resolveSelection({
-        paygroupId: String(button.dataset.paygroupId || ''),
-        paygroup: byId(button.dataset.paygroupId)?.name || '',
-        operationCode: String(button.dataset.operationCode || '')
-      });
+      const button=event.target.closest('[data-choice-kind]');if(!button)return;
+      if(button.dataset.choiceKind==='department'){chooseDepartment(button.dataset.choiceValue);return;}
+      const pg=byId(button.dataset.paygroupId);
+      if(button.dataset.choiceKind==='paygroup'){resolveSelection({paygroupId:String(pg?.id||''),paygroup:String(pg?.name||''),operationCode:'',department:String(pendingTimeIn?.selectedDepartment||'')});return;}
+      resolveSelection({paygroupId:String(pg?.id||''),paygroup:String(pg?.name||''),operationCode:String(button.dataset.operationCode||''),department:String(button.dataset.departmentValue||'')});
     });
     $('terminalOperationCancel')?.addEventListener('click', () => resolveSelection(null));
     $('terminalOperationPanel')?.addEventListener('close', cancelPendingSelection);
