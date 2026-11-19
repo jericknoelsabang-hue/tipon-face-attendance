@@ -1,5 +1,5 @@
 {
   "app": "TIPON Face Attendance",
-  "version": "5.5.124",
-  "label": "Fixes IndexedDB paygroup cache lookup so sync and central attendance checks can complete."
+  "version": "5.5.125",
+  "label": "Allows repeated daily Time In/Time Out pairs; each Time Out must close an open Time In first."
 }
