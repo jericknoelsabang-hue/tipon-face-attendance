@@ -1,5 +1,5 @@
 {
   "app": "TIPON Face Attendance",
-  "version": "5.5.125",
+  "version": "5.5.126",
   "label": "Allows repeated daily Time In/Time Out pairs; each Time Out must close an open Time In first."
 }
