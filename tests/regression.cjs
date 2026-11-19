@@ -2351,7 +2351,7 @@ test('Online attendance fails closed when the central ledger read is not confirm
 test('Frontend shell and release manifest use the same current version',()=>{
  const html=source('index.html'),sw=source('sw.js'),release=JSON.parse(source('release.json'));
  const assetVersion=release.version.split('.').join('');
- assert.match(html,new RegExp('paygroups\\\\.js\\\\?v='+assetVersion));
- assert.match(html,new RegExp('app\\\\.js\\\\?v='+assetVersion));
- assert.match(sw,new RegExp('const VERSION=\\\\''+release.version.replaceAll('.','\\\\.')+'\\\\''));
+ assert.ok(html.includes('paygroups.js?v='+assetVersion));
+ assert.ok(html.includes('app.js?v='+assetVersion));
+ assert.ok(sw.includes("const VERSION='"+release.version+"'"));
 });
