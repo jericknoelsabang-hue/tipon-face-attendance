@@ -1638,7 +1638,7 @@ async function recordRecognizedFace(member,faceDistance,faceEvidence){
   // delay every punch. The server still checks queued records for duplicates.
   const punch={id:uuid(),orgId:state.orgId,siteRev:site.rev||0,deviceId:state.deviceId,timestamp:stamp.toISOString(),day:todayPH(stamp),type:tx.type,
     memberId:member.id,memberName:member.name,coop:member.coop,platform:site.platform,paygroupId:paygroupSelection.paygroupId,paygroup:paygroupSelection.paygroup,operationCode:paygroupSelection.operationCode,department:paygroupSelection.department,recordedById:state.user.id,siteId:site.id,siteName:site.name,requiresSessionResolution:needsSessionResolution,
-    siteLat:site.lat,siteLng:site.lng,radius:150,lat:gps.latitude,lng:gps.longitude,
+    siteLat:site.lat,siteLng:site.lng,radius:Number(site.radius)||150,lat:gps.latitude,lng:gps.longitude,
     accuracy:gps.accuracy,distance,faceDistance,performedBy:state.user.username||state.user.name};
   await commitPunch(punch,mode);state.scanRetryAt=0;state.scanRetryCount=0;TIPONAuth?.touchActivity?.();await loadCollections();renderTerminal();renderTerminalLogs();renderDashboard();
   const syncPending=!centralReadOk;
