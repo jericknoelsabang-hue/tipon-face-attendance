@@ -579,7 +579,7 @@ test('Unified Attendance Logs nav and read-only timesheet estimates retain safe 
  assert.doesNotMatch(html,/id="timesheetRound"/);
  assert.doesNotMatch(html,/id="timesheetOT"/);
  assert.doesNotMatch(source('auth.js'),/await showPage\('dashboard'\)/);
- assert.match(html,/<th>Work Location<\/th><th>Paygroup<\/th><th>Operation Code<\/th><th>Actions<\/th>/);
+ assert.match(html,/<th>Work Location<\/th><th>Paygroup<\/th><th>Operation Code<\/th><th>Department<\/th><th>Actions<\/th>/);
  assert.match(org,/if\(page==='records'\)page='terminalLogs'/);
  assert.match(sync,/async function recoverAttendance\(\)/);
  const segment=sync.slice(sync.indexOf('async function recoverAttendance()'),sync.indexOf('return {init,start,stop,kick',sync.indexOf('async function recoverAttendance()')));
@@ -2226,7 +2226,7 @@ test('Face Terminal timestamps Time In after Operation Code selection and Time O
  const app=source('app.js'),start=app.indexOf('async function recordRecognizedFace('),end=app.indexOf('function commitPunch(',start);
  const flow=app.slice(start,end);
  assert.ok(flow.indexOf('await window.TIPONPaygroups.chooseForTimeIn(member,site)')<flow.indexOf('const stamp=new Date()'));
- assert.match(flow,/paygroupSelection=\{paygroupId:String\(tx\.last\.paygroupId\|\|''\),paygroup:String\(tx\.last\.paygroup\|\|''\),operationCode:String\(tx\.last\.operationCode\|\|''\)\}/);
+ assert.match(flow,/paygroupSelection=\{paygroupId:String\(tx\.last\.paygroupId\|\|''\),paygroup:String\(tx\.last\.paygroup\|\|''\),operationCode:String\(tx\.last\.operationCode\|\|''\),department:String\(tx\.last\.department\|\|''\)\}/);
  assert.match(flow,/if\(tx\.type==='OUT'&&tx\.last\)/);
 });
 
