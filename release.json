@@ -1,5 +1,5 @@
 {
   "app": "TIPON Face Attendance",
-  "version": "5.5.115",
-  "label": "Add Department-first attendance capture and Department reporting for Paygroups."
+  "version": "5.5.116",
+  "label": "Editable Work Location radius, scoped Paygroup actions, and aligned member actions."
 }
