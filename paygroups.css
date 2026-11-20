@@ -33,3 +33,5 @@
 .terminal-operation-actions{display:flex;justify-content:flex-end;margin-top:10px}
 .terminal-activity-under{margin-top:12px}
 @media(max-width:700px){.terminal-operation-choices{grid-template-columns:1fr}.paygroup-code-entry{grid-template-columns:minmax(0,1fr) auto;align-items:end}}
+
+.paygroup-optional-section[hidden]{display:none!important}
