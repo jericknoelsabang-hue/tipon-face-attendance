@@ -1,4 +1,4 @@
-/* TIPON 5.5.113 — Paygroup directory, assignment pickers and Time In operation selection. */
+/* TIPON 5.5.114 — Paygroup directory, assignment pickers and Time In operation selection. */
 'use strict';
 window.TIPONPaygroups = (() => {
   const $ = id => document.getElementById(id);
@@ -125,6 +125,17 @@ window.TIPONPaygroups = (() => {
     ).join('');
     $('paygroupCodesViewDialog')?.showModal();
   }
+  function openDepartmentView(id) {
+    const pg = byId(id);
+    const departments = departmentNames(pg);
+    if (!pg || !departments.length) return;
+    setText('paygroupCodesViewTitle', 'Departments — ' + (pg.name || 'Paygroup'));
+    const root = $('paygroupCodesViewList');
+    if (root) root.innerHTML = departments.map((name,index) =>
+      '<li class="paygroup-code-view-item"><span>' + (index + 1) + '</span><b>' + esc(name) + '</b></li>'
+    ).join('');
+    $('paygroupCodesViewDialog')?.showModal();
+  }
 
   function openAssignedPaygroupsView(title, paygroupIds) {
     const selected=ids(paygroupIds).map(byId).filter(Boolean);
@@ -147,14 +158,18 @@ window.TIPONPaygroups = (() => {
     if ($('userPaygroupAdd')) $('userPaygroupAdd').hidden = !canCreatePaygroup();
     const renderRows = (items, withActions) => items.length ? items.map(pg => {
       const operationCodes = codes(pg);
+      const departments = departmentNames(pg);
       const canManage = withActions || state.user?.role === 'registrar';
       const action = '<td><div class="row-inline paygroup-row-actions">'+(canManage ? '<button type="button" class="tiny-button" data-paygroup-edit="' + esc(pg.id) + '">Edit</button><button type="button" class="tiny-button delete" data-paygroup-delete="' + esc(pg.id) + '">Delete</button>' : '—')+'</div></td>';
+      const departmentView = departments.length
+        ? '<button type="button" class="tiny-button" data-paygroup-view-departments="' + esc(pg.id) + '">View</button>'
+        : '—';
       const operationCodeView = operationCodes.length
         ? '<button type="button" class="tiny-button" data-paygroup-view-codes="' + esc(pg.id) + '">View</button>'
         : '—';
       return '<tr><td>' + esc(pg.coop || '—') + '</td><td>' + esc(pg.platform || '—') + '</td><td>' +
         esc(locationsForPaygroup(pg)) + '</td><td><b>' + esc(pg.name || '—') + '</b></td><td>' +
-        operationCodeView + '</td><td>' + esc(departmentNames(pg).join(', ')||'—') + '</td>' + action + '</tr>';
+        departmentView + '</td><td>' + operationCodeView + '</td>' + action + '</tr>';
     }).join('') : '<tr><td colspan="7"><div class="empty-state">' +
       (!state.paygroupBackendReady ? 'Paygroup backend update is required. Install backend-patch/README_PAYGROUP.md and redeploy the existing Apps Script Web App.' :
         'No Paygroups have been configured for this account scope.') + '</div></td></tr>';
@@ -197,9 +212,15 @@ window.TIPONPaygroups = (() => {
       index + '" aria-label="Remove ' + esc(code) + '">×</button></span>').join('') :
       '<span class="mini-info">No operation codes added.</span>';
   }
+  function toggleDepartmentFields() {
+    const enabled = $('paygroupHasDepartments')?.value === 'yes';
+    if ($('paygroupDepartmentSection')) $('paygroupDepartmentSection').hidden = !enabled;
+    if (!enabled) { dialogDepartments = []; renderDepartmentChips(); }
+  }
   function toggleOperationCodeFields() {
     const enabled = $('paygroupHasOperationCodes')?.value === 'yes';
     if ($('paygroupOperationCodeSection')) $('paygroupOperationCodeSection').hidden = !enabled;
+    if (!enabled) { dialogCodes = []; renderOperationCodeChips(); }
   }
   function renderDepartmentChips(){const root=$('paygroupDepartments');if(!root)return;root.innerHTML=dialogDepartments.length?dialogDepartments.map((name,index)=>'<span class="paygroup-code-chip"><b>'+esc(name)+'</b><button type="button" data-remove-department="'+index+'" aria-label="Remove '+esc(name)+'">×</button></span>').join(''):'<span class="mini-info">No departments added.</span>';}
   function addDepartment(){const input=$('paygroupDepartmentInput');const value=String(input?.value||'').trim().normalize('NFKC').replace(/\s+/g,' ');if(!value)return;if(value.length>80)return setText('paygroupStatus','Department must be 80 characters or fewer.');if(dialogDepartments.some(x=>norm(x)===norm(value)))return setText('paygroupStatus','This Department is already listed.');if(dialogDepartments.length>=30)return setText('paygroupStatus','Maximum 30 Departments per Paygroup.');dialogDepartments.push(value);if(input)input.value='';setText('paygroupStatus','');renderDepartmentChips();input?.focus();}
@@ -213,7 +234,9 @@ window.TIPONPaygroups = (() => {
     fillPaygroupScope(pg);
     $('paygroupName').value = pg?.name || '';
     dialogDepartments = departmentNames(pg);
-    $('paygroupHasOperationCodes').value = (dialogCodes.length || dialogDepartments.length) ? 'yes' : 'no';
+    $('paygroupHasDepartments').value = dialogDepartments.length ? 'yes' : 'no';
+    $('paygroupHasOperationCodes').value = dialogCodes.length ? 'yes' : 'no';
+    toggleDepartmentFields();
     toggleOperationCodeFields();
     renderOperationCodeChips();
     renderDepartmentChips();
@@ -248,15 +271,16 @@ window.TIPONPaygroups = (() => {
       if (!isAdmin() && (coop !== state.user?.coop || norm(platform) !== norm(state.user?.platform)))
         throw Error('You may add or edit Paygroups only within your approved Cooperative and Business Platform.');
       const name = String($('paygroupName').value || '').trim().normalize('NFKC').replace(/\s+/g, ' ');
+      const hasDepartments = $('paygroupHasDepartments').value === 'yes';
       const hasCodes = $('paygroupHasOperationCodes').value === 'yes';
+      const departments = hasDepartments ? [...dialogDepartments] : [];
       const operationCodes = hasCodes ? [...dialogCodes] : [];
-      const departments = hasCodes ? [...dialogDepartments] : [];
       if (!TIPONOrgCore.COOPS.includes(coop) ||
           !TIPONPlatforms.optionsForCoop(coop).some(value => norm(value) === norm(platform)))
         throw Error('Select a valid Cooperative and its Business Platform.');
       if (name.length < 2 || name.length > 80) throw Error('Paygroup must be between 2 and 80 characters.');
+      if (hasDepartments && !departments.length) throw Error('Add at least one Department or select No.');
       if (hasCodes && !operationCodes.length) throw Error('Add at least one Operation Code or select No.');
-      if (hasCodes && !departments.length) throw Error('Add at least one Department for this Paygroup.');
       const payload = { id: editing?.id || uuid(), coop, platform, name, operationCodes, departments };
       await TIPONAPI.call({ action: editing ? 'paygroupUpdate' : 'paygroupAdd', paygroup: payload });
       const refreshed = await TIPONSync.refreshDirectory();
@@ -397,21 +421,26 @@ window.TIPONPaygroups = (() => {
       const edit = event.target.closest('[data-paygroup-edit]');
       const remove = event.target.closest('[data-paygroup-delete]');
       const view = event.target.closest('[data-paygroup-view-codes]');
+      const departmentView = event.target.closest('[data-paygroup-view-departments]');
       if (edit) openDialog(byId(edit.dataset.paygroupEdit));
       if (remove) void deletePaygroup(remove.dataset.paygroupDelete);
       if (view) openOperationCodeView(view.dataset.paygroupViewCodes);
+      if (departmentView) openDepartmentView(departmentView.dataset.paygroupViewDepartments);
     });
     $('userPaygroupRows')?.addEventListener('click', event => {
       const edit = event.target.closest('[data-paygroup-edit]');
       const remove = event.target.closest('[data-paygroup-delete]');
       const view = event.target.closest('[data-paygroup-view-codes]');
+      const departmentView = event.target.closest('[data-paygroup-view-departments]');
       if (edit && state.user?.role === 'registrar') openDialog(byId(edit.dataset.paygroupEdit));
       if (remove && state.user?.role === 'registrar') void deletePaygroup(remove.dataset.paygroupDelete);
       if (view) openOperationCodeView(view.dataset.paygroupViewCodes);
+      if (departmentView) openDepartmentView(departmentView.dataset.paygroupViewDepartments);
     });
     $('paygroupCodesViewClose')?.addEventListener('click', () => $('paygroupCodesViewDialog')?.close());
     $('paygroupCodesViewDone')?.addEventListener('click', () => $('paygroupCodesViewDialog')?.close());
     $('paygroupForm')?.addEventListener('submit', savePaygroup);
+    $('paygroupHasDepartments')?.addEventListener('change', toggleDepartmentFields);
     $('paygroupHasOperationCodes')?.addEventListener('change', toggleOperationCodeFields);
     $('paygroupAddOperationCode')?.addEventListener('click', addOperationCode);
     $('paygroupAddDepartment')?.addEventListener('click',addDepartment);
