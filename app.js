@@ -191,6 +191,7 @@ async function showPage(page){
   
   if(state.page==='scanner'&&page!=='scanner')await stopScanner();
   state.page=page;
+  try{if(state.user)sessionStorage.setItem('tipon-last-page:'+state.user.id,page);}catch{}
   document.querySelectorAll('.page').forEach(section=>section.hidden=section.id!==`page-${page}`);
   document.querySelectorAll('[data-page]').forEach(button=>button.classList.toggle('active',button.dataset.page===page));
   setText('crumbTitle',pageNames[page]);window.scrollTo({top:0,behavior:'instant'});
