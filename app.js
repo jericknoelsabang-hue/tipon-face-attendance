@@ -1340,7 +1340,6 @@ async function submitAttendanceEdit(event){
 async function deleteAttendanceFromLog(event){
  const button=event.target.closest('[data-attendance-delete]');if(!button||!canCorrectAttendance())return;
  const row=attendanceRowByKey(button.dataset.attendanceDelete);if(!row)return;
- if(!row.timeIn)return showToast('This attendance session has no Time In to delete.','error');
  if(!await confirmAction('Delete attendance session?','Delete this attendance session for '+row.memberName+'?'))return;
  try{await saveAttendanceCorrection(row,{},'Attendance deleted',true);}catch(error){showToast(error.message||String(error),'error',8500);}
 }
