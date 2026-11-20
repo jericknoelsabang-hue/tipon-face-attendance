@@ -134,7 +134,7 @@
     if (type === 'IN' && workedDurationForDay(punches,memberId,resolved.currentDay) >= MAX_DUTY_MS)
       throw Error('8-hour duty limit reached for today. Time In is closed for this Philippine day.');
     const lastDay = last ? phStamp(last.timestamp).slice(0,10) : '';
-    if (last && lastDay === resolved.currentDay && now - epoch(last.timestamp) < cooldown)
+    if (type === 'OUT' && last && lastDay === resolved.currentDay && now - epoch(last.timestamp) < cooldown)
       throw Error('Duplicate protection: wait at least 90 seconds between punches.');
     return {type,last,mode,dateSwitched:resolved.switched,previousDay:resolved.previousDay,currentDay:resolved.currentDay};
   }
