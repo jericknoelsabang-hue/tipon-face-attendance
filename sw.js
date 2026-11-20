@@ -1,7 +1,7 @@
-/* TIPON 5.5.128 GitHub Pages shell. Application/AI caches only; server bridge posts are never intercepted. */
+/* TIPON 5.5.130 GitHub Pages shell. Application/AI caches only; server bridge posts are never intercepted. */
 'use strict';
-const VERSION='5.5.128';
-const SHELL='tipon-face-shell-v5.5.128-github-only',AI='tipon-face-remote-v1';
+const VERSION='5.5.130';
+const SHELL='tipon-face-shell-v5.5.130-github-only',AI='tipon-face-remote-v1';
 const FILES=['./polish.css','./coop-logos.svg','./','./index.html','./config.js','./liveness-guard.js','./timesheet-preview.js','./style.css','./organization.css','./gas-bridge.js','./core.js','./org-core.js','./exporter.js','./app.js','./auth.js','./sync.js','./organization.js','./absenteeism.js','./absenteeism.css','./admin-member-editor.js','./member-location-capability.js','./admin-sites.js','./site-scope.js','./paygroups.js','./paygroups.css','./camera.js','./platforms.js','./logo.png','./icon-192.png','./icon-512.png','./apple-touch-icon.png','./manifest.webmanifest'];
 self.addEventListener('install',event=>event.waitUntil((async()=>{
   const cache=await caches.open(SHELL);
@@ -68,7 +68,12 @@ self.addEventListener('fetch',event=>{
     event.respondWith((async()=>{const cache=await caches.open(AI),hit=await cache.match(request);if(hit)return hit;const response=await fetch(request);if(response.ok)await cache.put(request,response.clone());return response;})());return;
   }
   event.respondWith((async()=>{
-    const cache=await caches.open(SHELL),hit=await cache.match(request,{ignoreSearch:true});
+    const cache=await caches.open(SHELL);
+    if (/\.(?:js|css|png)$/.test(url.pathname) && /^\?v=\d+$/.test(url.search)) {
+      const versionedAsset = await cache.match(request);
+      if (versionedAsset) return versionedAsset;
+    }
+    const hit = await cache.match(request, {ignoreSearch:true});
     try{const response=await fetch(request);if(response.ok){await cache.put(request,response.clone());return response;}if(hit)return hit;return response;}catch{if(hit)return hit;return new Response('Offline: open the installed TIPON home screen.',{status:503,headers:{'Content-Type':'text/plain'}});}
   })());
 });
