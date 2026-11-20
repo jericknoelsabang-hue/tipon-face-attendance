@@ -1543,7 +1543,7 @@ function canQueueUnresolvedTimeOut(mode,online,centralReadOk,sameDay,error){
 /* A slow full-catalog poll must not block local biometric capture. Reuse the
  * currently running sync (if any), limit the preflight wait, and allow the
  * usual authenticated backend to validate queued records asynchronously. */
-async function fastAttendanceLedgerRead(maxWaitMs=8000){
+async function fastAttendanceLedgerRead(maxWaitMs=20000){
  if(!navigator.onLine)return {ok:false,readOk:false,offline:true};
  let timer;
  const pending=Promise.resolve().then(()=>TIPONSync.run()).catch(error=>({
@@ -1570,6 +1570,7 @@ async function recordRecognizedFace(member,faceDistance,faceEvidence){
  // watch value is used instantly when accurate and recent.
  const gpsOutcome=readGPS().then(gps=>({gps}),error=>({error}));
  try{
+  updateScanResult('Checking attendance records', 'Verifying the member’s latest Time In and Time Out.');
   const refreshed=await fastAttendanceLedgerRead();
   centralReadOk=!!refreshed?.readOk;
   if(!centralReadOk&&['AUTH','ACCOUNT','DEVICE_DISABLED','FORBIDDEN','PROTOCOL'].includes(String(refreshed?.code||'').toUpperCase()))
@@ -1578,7 +1579,7 @@ async function recordRecognizedFace(member,faceDistance,faceEvidence){
   // server read is required so another kiosk's open Time In blocks duplicates.
   // Offline punching remains available and is reconciled by Apps Script later.
   if(navigator.onLine&&!centralReadOk)
-   throw Error('Central attendance could not be verified. No punch was recorded. Check Sync Status and retry when the server responds.');
+   throw Error('Attendance verification did not complete. No punch was recorded. Check Settings & Offline for sync status, then step back and scan again.');
   await loadCollections();
   if(!verifiedFaceEvidence(faceEvidence,member.id))
    throw Error('Face identity could not be verified against the latest directory. Attendance was NOT recorded. Ask an Administrator to check enrollment.');
@@ -1821,7 +1822,7 @@ async function registerWorker(){
   if(!workerUpdateNoticeBound){
    workerUpdateNoticeBound=true;
    navigator.serviceWorker.addEventListener('controllerchange',()=>{
-    if(wasControlled){setText('appUpdateStatus','New app files activated. The page is refreshing; local attendance records are retained.');showToast('App updated. Reopen only if this page does not refresh automatically. Local attendance records are retained.','info',9000);}
+    if(wasControlled){setText('appUpdateStatus','New app files activated. Reload after finishing your current task.');showToast('App updated. Reload after finishing your current task.','info',9000);}
    });
   }
   const registration=await navigator.serviceWorker.register('./sw.js',{scope:'./',updateViaCache:'none'});
