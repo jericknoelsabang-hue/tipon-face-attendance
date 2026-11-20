@@ -91,7 +91,7 @@ async function waitForCameraFrame(video,timeoutMs=8000){
 }
 
 function openDB(name=currentOrganizationDatabaseName()){return new Promise((resolve,reject)=>{
-  const r=indexedDB.open(name,2);
+  const r=indexedDB.open(name,3);
   r.onupgradeneeded=()=>{const d=r.result;for(const name of DB_STORE)if(!d.objectStoreNames.contains(name)){const store=d.createObjectStore(name,{keyPath:'id'});if(name==='punches')store.createIndex('timestamp','timestamp');}};
   r.onsuccess=()=>{r.result.onversionchange=()=>r.result.close();resolve(r.result);};r.onerror=()=>reject(r.error);r.onblocked=()=>reject(Error('Close every other TIPON tab/app window on this device, then reopen. Do not clear stored data.'));
 });}
