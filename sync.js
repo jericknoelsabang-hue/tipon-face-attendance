@@ -783,7 +783,7 @@ window.TIPONSync=(()=>{
       attempt=uploadFailure||queue.retrying?Math.min(attempt+1,4):0;
       result={ok:!uploadFailure,pending:queue.total,details:queue,
         error:uploadFailure?String(uploadFailure.message||uploadFailure):undefined,readOk:true};
-      const remainingSites=(await getAll('outbox')).filter(op=>op.orgId===state.orgId&&
+      const remainingSites=cachedOutbox.filter(op=>op.orgId===state.orgId&&
         op.ownerId===state.user?.id&&op.type==='sites'&&
         !['NEEDS_REVIEW','FORBIDDEN','CONFLICT'].includes(op.errorCode));
       siteFastRetry=remainingSites.length?siteFastRetry+1:0;
