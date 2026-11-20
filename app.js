@@ -1849,7 +1849,7 @@ async function checkOfflineFoundation(){
    }
   }
   if('serviceWorker' in navigator){
-   const registration=await navigator.serviceWorker.ready;
+   const registration=await navigator.serviceWorker.getRegistration(location.href);
    workerActive=!!registration?.active;
    controlled=!!navigator.serviceWorker.controller;
   }
