@@ -134,7 +134,7 @@ enterApp=async function(options={}){
   // A fresh login always lands on the role's primary workspace.
   // Refreshing/restoring an active session can keep its last allowed tab.
   let tabPage='';try{tabPage=sessionStorage.getItem('tipon-last-page:'+state.user.id)||'';}catch{}
-  const startPage=tabPage&&TIPONOrgCore.allowed(state.user,tabPage)?tabPage:options.freshLogin?defaultPage:(
+  const startPage=options.freshLogin?defaultPage:tabPage&&TIPONOrgCore.allowed(state.user,tabPage)?tabPage:(
     savedPage?.page&&TIPONOrgCore.allowed(state.user,savedPage.page)&&
     (savedPage.page!=='scanner'||hasTerminalSession())?savedPage.page:defaultPage
   );
