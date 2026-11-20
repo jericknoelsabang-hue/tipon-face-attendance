@@ -131,13 +131,17 @@ enterApp=async function(options={}){
   setText('sidebarUserName',state.user.name);setText('sidebarUserRole',roleName(state.user.role));setText('avatarLetter',initial(state.user.name));setText('greetingName',state.user.name.split(' ')[0]);
   resetSharedAttendanceFilters(false);await loadCollections();await TIPONPlatforms.load();fillCoopSelect('memberCoop');fillCoopSelect('siteCoop');
   const savedPage=await getOne('meta','tp5-last-page:'+state.user.id),defaultPage=isAdmin()?'dashboard':TIPONOrgCore.canUseTerminal(state.user)?'scanner':'members';
-  // A fresh login always lands on the role's primary workspace.
-  // Refreshing/restoring an active session can keep its last allowed tab.
-  let tabPage='';try{tabPage=sessionStorage.getItem('tipon-last-page:'+state.user.id)||'';}catch{}
-  const startPage=options.freshLogin?defaultPage:tabPage&&TIPONOrgCore.allowed(state.user,tabPage)?tabPage:(
-    savedPage?.page&&TIPONOrgCore.allowed(state.user,savedPage.page)&&
-    (savedPage.page!=='scanner'||hasTerminalSession())?savedPage.page:defaultPage
-  );
+  let tabPage = '';
+  try {
+    tabPage = sessionStorage.getItem('tipon-last-page:' + state.user.id) || '';
+  } catch {}
+  // On sign-in, restore this account's last saved page if it has used the workspace.
+  // A refresh prefers the current browser tab's page.
+  const pages = options.freshLogin ? [savedPage?.page] : [tabPage, savedPage?.page];
+  const startPage = pages.find(page =>
+    page && TIPONOrgCore.allowed(state.user, page) &&
+    (page !== 'scanner' || hasTerminalSession())
+  ) || defaultPage;
   applyRoles();await showPage(startPage);refreshClock();
   const entryOrg=state.orgId,entryAccount=state.user.id;
   setTimeout(()=>{if(navigator.onLine&&state.orgId===entryOrg&&state.user?.id===entryAccount)void TIPONPlatforms.refresh().catch(error=>console.warn('Business Platform refresh:',error.message||error));},1000);
