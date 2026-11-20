@@ -121,3 +121,33 @@
 /* v5.5.116: keep member row actions side by side in both account views. */
 #page-members td .member-actions{display:flex!important;align-items:center!important;justify-content:flex-start!important;gap:8px!important;flex-wrap:nowrap!important;white-space:nowrap!important}
 #page-members td .member-actions .tiny-button{flex:0 0 auto!important}
+
+/* Guided member enrollment */
+#enrollDialog .enroll-video-box {
+  isolation: isolate;
+  min-height: 260px;
+}
+#enrollDialog .enroll-face-guide {
+  position: absolute;
+  inset: 12% 24%;
+  border: 3px solid #9fe1ed;
+  border-radius: 50%;
+  box-shadow: 0 0 0 100vmax rgba(9, 29, 49, .42);
+  pointer-events: none;
+}
+#enrollDialog .enroll-live-prompt {
+  position: absolute;
+  inset: auto 12px 12px;
+  width: fit-content;
+  max-width: calc(100% - 24px);
+  margin: 0 auto;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: #102e49;
+  color: #fff;
+  text-align: center;
+  font-size: 13px;
+}
+@media (max-width: 600px) {
+  #enrollDialog .enroll-face-guide { inset-inline: 19%; }
+}
