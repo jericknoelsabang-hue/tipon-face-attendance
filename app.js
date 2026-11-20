@@ -1412,7 +1412,7 @@ function faceMatchVerdict(found){
  if(best.distance>=MATCH_LIMIT||best.support<2)
   return {ok:false,reason:'Face verification is not strong enough across the stored enrollment samples.'};
  if(second&&(second.distance<FACE_SECOND_BROAD_LIMIT||second.distance-best.distance<AMBIGUITY_GAP))
-  return {ok:false,reason:'Two member records have similar face templates. An Administrator must verify and re-enroll their faces.'};
+  return {ok:false,conflict:true,reason:'More than one member record matches this scan. Ask an Administrator to review the face enrollments.'};
  return {ok:true,member:best.member,distance:best.distance};
 }
 function faceTemplateCollision(member,catalog=state.members){
@@ -1498,8 +1498,9 @@ async function scanTick(){if(!state.scanning)return;if(!hasTerminalSession()){aw
     const verdict=faceMatchVerdict(nearestMember(descriptor));
     if(!verdict.ok){
       state.scanCandidate=null;state.scanCandidateCount=0;state.scanCandidateEvidence=[];
-      updateScanResult('Face identity NOT verified',verdict.reason+' Attendance was NOT recorded.','error');
-      setText('cameraBottomTag','Identity not confirmed · Enrollment review required');
+      updateScanResult(verdict.conflict ? 'Face enrollment review needed' : 'Face identity not verified',
+        verdict.reason + ' No attendance was recorded.', 'error');
+      setText('cameraBottomTag',verdict.conflict ? 'Ask an Administrator to review enrollment' : 'Center your face and hold still');
     }else{
       const member=verdict.member;
       if(!state.scanArmed&&state.lastRecognized!==member.id)state.scanArmed=true;
@@ -1691,7 +1692,7 @@ async function recordRecognizedFace(member,faceDistance,faceEvidence){
    }
    playTerminalSound('error');updateScanResult('Attendance NOT recorded',message,'error');
    if(/assigned work location|nearest assigned|150 m|same assigned work location/i.test(message))speakTerminal('Not In Assigned Location','error','location');
-   showToast(message,'error',6500);}
+  }
  finally{state.scanBusy=false;document.querySelectorAll('.mode-option').forEach(b=>b.disabled=false);}
 }
 function commitPunch(punch,mode){return new Promise((resolve,reject)=>{
