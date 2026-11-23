@@ -1255,7 +1255,7 @@ test('Scoped Work Locations reconcile across devices despite unchanged catalog v
  assert.match(html,/id="siteRefresh"/);
  assert.doesNotMatch(source('organization.js'),/site\.platform=allowed\[0\]/);
  const section=src.slice(src.indexOf('function catalogId(){'),src.indexOf('function cursorId(){'));
- assert.ok(section.startsWith('async function pullCatalog'));
+ assert.ok(section.startsWith('function catalogId()'));
  const site=(id,coop='Asiapro',platform='AP Cons')=>({id,name:'Work '+id,coop,platform,rev:1,lat:14,lng:121,radius:150});
  const remote=[site('SITE-A')],local=new Map(),metas=new Map(),counts={catalog:0};
  const user={id:'user-a',role:'registrar',coop:'Asiapro',platform:'AP Cons',version:1,siteIds:[]};
@@ -1718,7 +1718,7 @@ test('Reconnect requests a follow-up cycle instead of losing a sync request duri
 });
 
 test('Separate devices download the same member details and sites for their Cooperative/BP',async()=>{
- const src=source('sync.js'),section=src.slice(src.indexOf('async function pullCatalog(version){'),src.indexOf('function cursorId(){'));
+ const src=source('sync.js'),section=src.slice(src.indexOf('function catalogId(){'),src.indexOf('function cursorId(){'));
  const remoteMembers=[
   {id:'000123',memberNumber:'000123',name:'Synthetic Member One',coop:'Asiapro',platform:'AP Cons',rev:1,createdBy:'other-user'},
   {id:'456789',memberNumber:'456789',name:'Synthetic Member Two',coop:'Asiapro',platform:'AP Cons',rev:1,createdBy:'other-user'},
@@ -1728,7 +1728,7 @@ test('Separate devices download the same member details and sites for their Coop
  function device(){
   const stores={members:new Map(),sites:new Map(),schedules:new Map(),meta:new Map(),outbox:new Map()};
   const ctx={state:{orgId:'org-shared',user:{id:'same-account',role:'registrar',coop:'Asiapro',platform:'AP Cons',version:1,siteIds:[]},page:'members'},
-   forceCatalogRefresh:false,stopped:false,document:{hidden:false},TIPONOrgCore:Org,TIPONPlatforms:{accept:async()=>{}},
+   forceCatalogRefresh:false,stopped:false,document:{hidden:false},encodeURIComponent,TIPONOrgCore:Org,TIPONPlatforms:{accept:async()=>{}},
    getAll:async type=>[...stores[type].values()],getOne:async(type,id)=>stores[type].get(id),
    OrgDB:{rawSave:async(type,value)=>stores[type].set(value.id,value),rawDelete:async(type,id)=>stores[type].delete(id)},setText(){},
    TIPONAPI:{call:async()=>({catalogVersion:1,members:remoteMembers,sites:remoteSites,schedules:[],nextCursor:null,total:remoteMembers.length})}};
