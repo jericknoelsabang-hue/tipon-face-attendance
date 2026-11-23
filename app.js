@@ -1558,7 +1558,7 @@ function canQueueUnresolvedTimeOut(mode,online,centralReadOk,sameDay,error){
 async function fastAttendanceLedgerRead(maxWaitMs=20000){
  if(!navigator.onLine)return {ok:false,readOk:false,offline:true};
  let timer;
- const pending=Promise.resolve().then(()=>TIPONSync.run()).catch(error=>({
+ const pending=Promise.resolve().then(()=>TIPONSync.checkAttendance ? TIPONSync.checkAttendance() : TIPONSync.run()).catch(error=>({
   ok:false,readOk:false,code:error?.code||'SYNC',error:String(error?.message||error)
  }));
  const cutoff=new Promise(resolve=>{
