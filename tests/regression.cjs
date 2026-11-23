@@ -539,11 +539,10 @@ test('Admin/User edit routing and transient Time Out fallback are guarded',()=>{
   const start=app.indexOf('function canQueueUnresolvedTimeOut('),end=app.indexOf('async function recordRecognizedFace(');
   assert.ok(start>=0&&end>start);
   const ctx={String};vm.createContext(ctx);vm.runInContext(app.slice(start,end),ctx);
-  assert.equal(ctx.canQueueUnresolvedTimeOut('out',true,false,false,Error('No Time In on this device')),true);
-  assert.equal(ctx.canQueueUnresolvedTimeOut('out',false,false,false,Error('Already timed out')),false);
-  assert.equal(ctx.canQueueUnresolvedTimeOut('out',true,true,false,Error('No Time In on this device')),false);
-  assert.equal(ctx.canQueueUnresolvedTimeOut('out',true,false,true,Error('No Time In on this device')),true);
-  assert.equal(ctx.canQueueUnresolvedTimeOut('out',true,false,false,Error('Unauthorized')),false);
+  assert.equal(ctx.canQueueUnresolvedTimeOut('out',true,false,Error('No Time In on this device')),true);
+  assert.equal(ctx.canQueueUnresolvedTimeOut('out',false,false,Error('Already timed out')),false);
+  assert.equal(ctx.canQueueUnresolvedTimeOut('out',true,true,Error('No Time In on this device')),false);
+  assert.equal(ctx.canQueueUnresolvedTimeOut('out',true,false,Error('Unauthorized')),false);
 });
 
 test('Three automatic re-enrollment captures trigger exactly one save and a fresh proof',async()=>{

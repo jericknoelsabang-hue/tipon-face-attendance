@@ -1545,7 +1545,7 @@ async function scanTick(){if(!state.scanning)return;if(!hasTerminalSession()){aw
  }catch(e){console.error('Face recognition tick',e);playTerminalSound('error');updateScanResult('Camera processing issue',e.message,'error');}
  finally{if(state.scanning&&state.scanRun===run)state.scanTimer=setTimeout(scanTick,SCAN_DELAY_MS);}
 }
-function canQueueUnresolvedTimeOut(mode,online,centralReadOk,sameDay,error){
+function canQueueUnresolvedTimeOut(mode,online,centralReadOk,error){
  // Only a missing local Time In may use the offline/cross-device resolution
  // path. "Already timed out" must never be converted into another OUT punch.
  return mode==='out'&&(!online||!centralReadOk)&&
@@ -1597,10 +1597,7 @@ async function recordRecognizedFace(member,faceDistance,faceEvidence){
   const relevantPunches=state.punches.filter(p=>(p.orgId===state.orgId||!p.orgId));
   try{tx=TIPONCore.transition(relevantPunches,member.id,mode,Date.now(),COOLDOWN_MS);}
   catch(error){
-   const latest=relevantPunches.filter(p=>String(p.memberId)===String(member.id)&&!p.deleted&&!p.reviewStatus)
-     .sort((a,b)=>Date.parse(b.timestamp)-Date.parse(a.timestamp))[0];
-   const sameDay=latest&&todayPH(new Date(latest.timestamp))===todayPH();
-   if(canQueueUnresolvedTimeOut(mode,navigator.onLine,centralReadOk,sameDay,error)){
+   if(canQueueUnresolvedTimeOut(mode,navigator.onLine,centralReadOk,error)){
     tx={type:'OUT',last:null,mode:'out'};needsSessionResolution=true;
    }else throw error;
   }
