@@ -1875,6 +1875,25 @@ async function checkOfflineReady(){
  if($('downloadOffline'))$('downloadOffline').textContent=ok?'Re-download / refresh offline package':'Download offline resources';
  if(state.user&&state.page==='dashboard')renderDashboard();return ok;
 }
+let offlineSetupJob;
+function prepareOfflineAssets(){
+ if(offlineSetupJob)return offlineSetupJob;
+ offlineSetupJob=(async()=>{
+  const cache=await caches.open(REMOTE_CACHE);
+  for(const asset of OFFLINE_ASSETS){
+   if(await cache.match(asset))continue;
+   const response=await fetch(asset,{mode:'cors',credentials:'omit'});
+   if(!response.ok)throw Error('Offline download failed: '+asset.split('/').pop());
+   await cache.put(asset,response);
+  }
+  return checkOfflineReady();
+ })().finally(()=>{offlineSetupJob=null;});
+ return offlineSetupJob;
+}
+function warmOfflineAssets(){
+ if(navigator.onLine&&'caches' in window&&'serviceWorker' in navigator)
+  void prepareOfflineAssets().catch(error=>console.warn('Offline setup will retry on reconnect:',error.message));
+}
 async function installOfflinePack(){
  if(!('caches' in window)){showToast('Service worker/cache storage is unavailable on this browser.','error');return;}
  if(!navigator.onLine){showToast('Connect to the internet for the first offline AI download.','error');return;}
@@ -2020,9 +2039,9 @@ function bindEvents(){
 }
 
 async function boot(){
- bindEvents();OrgUI.bind();TIPONCamera.bind();TIPONPlatforms.bind();window.TIPONAdminSites?.bind();attach('refreshAppFiles','click',openAppUpdater);await registerWorker().catch(console.warn);setInterval(refreshClock,30000);refreshClock();
+ bindEvents();OrgUI.bind();TIPONCamera.bind();TIPONPlatforms.bind();window.TIPONAdminSites?.bind();attach('refreshAppFiles','click',openAppUpdater);void registerWorker().catch(console.warn);setInterval(refreshClock,30000);refreshClock();
  if(!window.isSecureContext||!('indexedDB' in window)||!window.crypto?.subtle){$('bootAlert').hidden=false;setText('bootAlert','Open the app using HTTPS (or localhost). Camera, GPS and offline account access need a secure browser.');return;}
- try{db=await openDB();await initializeLocal();await TIPONCamera.init();await TIPONSync.init();await TIPONAuth.init();await checkOfflineFoundation();}
+ try{db=await openDB();await initializeLocal();await TIPONCamera.init();await TIPONSync.init();await TIPONAuth.init();await checkOfflineFoundation();window.addEventListener('online',warmOfflineAssets);warmOfflineAssets();}
  catch(err){$('bootAlert').hidden=false;setText('bootAlert',`Startup failed: ${err.message}`);console.error(err);}
 }
 async function initializeLocal(){
