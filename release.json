@@ -1,5 +1,5 @@
 {
   "app": "TIPON Face Attendance",
-  "version": "5.5.140",
-  "label": "Automatically prepares offline recognition assets and resumes incomplete downloads."
+  "version": "5.5.141",
+  "label": "Improves cross-device directory refresh and aligns frontend release assets."
 }
