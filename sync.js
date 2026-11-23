@@ -80,7 +80,7 @@ window.TIPONSync=(()=>{
     if(!hasPendingAttendance||!('serviceWorker' in navigator)||!('SyncManager' in window))return;
     navigator.serviceWorker.ready.then(registration=>registration.sync?.register('tipon-attendance-sync')).catch(()=>{});
   }
-  function kick(){clearTimeout(timer);if(!stopped){if(activeRun||busy)rerunRequested=true;else timer=setTimeout(run,100);}requestBackgroundSync();render();}
+  function kick(registerBackground=true){clearTimeout(timer);if(!stopped){if(activeRun||busy)rerunRequested=true;else timer=setTimeout(run,100);}if(registerBackground!==false)requestBackgroundSync();render();}
   function resumeSync(){
     attempt=0;forceCatalogRefresh=true;
     kick();
@@ -817,7 +817,7 @@ window.TIPONSync=(()=>{
   async function init(){
     attach('syncNow','click',kick);attach('syncRecordsNow','click',kick);
     window.addEventListener('online',resumeSync);window.addEventListener('offline',render);document.addEventListener('visibilitychange',()=>{if(!document.hidden)kick();});
-    navigator.serviceWorker?.addEventListener('message',event=>{if(event.data?.type==='TIPON_SYNC_REQUEST')kick();});render();
+    navigator.serviceWorker?.addEventListener('message',event=>{if(event.data?.type==='TIPON_SYNC_REQUEST')kick(false);});render();
   }
   async function recoverAttendance(){
    if(!state.user||!state.orgId)throw Error('Sign in before recovering attendance.');
