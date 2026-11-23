@@ -474,8 +474,8 @@ test('Published assets share one release version and pagination controls cannot 
   assert.match(review,/id="absReviewNext"/);
   assert.match(source('app.js'),/const SCAN_DELAY_MS=320;/);
   assert.match(sw,/clients\.matchAll\(\{type:'window',includeUncontrolled:true\}\)/);
-  assert.match(sw,/client\.navigate\(client\.url\)/);
-  assert.match(sw,/url\.pathname\.endsWith\('\/update\.html'\)/);
+  assert.match(sw,/client\.postMessage\(\{type:'TIPON_SYNC_REQUEST'\}\)/);
+  assert.match(sw,/event\.data\?\.type==='TIPON_APPLY_UPDATE'/);
   assert.doesNotMatch(source('app.js'),/disabled title="Complete Time Out before deleting this session\."/);
   assert.match(source('app.js'),/changes\.timeOut=attendanceInputStamp\(outDate,outTime\)/);
 });
