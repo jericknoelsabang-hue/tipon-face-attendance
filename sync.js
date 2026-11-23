@@ -594,7 +594,7 @@ window.TIPONSync=(()=>{
     const faceCount=scoped.filter(m=>!m.deleted&&m.active!==false&&m.template).length;
     const pendingSites=outbox.some(op=>op.orgId===state.orgId&&op.ownerId===state.user.id&&op.type==='sites'&&!['NEEDS_REVIEW','FORBIDDEN','CONFLICT'].includes(op.errorCode));
     const lastFull=Number(known?.refreshedAt)||0;
-    const ttl=(state.page==='sites'||state.page==='adminSites')?12000:30000;
+    const ttl=(state.page==='sites'||state.page==='adminSites')?3000:5000;
     const stillFresh=lastFull>0&&Date.now()>=lastFull&&Date.now()-lastFull<ttl;
     // Member counts alone cannot prove that all Work Locations were loaded.
     // Reconcile real site IDs/count and periodically download the *scoped*
