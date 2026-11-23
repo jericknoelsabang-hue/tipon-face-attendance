@@ -580,9 +580,12 @@ window.TIPONSync=(()=>{
     await sendSpecial(special.filter(op=>op.type!=='attendanceCorrections'));
     if(operations.length)await send(operations,[]);
   }
-  async function pullCatalog(version){
+  function catalogId(){
     const scope=encodeURIComponent(String(state.user.coop||''))+':'+encodeURIComponent(TIPONOrgCore.platformKey(state.user.platform));
-    const cfgId='tp5-catalog:'+state.orgId+':'+state.user.id+':'+state.user.role+':v5.5.109-paygroups:'+String(state.user.version||1)+':'+scope+':'+(state.user.siteIds||[]).join(',');
+    return 'tp5-catalog:'+state.orgId+':'+state.user.id+':'+state.user.role+':v5.5.109-paygroups:'+String(state.user.version||1)+':'+scope+':'+(state.user.siteIds||[]).join(',');
+  }
+  async function pullCatalog(version){
+    const cfgId=catalogId();
     const known=await getOne('meta',cfgId);
     const [localMembers,localSites,outbox,localMeta]=await Promise.all([getAll('members'),getAll('sites'),getAll('outbox'),getAll('meta')]);
     const scoped=localMembers.filter(m=>m.orgId===state.orgId&&TIPONOrgCore.inScope(state.user,m));
@@ -729,6 +732,22 @@ window.TIPONSync=(()=>{
       if(!r.more||document.hidden||stopped)break;
     }
   }
+  async function checkAttendance(){
+    if(activeRun||stopped||!state.user||!navigator.onLine||forceCatalogRefresh||
+       localQueue().total||state.punches.some(p=>p.orgId===state.orgId&&!p.cloudAck&&!p.reviewStatus))return run();
+    const ledgerKey=cursorId(), directoryKey=catalogId();
+    const [ledger,directory]=await Promise.all([getOne('meta',ledgerKey),getOne('meta',directoryKey)]);
+    if(activeRun||!directory?.complete||ledger?.eventVersion==null||directory.version==null||
+       !(Date.now()-directory.refreshedAt>=0&&Date.now()-directory.refreshedAt<30000))return run();
+    await TIPONAuth.ensureOnline();
+    const result=await TIPONAPI.call({action:'poll',cursor:ledger.cursor});
+    // Read-only probe. The normal sync owns cursor advancement and catalog updates.
+    if(!state.user||ledgerKey!==cursorId())throw Error('Attendance account changed during verification.');
+    if(!result.more&&Array.isArray(result.events)&&result.events.length===0&&
+       result.cursor===ledger.cursor&&result.eventVersion===ledger.eventVersion&&
+       result.catalogVersion===directory.version)return {ok:true,readOk:true};
+    return run();
+  }
   async function recoverUnsupportedMetadataEdits(caps){
     if(!caps.memberTransferUpdate&&!caps.memberWorkScheduleUpdate)return;
     const queued=await getAll('outbox');
@@ -828,5 +847,5 @@ window.TIPONSync=(()=>{
    await OrgDB.rawSave('meta',{...prior,id,cursor:0,eventVersion:undefined,orgId:state.orgId});
    return run();
   }
-  return {init,start,stop,kick,render,run,refreshDirectory,submitPendingNow,recoverAttendance,pauseSite,waitUntilIdle,isBusy:()=>busy,lastSuccessfulSync:()=>lastSync};
+  return {init,start,stop,kick,render,run,checkAttendance,refreshDirectory,submitPendingNow,recoverAttendance,pauseSite,waitUntilIdle,isBusy:()=>busy,lastSuccessfulSync:()=>lastSync};
 })();
