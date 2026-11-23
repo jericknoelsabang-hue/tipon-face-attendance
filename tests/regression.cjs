@@ -10,7 +10,7 @@ test('Authenticated new-organization login isolates IndexedDB and preserves the 
  const app=source('app.js'),auth=source('auth.js'),workspace=source('organization.js');
  assert.match(app,/const TP5_ACTIVE_DB_KEY='tp5-active-organization-database-v1'/);
  assert.match(app,/function openDB\(name=currentOrganizationDatabaseName\(\)\)/);
- assert.match(app,/indexedDB\.open\(name,2\)/);
+ assert.match(app,/indexedDB\.open\(name,3\)/);
  assert.match(app,/if\(!freshOnlineLogin\|\|!navigator\.onLine\)/);
  assert.match(app,/await crypto\.subtle\.digest\('SHA-256'/);
  assert.match(app,/localStorage\.setItem\(TP5_ACTIVE_DB_KEY,scopedName\)/);
@@ -395,7 +395,7 @@ test('Fast Face Terminal combines GPS with one bounded central sync without weak
  assert.match(body,/x\.distance<=radius/);
  assert.match(body,/await commitPunch\(punch,mode\)/);
  assert.match(body,/const syncPending=!centralReadOk/);
- assert.match(body,/TIPONSync\.kick\(\)/);
+ assert.match(body,/window\.TIPONSync\?\.kick\(\)/);
  assert.match(sync,/if\(ready&&!state\.scanBusy\)updateScanResult\('Member directory ready'/);
 });
 
@@ -1250,11 +1250,11 @@ test('Scoped Work Locations reconcile across devices despite unchanged catalog v
  assert.match(src,/siteCount:seen\.sites\.size,paygroupCount:seen\.paygroups\.size,refreshedAt:Date\.now\(\)/);
  assert.match(src,/forceCatalogRefresh/);
  assert.match(src,/async function refreshDirectory\(\)/);
- assert.match(src,/const ttl=\(state\.page==='sites'\|\|state\.page==='adminSites'\)\?12000:30000/);
+ assert.match(src,/const ttl=\(state\.page==='sites'\|\|state\.page==='adminSites'\)\?3000:5000/);
  assert.match(app,/attach\('siteRefresh','click',\(\)=>refreshDirectoryView\('sites','siteRefresh'\)\)/);
  assert.match(html,/id="siteRefresh"/);
  assert.doesNotMatch(source('organization.js'),/site\.platform=allowed\[0\]/);
- const section=src.slice(src.indexOf('async function pullCatalog(version){'),src.indexOf('function cursorId(){'));
+ const section=src.slice(src.indexOf('function catalogId(){'),src.indexOf('function cursorId(){'));
  assert.ok(section.startsWith('async function pullCatalog'));
  const site=(id,coop='Asiapro',platform='AP Cons')=>({id,name:'Work '+id,coop,platform,rev:1,lat:14,lng:121,radius:150});
  const remote=[site('SITE-A')],local=new Map(),metas=new Map(),counts={catalog:0};
@@ -2344,7 +2344,7 @@ test('Online attendance fails closed when the central ledger read is not confirm
  const end=app.indexOf('function commitPunch(',start);
  const record=app.slice(start,end);
  assert.match(record,/if\(navigator\.onLine&&!centralReadOk\)/);
- assert.match(record,/Central attendance could not be verified\. No punch was recorded/);
+ assert.match(record,/Attendance verification did not complete\. No punch was recorded/);
  assert.match(record,/paygroupSelection=\{paygroupId:String\(tx\.last\.paygroupId\|\|''\),paygroup:String\(tx\.last\.paygroup\|\|''\),operationCode:String\(tx\.last\.operationCode\|\|''\),department:String\(tx\.last\.department\|\|''\)\}/);
 });
 test('Frontend shell and release manifest use the same current version',()=>{
