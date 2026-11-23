@@ -1394,17 +1394,28 @@ function euclidean(a,b){let sum=0;for(let i=0;i<a.length;i++)sum+=(a[i]-b[i])**2
 
 function validFaceVector(v){return (Array.isArray(v)||ArrayBuffer.isView(v))&&v.length===128&&Array.from(v).every(Number.isFinite);}
 function nearestMember(descriptor,catalog=state.members){
- if(!validFaceVector(descriptor))return {best:null,second:null};
- const rows=[];
+ let best=null,second=null;
+ if(!validFaceVector(descriptor))return {best,second};
  for(const member of catalog||[]){
   if(!member||member.deleted||member.active===false||!Array.isArray(member.descriptors))continue;
-  const distance=member.descriptors.filter(validFaceVector).map(v=>euclidean(v,descriptor))
-    .filter(Number.isFinite).sort((a,b)=>a-b);
-  if(distance.length<3)continue;
-  rows.push({member,distance:distance[0],support:distance.filter(d=>d<FACE_REFERENCE_SUPPORT_LIMIT).length});
+  let distance=Infinity,support=0,count=0;
+  for(const reference of member.descriptors){
+   if(!validFaceVector(reference))continue;
+   const score=euclidean(reference,descriptor);
+   if(!Number.isFinite(score))continue;
+   count++;
+   distance=Math.min(distance,score);
+   if(score<FACE_REFERENCE_SUPPORT_LIMIT)support++;
+  }
+  if(count<3)continue;
+  if(!best||distance<best.distance){
+   second=best;
+   best={member,distance,support};
+  }else if(!second||distance<second.distance){
+   second={member,distance,support};
+  }
  }
- rows.sort((a,b)=>a.distance-b.distance);
- return {best:rows[0]||null,second:rows[1]||null};
+ return {best,second};
 }
 function faceMatchVerdict(found){
  const best=found?.best,second=found?.second;
@@ -1557,11 +1568,7 @@ async function fastAttendanceLedgerRead(maxWaitMs=20000){
  finally{clearTimeout(timer);}
 }
 async function recordRecognizedFace(member,faceDistance,faceEvidence){
- // Identity must be consistent across three frames and the latest catalog.
- if(!verifiedFaceEvidence(faceEvidence,member.id)){
-  updateScanResult('Face identity NOT verified','No attendance recorded. Request supervised face re-enrollment.','error');
-  return;
- }
+ // scanTick verified this evidence immediately before calling. Recheck after the asynchronous directory refresh below.
  if(member.active===false||member.deleted){playTerminalSound('error');speakTerminal('Attendance error. This member is inactive.','error','inactive');showToast('This member is inactive.','error');return;}
  if(!hasTerminalSession()){speakTerminal('Attendance error. Sign in or authorize this kiosk again.','error','session');showToast('Sign in or authorize this kiosk again.','error');return;}
  if(state.scanBusy)return;state.scanBusy=true;let mode=state.scanMode;const run=state.scanRun,actorId=state.user.id;
